@@ -401,9 +401,10 @@ playwright-report/
 blob-report/
 playwright/.cache/
 
-# DuckDB databases from tests and local runs
+# DuckDB databases from tests and local runs; the negation keeps folders such as Scry.DuckDb
 *.duckdb
 *.duckdb.wal
+!*.duckdb/
 
 # Working records, kept local
 docs/TaskBoard.md
