@@ -163,6 +163,47 @@ public sealed partial class SourcesController(ScryDbContext db, Workspace worksp
         CancellationToken ct) =>
         Chart(id, (source, columns) => ChartQueries.Boxes(source.Name, columns, value, group), ct);
 
+    /// <summary><paramref name="y"/> aggregated over every row, as one <c>["All rows", value]</c> point.</summary>
+    [HttpGet("{id:int}/total")]
+    public Task<ActionResult<Series>> GetTotal(int id, [FromQuery] string? y, [FromQuery] string aggregate, CancellationToken ct) =>
+        Chart(id, (source, columns) => ChartQueries.Total(source.Name, columns, y, aggregate), ct);
+
+    /// <summary>Several number columns aggregated per group, as <c>[group, value, ...]</c>.</summary>
+    [HttpGet("{id:int}/measures")]
+    public Task<ActionResult<Series>> GetMeasures(
+        int id,
+        [FromQuery] string[]? columns,
+        [FromQuery] string? group,
+        [FromQuery] string aggregate,
+        CancellationToken ct) =>
+        Chart(id, (source, all) => ChartQueries.Measures(source.Name, all, columns ?? [], group, aggregate), ct);
+
+    /// <summary><paramref name="y"/> aggregated per path through the levels, as <c>[level, ..., value]</c>.</summary>
+    [HttpGet("{id:int}/tree")]
+    public Task<ActionResult<Series>> GetTree(
+        int id,
+        [FromQuery] string[]? levels,
+        [FromQuery] string? y,
+        [FromQuery] string aggregate,
+        CancellationToken ct) =>
+        Chart(id, (source, columns) => ChartQueries.Tree(source.Name, columns, levels ?? [], y, aggregate), ct);
+
+    /// <summary><paramref name="y"/> aggregated per pair of ends, as <c>[from, to, value]</c>.</summary>
+    [HttpGet("{id:int}/links")]
+    public Task<ActionResult<Series>> GetLinks(
+        int id,
+        [FromQuery] string from,
+        [FromQuery] string to,
+        [FromQuery] string? y,
+        [FromQuery] string aggregate,
+        CancellationToken ct) =>
+        Chart(id, (source, columns) => ChartQueries.Links(source.Name, columns, from, to, y, aggregate), ct);
+
+    /// <summary>The chosen number columns, one row per source row, as <c>[value, ...]</c>.</summary>
+    [HttpGet("{id:int}/values")]
+    public Task<ActionResult<Series>> GetValues(int id, [FromQuery] string[]? columns, CancellationToken ct) =>
+        Chart(id, (source, all) => ChartQueries.Values(source.Name, all, columns ?? []), ct);
+
     /// <summary>The first rows of the chosen columns, or of every column, as text.</summary>
     [HttpGet("{id:int}/rows")]
     public async Task<ActionResult<Rows>> GetRows(int id, [FromQuery] string[]? columns, CancellationToken ct)

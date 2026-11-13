@@ -133,6 +133,47 @@ export function getBoxes(sourceId: number, value: string, group: string | null):
   return request<Series>(`/sources/${sourceId}/boxes?${query}`)
 }
 
+export function getTotal(sourceId: number, y: string | null, aggregate: Aggregate): Promise<Series> {
+  const query = new URLSearchParams({ aggregate })
+  if (y) query.set('y', y)
+  return request<Series>(`/sources/${sourceId}/total?${query}`)
+}
+
+export function getMeasures(
+  sourceId: number,
+  settings: { columns: string[]; group: string | null; aggregate: Aggregate },
+): Promise<Series> {
+  const query = new URLSearchParams({ aggregate: settings.aggregate })
+  for (const column of settings.columns) query.append('columns', column)
+  if (settings.group) query.set('group', settings.group)
+  return request<Series>(`/sources/${sourceId}/measures?${query}`)
+}
+
+export function getTree(
+  sourceId: number,
+  settings: { levels: string[]; y: string | null; aggregate: Aggregate },
+): Promise<Series> {
+  const query = new URLSearchParams({ aggregate: settings.aggregate })
+  for (const level of settings.levels) query.append('levels', level)
+  if (settings.y) query.set('y', settings.y)
+  return request<Series>(`/sources/${sourceId}/tree?${query}`)
+}
+
+export function getLinks(
+  sourceId: number,
+  settings: { from: string; to: string; y: string | null; aggregate: Aggregate },
+): Promise<Series> {
+  const query = new URLSearchParams({ from: settings.from, to: settings.to, aggregate: settings.aggregate })
+  if (settings.y) query.set('y', settings.y)
+  return request<Series>(`/sources/${sourceId}/links?${query}`)
+}
+
+export function getValues(sourceId: number, columns: string[]): Promise<Series> {
+  const query = new URLSearchParams()
+  for (const column of columns) query.append('columns', column)
+  return request<Series>(`/sources/${sourceId}/values?${query}`)
+}
+
 export function getRows(sourceId: number, columns: string[]): Promise<Rows> {
   const query = new URLSearchParams()
   for (const column of columns) query.append('columns', column)

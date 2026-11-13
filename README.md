@@ -5,8 +5,8 @@
 
 Drag-and-drop dashboards over data synced by [Nexus](https://github.com/PluperfectData/Nexus).
 
-Status: first slice. Upload a CSV file, then chart it on a dashboard page in a drag-and-drop grid, as a bar,
-stacked bar, line, area, pie, scatter, heatmap, histogram, box plot, or candlestick chart, or a table. Light theme by default, with a dark theme from the header.
+Status: first slice. Upload a CSV file, then chart it on a dashboard page in a drag-and-drop grid, in any of 25
+chart types or a table. Light theme by default, with a dark theme from the header.
 One built-in workspace, no accounts.
 
 | Path | Contents |
@@ -19,7 +19,8 @@ One built-in workspace, no accounts.
 |---|---|
 | Application data | MySQL, through EF Core 9 and Pomelo: sources and dashboards |
 | Synced data | DuckDB, in process, one file per workspace, written by the Nexus DuckDB destination |
-| Charts | Apache ECharts: bar, stacked bar, line, area, pie, scatter, heatmap, histogram, box plot, and candlestick. Tables are plain HTML. |
+| Charts | Apache ECharts: bar, stacked bar, pictorial bar, line, area, theme river, pie, funnel, scatter, ripple scatter, heatmap, histogram, box plot, parallel coordinates, radar, treemap, sunburst, tree, Sankey, network graph, chord, region map, flow map, gauge, and candlestick. Tables are plain HTML. |
+| Maps | World countries from world-atlas and US states from us-atlas, both ISC, from Natural Earth and US Census data. Each is a separate asset, fetched the first time a chart needs it. |
 | Layout | react-grid-layout, one layout per breakpoint |
 | Theme | Light by default. The header's toggle switches to dark, and the browser remembers the choice. |
 
@@ -33,8 +34,13 @@ parent directory.
 | `GET /health` | Answers `{"status": "ok"}` |
 | `GET /sources` | Lists sources: name, file, columns and their types, row count, sync time |
 | `POST /sources` | Form fields `name`, `file`, and optional `delimiter`. Syncs the file through Nexus into a table named `name`. |
-| `GET /sources/{id}/series?x=&y=&aggregate=` | `[x, y]`: `y` aggregated per value of `x`, in `x` order, for bar, line, area, and pie charts |
-| `GET /sources/{id}/groups?x=&group=&y=&aggregate=` | `[x, group, y]`: `y` aggregated per pair, the group as text, for stacked bars and heatmaps |
+| `GET /sources/{id}/series?x=&y=&aggregate=` | `[x, y]`: `y` aggregated per value of `x`, in `x` order, for bar, pictorial bar, line, area, pie, funnel, and region map charts |
+| `GET /sources/{id}/links?from=&to=&y=&aggregate=` | `[from, to, y]`: `y` aggregated per pair of ends, both as text, for Sankey, network graph, and chord charts. A row whose ends match is left out. |
+| `GET /sources/{id}/values?columns=` | `[value, ...]`: 1 to 12 number columns, repeated, one row per source row with all of them filled in, for parallel coordinates and flow maps |
+| `GET /sources/{id}/total?y=&aggregate=` | `["All rows", value]`: `y` aggregated over every row, for a gauge |
+| `GET /sources/{id}/measures?columns=&group=&aggregate=` | `[group, value, ...]`: each number column, repeated, aggregated per group, or over every row without `group`, for a radar chart |
+| `GET /sources/{id}/tree?levels=&y=&aggregate=` | `[level, ..., value]`: `y` aggregated per path through 1 to 4 levels, repeated, for treemaps, sunbursts, and trees |
+| `GET /sources/{id}/groups?x=&group=&y=&aggregate=` | `[x, group, y]`: `y` aggregated per pair, the group as text, for stacked bars, heatmaps, and theme rivers |
 | `GET /sources/{id}/histogram?column=&bins=` | `[start, end, count]` for each of `bins` equal-width bins, 20 by default and 200 at most, empty ones included |
 | `GET /sources/{id}/boxes?value=&group=` | `[group, min, first quartile, median, third quartile, max]` per group, or one row named `All rows` without `group` |
 | `GET /sources/{id}/points?x=&y=` | `[x, y]`, one per row, for a scatter chart. `x` is a number or a time. |

@@ -353,6 +353,12 @@ button.quiet {
   font-size: 0.9rem;
 }
 
+.form .hint {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 0.9rem;
+}
+
 .form .check {
   display: flex;
   align-items: center;

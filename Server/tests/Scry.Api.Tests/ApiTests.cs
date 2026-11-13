@@ -168,6 +168,74 @@ public sealed class ApiTests
         all.GetProperty("points")[0][3].GetDouble().ShouldBe(7.0);
     }
 
+    [Test]
+    public async Task A_total_aggregates_every_row()
+    {
+        var id = await UploadId("orders", Orders);
+
+        var total = await _client.GetFromJsonAsync<JsonElement>($"/sources/{id}/total?y=amount&aggregate=sum");
+
+        total.GetProperty("points")[0].ToString().ShouldBe("[\"All rows\",22]");
+    }
+
+    [Test]
+    public async Task Measures_aggregate_each_column_per_group_in_the_order_asked()
+    {
+        var id = await UploadId("scores", "region,a,b,c\neast,1,2,3\neast,3,4,5\nwest,10,20,30\n");
+
+        var measures = await _client.GetFromJsonAsync<JsonElement>(
+            $"/sources/{id}/measures?columns=c&columns=a&columns=b&group=region&aggregate=avg");
+
+        measures.GetProperty("points").EnumerateArray()
+            .Select(point => string.Join(" ", point.EnumerateArray().Select(value => value.ToString())))
+            .ShouldBe(["east 4 2 3", "west 30 10 20"]);
+    }
+
+    [Test]
+    public async Task A_tree_aggregates_y_per_path_through_its_levels()
+    {
+        var id = await UploadId("sales", "region,city,amount\neast,boston,10\neast,boston,5\neast,nyc,7\nwest,la,4\n");
+
+        var tree = await _client.GetFromJsonAsync<JsonElement>(
+            $"/sources/{id}/tree?levels=region&levels=city&y=amount&aggregate=sum");
+
+        tree.GetProperty("points").EnumerateArray()
+            .Select(point => string.Join(" ", point.EnumerateArray().Select(value => value.ToString())))
+            .ShouldBe(["east boston 15", "east nyc 7", "west la 4"]);
+    }
+
+    [Test]
+    public async Task Links_aggregate_y_per_pair_and_leave_out_a_row_that_meets_itself()
+    {
+        var id = await UploadId("flows", "origin,target,amount\na,b,5\na,b,3\nb,c,2\nc,c,9\n");
+
+        var links = await _client.GetFromJsonAsync<JsonElement>(
+            $"/sources/{id}/links?from=origin&to=target&y=amount&aggregate=sum");
+
+        links.GetProperty("points").EnumerateArray()
+            .Select(point => string.Join(" ", point.EnumerateArray().Select(value => value.ToString())))
+            .ShouldBe(["a b 8", "b c 2"]);
+    }
+
+    [Test]
+    public async Task Values_keep_rows_whose_chosen_columns_are_all_filled_in_the_order_asked()
+    {
+        var id = await UploadId("readings", "x,y,z\n1,2,3\n4,,6\n7,8,9\n");
+
+        var values = await _client.GetFromJsonAsync<JsonElement>($"/sources/{id}/values?columns=y&columns=x");
+
+        values.GetProperty("points").EnumerateArray()
+            .Select(point => string.Join(" ", point.EnumerateArray().Select(value => value.ToString())))
+            .ShouldBe(["2 1", "8 7"]);
+    }
+
+    [TestCase("links?from=missing&to=region&aggregate=count")]
+    [TestCase("values?columns=region")]
+    [TestCase("values")]
+    [TestCase("total?aggregate=sum")]
+    [TestCase("measures?columns=region&aggregate=sum")]
+    [TestCase("measures?aggregate=avg")]
+    [TestCase("tree?y=amount&aggregate=sum")]
     [TestCase("groups?x=day&group=missing&y=amount&aggregate=sum")]
     [TestCase("histogram?column=region")]
     [TestCase("histogram?column=amount&bins=0")]

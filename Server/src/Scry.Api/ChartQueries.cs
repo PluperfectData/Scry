@@ -26,6 +26,8 @@ public static class ChartQueries
     public static readonly IReadOnlyList<string> Aggregates = ["sum", "avg", "min", "max", "count"];
 
     public const int MaxBins = 200;
+    public const int MaxLevels = 4;
+    public const int MaxValues = 12;
 
     /// <summary><paramref name="y"/> aggregated per value of <paramref name="x"/>, for line, area, bar, and pie charts.</summary>
     public static ChartQuery Series(
@@ -195,18 +197,134 @@ public static class ChartQueries
         };
     }
 
+    /// <summary><paramref name="y"/> aggregated over every row, as one <c>["All rows", value]</c> point, for a gauge.</summary>
+    public static ChartQuery Total(string table, IReadOnlyList<ColumnInfo> columns, string? y, string aggregate) =>
+        new(
+            $"SELECT 'All rows' AS __scry_x, CAST({Aggregate(columns, y, aggregate)} AS DOUBLE) AS __scry_y FROM {Quote(table)}",
+            "category");
+
+    /// <summary>
+    /// Each of <paramref name="measures"/> aggregated per value of <paramref name="group"/>, or over every row, as
+    /// <c>[group, value, ...]</c> in the order given, for a radar chart.
+    /// </summary>
+    public static ChartQuery Measures(
+        string table,
+        IReadOnlyList<ColumnInfo> columns,
+        IReadOnlyList<string> measures,
+        string? group,
+        string aggregate)
+    {
+        if (measures.Count == 0)
+        {
+            throw new ArgumentException("Choose at least one number column.");
+        }
+
+        var function = Function(aggregate);
+        var values = string.Join(
+            ", ",
+            measures.Select(name => $"CAST({function}({Quote(Number(columns, name).Name)}) AS DOUBLE)"));
+
+        if (string.IsNullOrEmpty(group))
+        {
+            return new ChartQuery($"SELECT 'All rows' AS __scry_x, {values} FROM {Quote(table)}", "category");
+        }
+
+        var quotedGroup = Quote(Grouping(columns, group).Name);
+        return new ChartQuery(
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"SELECT CAST({quotedGroup} AS VARCHAR) AS __scry_x, {values} FROM {Quote(table)} "
+                + $"WHERE {quotedGroup} IS NOT NULL GROUP BY {quotedGroup} ORDER BY {quotedGroup} LIMIT {MaxPoints + 1}"),
+            "category");
+    }
+
+    /// <summary>
+    /// <paramref name="y"/> aggregated per path through <paramref name="levels"/>, as <c>[level, ..., value]</c> with
+    /// every level as text, for treemaps and sunbursts. Rows with a blank level are left out.
+    /// </summary>
+    public static ChartQuery Tree(
+        string table,
+        IReadOnlyList<ColumnInfo> columns,
+        IReadOnlyList<string> levels,
+        string? y,
+        string aggregate)
+    {
+        if (levels.Count is < 1 or > MaxLevels)
+        {
+            throw new ArgumentException($"A tree has from 1 to {MaxLevels} levels.");
+        }
+
+        var quoted = levels.Select(name => Quote(Grouping(columns, name).Name)).ToList();
+        var value = Aggregate(columns, y, aggregate);
+        var keys = string.Join(", ", quoted);
+        return new ChartQuery(
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"SELECT {string.Join(", ", quoted.Select(level => $"CAST({level} AS VARCHAR)"))}, CAST({value} AS DOUBLE) "
+                + $"FROM {Quote(table)} WHERE {string.Join(" AND ", quoted.Select(level => $"{level} IS NOT NULL"))} "
+                + $"GROUP BY {keys} ORDER BY {keys} LIMIT {MaxPoints + 1}"),
+            "category");
+    }
+
+    /// <summary>
+    /// <paramref name="y"/> aggregated per pair of <paramref name="from"/> and <paramref name="to"/>, both as text, as
+    /// <c>[from, to, value]</c>, for Sankey, graph, and chord charts. A row whose two ends match is left out.
+    /// </summary>
+    public static ChartQuery Links(
+        string table,
+        IReadOnlyList<ColumnInfo> columns,
+        string from,
+        string to,
+        string? y,
+        string aggregate)
+    {
+        var quotedFrom = Quote(Grouping(columns, from).Name);
+        var quotedTo = Quote(Grouping(columns, to).Name);
+        var value = Aggregate(columns, y, aggregate);
+        return new ChartQuery(
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"SELECT CAST({quotedFrom} AS VARCHAR) AS __scry_from, CAST({quotedTo} AS VARCHAR) AS __scry_to, "
+                + $"CAST({value} AS DOUBLE) AS __scry_y FROM {Quote(table)} "
+                + $"WHERE {quotedFrom} IS NOT NULL AND {quotedTo} IS NOT NULL "
+                + $"AND CAST({quotedFrom} AS VARCHAR) <> CAST({quotedTo} AS VARCHAR) "
+                + $"GROUP BY {quotedFrom}, {quotedTo} ORDER BY {quotedFrom}, {quotedTo} LIMIT {MaxPoints + 1}"),
+            "category");
+    }
+
+    /// <summary>
+    /// The chosen number columns, unaggregated, one row per source row with none of them blank, as
+    /// <c>[value, ...]</c> in the order given, for parallel coordinates and flow maps.
+    /// </summary>
+    public static ChartQuery Values(string table, IReadOnlyList<ColumnInfo> columns, IReadOnlyList<string> chosen)
+    {
+        if (chosen.Count is < 1 or > MaxValues)
+        {
+            throw new ArgumentException($"Choose from 1 to {MaxValues} number columns.");
+        }
+
+        var quoted = chosen.Select(name => Quote(Number(columns, name).Name)).ToList();
+        return new ChartQuery(
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"SELECT {string.Join(", ", quoted.Select(column => $"CAST({column} AS DOUBLE)"))} FROM {Quote(table)} "
+                + $"WHERE {string.Join(" AND ", quoted.Select(column => $"{column} IS NOT NULL"))} LIMIT {MaxPoints + 1}"),
+            "value");
+    }
+
+    private static string Function(string aggregate) => aggregate.ToLowerInvariant() switch
+    {
+        "sum" => "SUM",
+        "avg" => "AVG",
+        "min" => "MIN",
+        "max" => "MAX",
+        "count" => "COUNT",
+        _ => throw new ArgumentException($"The aggregate must be one of: {string.Join(", ", Aggregates)}."),
+    };
+
     private static string Aggregate(IReadOnlyList<ColumnInfo> columns, string? y, string aggregate)
     {
-        var function = aggregate.ToLowerInvariant() switch
-        {
-            "sum" => "SUM",
-            "avg" => "AVG",
-            "min" => "MIN",
-            "max" => "MAX",
-            "count" => "COUNT",
-            _ => throw new ArgumentException($"The aggregate must be one of: {string.Join(", ", Aggregates)}."),
-        };
-
+        var function = Function(aggregate);
         return function == "COUNT"
             ? "COUNT(*)"
             : $"{function}({Quote(Number(columns, y ?? throw new ArgumentException("Choose a y column, or count rows instead.")).Name)})";

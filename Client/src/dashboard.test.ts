@@ -37,4 +37,22 @@ it('titles a chart by what it plots', () => {
   )
   expect(titleFor({ kind: 'histogram', sourceId: 1, column: 'price', bins: 20 })).toBe('Distribution of price')
   expect(titleFor({ kind: 'boxplot', sourceId: 1, value: 'amount', group: null })).toBe('Spread of amount')
+  expect(titleFor({ kind: 'gauge', sourceId: 1, y: 'amount', aggregate: 'sum', max: null })).toBe('Sum of amount')
+  expect(titleFor({ kind: 'gauge', sourceId: 1, y: null, aggregate: 'count', max: null })).toBe('Count of rows')
+  expect(titleFor({ kind: 'radar', sourceId: 1, columns: ['a', 'b', 'c'], group: 'region', aggregate: 'avg' })).toBe(
+    'Average of a, b, and c by region',
+  )
+  expect(titleFor({ kind: 'sunburst', sourceId: 1, levels: ['region', 'city'], y: 'amount', aggregate: 'sum' })).toBe(
+    'Sum of amount by region, then city',
+  )
+  expect(titleFor({ kind: 'sankey', sourceId: 1, from: 'origin', to: 'target', y: null, aggregate: 'count' })).toBe(
+    'Count from origin to target',
+  )
+  expect(titleFor({ kind: 'parallel', sourceId: 1, columns: ['a', 'b'] })).toBe('a and b')
+  expect(titleFor({ kind: 'map', sourceId: 1, map: 'usa', x: 'state', y: 'sales', aggregate: 'max' })).toBe(
+    'Maximum of sales by state',
+  )
+  expect(titleFor({ kind: 'flows', sourceId: 1, fromLon: 'lon1', fromLat: 'lat1', toLon: 'lon2', toLat: 'lat2' })).toBe(
+    'Flows from lat1, lon1 to lat2, lon2',
+  )
 })
