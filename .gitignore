@@ -406,6 +406,9 @@ playwright/.cache/
 *.duckdb.wal
 !*.duckdb/
 
+# Uploads and DuckDB files from local runs of the API
+Server/src/Scry.Api/data/
+
 # Working records, kept local
 docs/TaskBoard.md
 docs/Records.md

@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Scry.Api/Scry.Api.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Scry.Api.Tests/Scry.Api.Tests.csproj" />
+  </Folder>
+  <Folder Name="/shared/">
+    <Project Path="../../Nexus/src/Nexus.Abstractions/Nexus.Abstractions.csproj" />
+    <Project Path="../../Nexus/src/Nexus.Csv/Nexus.Csv.csproj" />
+    <Project Path="../../Nexus/src/Nexus.DuckDb/Nexus.DuckDb.csproj" />
+  </Folder>
+</Solution>

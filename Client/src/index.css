@@ -1,0 +1,365 @@
+/* Light is the default. Dark is chosen with the header's toggle, which sets data-theme on <html>. */
+:root {
+  --bg: #ffffff;
+  --surface: #ffffff;
+  --raised: #f8fafc;
+  --text: #111827;
+  --muted: #6b7280;
+  --border: #e5e7eb;
+  --accent: #2563eb;
+  --accent-text: #ffffff;
+  --error: #e11d48;
+  --gutter: 1rem;
+  color-scheme: light;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  line-height: 1.5;
+}
+
+:root[data-theme='dark'] {
+  --bg: #0a0a0a;
+  --surface: #141414;
+  --raised: #1a1a1a;
+  --text: #e5e5e5;
+  --muted: #9a9a9a;
+  --border: #262626;
+  --accent: #7c93c9;
+  --accent-text: #0a0a0a;
+  --error: #c98a94;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+a {
+  color: var(--accent);
+}
+
+h1 {
+  font-size: 1.6rem;
+  margin: 0 0 1rem;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.skip {
+  position: absolute;
+  left: -999px;
+}
+
+.skip:focus {
+  left: var(--gutter);
+  top: 0.5rem;
+  z-index: 10;
+}
+
+/* The header row is full bleed: the gutter stays, the content column's maximum width does not. */
+.site-header {
+  position: relative;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.site-header > .wrap {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem var(--gutter);
+}
+
+.brand {
+  font-weight: 700;
+  font-size: 1.2rem;
+  color: var(--text);
+  text-decoration: none;
+  margin-right: auto;
+}
+
+.nav {
+  display: flex;
+  gap: 1.25rem;
+}
+
+.nav a {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.nav a.is-active,
+.nav a:hover {
+  color: var(--text);
+}
+
+.header-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.icon-button {
+  display: inline-flex;
+  width: 2.5rem;
+  height: 2.5rem;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  background: none;
+  color: var(--text);
+}
+
+.nav-toggle {
+  display: none;
+}
+
+@media (max-width: 30rem) {
+  .nav-toggle {
+    display: inline-flex;
+  }
+
+  .nav {
+    display: none;
+  }
+
+  .nav[data-open] {
+    display: flex;
+    flex-direction: column;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 5;
+    padding: 0.75rem var(--gutter);
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+}
+
+.page {
+  max-width: 80rem;
+  margin: 0 auto;
+  padding: 1.5rem var(--gutter);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.error {
+  color: var(--error);
+}
+
+.form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
+  align-items: end;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.form label {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+input,
+select,
+button {
+  font: inherit;
+  min-width: 0;
+}
+
+input,
+select {
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  background: var(--surface);
+  color: var(--text);
+}
+
+button {
+  padding: 0.5rem 0.9rem;
+  border: none;
+  border-radius: 0.4rem;
+  background: var(--accent);
+  color: var(--accent-text);
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+button.quiet {
+  background: none;
+  color: var(--muted);
+  padding: 0.25rem 0.5rem;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.list > li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+
+.list.cards > li {
+  display: block;
+}
+
+.list h2 {
+  font-size: 1.05rem;
+  margin: 0;
+}
+
+.list p {
+  margin: 0.25rem 0 0;
+}
+
+.columns {
+  overflow-wrap: anywhere;
+  font-size: 0.9rem;
+}
+
+.title-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.grid {
+  min-height: 4rem;
+}
+
+.widget {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+.widget-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.4rem 0.4rem 0.4rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  cursor: move;
+}
+
+.widget-header h2 {
+  font-size: 0.95rem;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.widget-remove {
+  background: none;
+  color: var(--muted);
+  padding: 0 0.5rem;
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+.widget > p {
+  margin: 0.75rem;
+}
+
+.chart {
+  flex: 1;
+  min-height: 0;
+}
+
+.table-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.table-wrap table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.table-wrap th,
+.table-wrap td {
+  padding: 0.35rem 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.table-wrap th {
+  position: sticky;
+  top: 0;
+  background: var(--raised);
+}
+
+.table-wrap .number {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.column-picks {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+}
+
+.column-picks legend {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.form .check {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--text);
+}
+
+.react-grid-item.react-grid-placeholder {
+  background: var(--accent);
+}
