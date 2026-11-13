@@ -9,6 +9,8 @@ interface Palette {
   grid: string
   up: string
   down: string
+  heat: string[]
+  fill: string
 }
 
 /** Bright colors for the light theme; softer ones for the dark. */
@@ -20,6 +22,8 @@ export const PALETTES: Record<Theme, Palette> = {
     grid: '#e5e7eb',
     up: '#10b981',
     down: '#f43f5e',
+    heat: ['#eff6ff', '#60a5fa', '#1d4ed8'],
+    fill: '#dbeafe',
   },
   dark: {
     colors: ['#7c93c9', '#c98a94', '#7fb3a0', '#c9ac7a', '#a194c4', '#7fb1bd', '#c99a7a', '#bd8fb0'],
@@ -28,6 +32,8 @@ export const PALETTES: Record<Theme, Palette> = {
     grid: '#262626',
     up: '#7fb3a0',
     down: '#c98a94',
+    heat: ['#1a1a1a', '#3d4a66', '#7c93c9'],
+    fill: '#1f2633',
   },
 }
 
@@ -56,8 +62,30 @@ export function labelFor(x: number | string | null, xType: Series['xType']): str
   return iso.endsWith('T00:00:00.000Z') ? iso.slice(0, 10) : `${iso.slice(0, 10)} ${iso.slice(11, 16)}`
 }
 
-/** A line, bar, or pie chart of `[x, y]` points. */
-export function seriesOption(kind: 'line' | 'bar' | 'pie', series: Series, theme: Theme): EChartsCoreOption {
+/** A number shortened to four significant digits, for bin labels. */
+function short(value: number | string | null): string {
+  return String(Number(Number(value).toPrecision(4)))
+}
+
+/** Groups `[x, group, y]` points into x labels in x order, group names in sorted order, and the y per pair. */
+export function pivot(series: Series) {
+  const xs: string[] = []
+  const xIndex = new Map<string, number>()
+  const values = new Map<string, number | null>()
+  for (const [x, group, y] of series.points) {
+    const label = labelFor(x, series.xType)
+    if (!xIndex.has(label)) {
+      xIndex.set(label, xs.length)
+      xs.push(label)
+    }
+    values.set(`${xIndex.get(label)}\u0000${group}`, y as number | null)
+  }
+  const groups = [...new Set(series.points.map((point) => String(point[1])))].sort((a, b) => a.localeCompare(b))
+  return { xs, groups, value: (x: number, group: string) => values.get(`${x}\u0000${group}`) ?? null }
+}
+
+/** A line, area, bar, or pie chart of `[x, y]` points. */
+export function seriesOption(kind: 'line' | 'area' | 'bar' | 'pie', series: Series, theme: Theme): EChartsCoreOption {
   const palette = PALETTES[theme]
   if (kind === 'pie') {
     return {
@@ -81,9 +109,95 @@ export function seriesOption(kind: 'line' | 'bar' | 'pie', series: Series, theme
     xAxis: axis(series.xType, palette, { splitLine: { show: false } }),
     yAxis: axis('value', palette),
     series: [
-      kind === 'line'
-        ? { type: 'line', data: series.points, showSymbol: series.points.length <= MAX_POINTS_WITH_SYMBOLS }
-        : { type: 'bar', data: series.points },
+      kind === 'bar'
+        ? { type: 'bar', data: series.points }
+        : {
+            type: 'line',
+            data: series.points,
+            showSymbol: series.points.length <= MAX_POINTS_WITH_SYMBOLS,
+            ...(kind === 'area' ? { areaStyle: { opacity: 0.25 } } : {}),
+          },
+    ],
+  }
+}
+
+/** One bar stack per x, with a segment per group, from `[x, group, y]` points. */
+export function stackedOption(series: Series, theme: Theme): EChartsCoreOption {
+  const palette = PALETTES[theme]
+  const { xs, groups, value } = pivot(series)
+  return {
+    ...base(palette),
+    tooltip: { trigger: 'axis' },
+    legend: { type: 'scroll', top: 0, textStyle: { color: palette.muted } },
+    grid: { ...GRID, top: 36 },
+    xAxis: axis('category', palette, { data: xs, splitLine: { show: false } }),
+    yAxis: axis('value', palette),
+    series: groups.map((group) => ({
+      type: 'bar',
+      name: group,
+      stack: 'total',
+      data: xs.map((_, x) => value(x, group)),
+    })),
+  }
+}
+
+/** A grid of x by group, shaded by y, from `[x, group, y]` points. */
+export function heatmapOption(series: Series, theme: Theme): EChartsCoreOption {
+  const palette = PALETTES[theme]
+  const { xs, groups, value } = pivot(series)
+  const cells = xs.flatMap((_, x) => groups.map((group, g) => [x, g, value(x, group)]))
+  const values = cells.map((cell) => cell[2]).filter((v): v is number => typeof v === 'number')
+  return {
+    ...base(palette),
+    tooltip: { trigger: 'item' },
+    grid: { left: 80, right: 16, top: 16, bottom: 72 },
+    xAxis: axis('category', palette, { data: xs, splitLine: { show: false } }),
+    yAxis: axis('category', palette, { data: groups, splitLine: { show: false } }),
+    visualMap: {
+      min: values.length > 0 ? Math.min(...values) : 0,
+      max: values.length > 0 ? Math.max(...values) : 0,
+      calculable: true,
+      orient: 'horizontal',
+      left: 'center',
+      bottom: 0,
+      inRange: { color: palette.heat },
+      textStyle: { color: palette.muted },
+    },
+    series: [{ type: 'heatmap', data: cells.filter((cell) => cell[2] !== null) }],
+  }
+}
+
+/** Bars of counts from `[start, end, count]` bins, labeled by their range. */
+export function histogramOption(series: Series, theme: Theme): EChartsCoreOption {
+  const palette = PALETTES[theme]
+  return {
+    ...base(palette),
+    tooltip: { trigger: 'axis' },
+    grid: GRID,
+    xAxis: axis('category', palette, {
+      data: series.points.map(([start, end]) => `${short(start)}–${short(end)}`),
+      splitLine: { show: false },
+    }),
+    yAxis: axis('value', palette),
+    series: [{ type: 'bar', data: series.points.map((point) => point[2]), barCategoryGap: '4%' }],
+  }
+}
+
+/** A box per `[label, min, q1, median, q3, max]` point. */
+export function boxplotOption(series: Series, theme: Theme): EChartsCoreOption {
+  const palette = PALETTES[theme]
+  return {
+    ...base(palette),
+    tooltip: { trigger: 'item' },
+    grid: GRID,
+    xAxis: axis('category', palette, { data: series.points.map(([label]) => String(label)), splitLine: { show: false } }),
+    yAxis: axis('value', palette, { scale: true }),
+    series: [
+      {
+        type: 'boxplot',
+        data: series.points.map((point) => point.slice(1)),
+        itemStyle: { color: palette.fill, borderColor: palette.colors[0] },
+      },
     ],
   }
 }

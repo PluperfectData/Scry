@@ -6,7 +6,7 @@
 Drag-and-drop dashboards over data synced by [Nexus](https://github.com/PluperfectData/Nexus).
 
 Status: first slice. Upload a CSV file, then chart it on a dashboard page in a drag-and-drop grid, as a bar,
-line, pie, scatter, or candlestick chart, or a table. Light theme by default, with a dark theme from the header.
+stacked bar, line, area, pie, scatter, heatmap, histogram, box plot, or candlestick chart, or a table. Light theme by default, with a dark theme from the header.
 One built-in workspace, no accounts.
 
 | Path | Contents |
@@ -19,7 +19,7 @@ One built-in workspace, no accounts.
 |---|---|
 | Application data | MySQL, through EF Core 9 and Pomelo: sources and dashboards |
 | Synced data | DuckDB, in process, one file per workspace, written by the Nexus DuckDB destination |
-| Charts | Apache ECharts: bar, line, pie, scatter, and candlestick. Tables are plain HTML. |
+| Charts | Apache ECharts: bar, stacked bar, line, area, pie, scatter, heatmap, histogram, box plot, and candlestick. Tables are plain HTML. |
 | Layout | react-grid-layout, one layout per breakpoint |
 | Theme | Light by default. The header's toggle switches to dark, and the browser remembers the choice. |
 
@@ -33,7 +33,10 @@ parent directory.
 | `GET /health` | Answers `{"status": "ok"}` |
 | `GET /sources` | Lists sources: name, file, columns and their types, row count, sync time |
 | `POST /sources` | Form fields `name`, `file`, and optional `delimiter`. Syncs the file through Nexus into a table named `name`. |
-| `GET /sources/{id}/series?x=&y=&aggregate=` | `[x, y]`: `y` aggregated per value of `x`, in `x` order, for bar, line, and pie charts |
+| `GET /sources/{id}/series?x=&y=&aggregate=` | `[x, y]`: `y` aggregated per value of `x`, in `x` order, for bar, line, area, and pie charts |
+| `GET /sources/{id}/groups?x=&group=&y=&aggregate=` | `[x, group, y]`: `y` aggregated per pair, the group as text, for stacked bars and heatmaps |
+| `GET /sources/{id}/histogram?column=&bins=` | `[start, end, count]` for each of `bins` equal-width bins, 20 by default and 200 at most, empty ones included |
+| `GET /sources/{id}/boxes?value=&group=` | `[group, min, first quartile, median, third quartile, max]` per group, or one row named `All rows` without `group` |
 | `GET /sources/{id}/points?x=&y=` | `[x, y]`, one per row, for a scatter chart. `x` is a number or a time. |
 | `GET /sources/{id}/candles?x=&open=&high=&low=&close=` | `[x, open, close, low, high]`, one per row, in `x` order |
 | `GET /sources/{id}/rows?columns=` | The chosen columns, repeated, or every column, as text, in source order: at most 1,000 rows |

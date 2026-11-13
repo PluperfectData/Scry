@@ -20,6 +20,8 @@ import {
   CHART_KINDS,
   CHART_LABELS,
   COLS,
+  DEFAULT_BINS,
+  MAX_BINS,
   addWidget,
   removeWidget,
   titleFor,
@@ -197,17 +199,29 @@ function AddChartForm({ sources, onAdd }: { sources: Source[]; onAdd: (widget: W
   const ordered = source.columns.filter((column) => NUMERIC_TYPES.includes(column.type) || TIME_TYPES.includes(column.type))
   const field = (name: string) => fields[name] ?? ''
   const setField = (name: string) => (value: string) => setFields((current) => ({ ...current, [name]: value }))
-  const grouped = kind === 'line' || kind === 'bar' || kind === 'pie'
+  const aggregated = kind === 'line' || kind === 'area' || kind === 'bar' || kind === 'pie'
+  const crossed = kind === 'stacked' || kind === 'heatmap'
 
   function settings(): WidgetSettings | null {
     const x = field('x')
+    const y = aggregate === 'count' ? null : field('y')
     switch (kind) {
       case 'line':
+      case 'area':
       case 'bar':
-      case 'pie': {
-        const y = aggregate === 'count' ? null : field('y')
+      case 'pie':
         return x && y !== '' ? { kind, sourceId: source.id, x, y, aggregate } : null
+      case 'stacked':
+      case 'heatmap':
+        return x && field('group') && y !== '' ? { kind, sourceId: source.id, x, group: field('group'), y, aggregate } : null
+      case 'histogram': {
+        const bins = Number(field('bins') || DEFAULT_BINS)
+        return field('column') && Number.isInteger(bins) && bins >= 1 && bins <= MAX_BINS
+          ? { kind, sourceId: source.id, column: field('column'), bins }
+          : null
       }
+      case 'boxplot':
+        return field('value') ? { kind, sourceId: source.id, value: field('value'), group: field('group') || null } : null
       case 'scatter':
         return x && field('y') ? { kind, sourceId: source.id, x, y: field('y') } : null
       case 'candlestick':
@@ -257,15 +271,24 @@ function AddChartForm({ sources, onAdd }: { sources: Source[]; onAdd: (widget: W
         </select>
       </label>
 
-      {grouped && (
+      {(aggregated || crossed) && (
         <>
           <ColumnSelect
-            label={kind === 'pie' ? 'Slices' : 'X axis'}
+            label={kind === 'pie' ? 'Slices' : kind === 'heatmap' ? 'Columns' : 'X axis'}
             value={field('x')}
             onChange={setField('x')}
             columns={axes}
             placeholder="Choose a column"
           />
+          {crossed && (
+            <ColumnSelect
+              label={kind === 'heatmap' ? 'Rows' : 'Stack by'}
+              value={field('group')}
+              onChange={setField('group')}
+              columns={axes}
+              placeholder="Choose a column"
+            />
+          )}
           <label>
             Aggregate
             <select value={aggregate} onChange={(e) => setAggregate(e.target.value as Aggregate)}>
@@ -276,13 +299,58 @@ function AddChartForm({ sources, onAdd }: { sources: Source[]; onAdd: (widget: W
           </label>
           {aggregate !== 'count' && (
             <ColumnSelect
-              label={kind === 'pie' ? 'Size' : 'Y axis'}
+              label={kind === 'pie' ? 'Size' : kind === 'heatmap' ? 'Shade by' : 'Y axis'}
               value={field('y')}
               onChange={setField('y')}
               columns={numbers}
               placeholder="Choose a number column"
             />
           )}
+        </>
+      )}
+
+      {kind === 'histogram' && (
+        <>
+          <ColumnSelect
+            label="Column"
+            value={field('column')}
+            onChange={setField('column')}
+            columns={numbers}
+            placeholder="Choose a number column"
+          />
+          <label>
+            Bins
+            <input
+              type="number"
+              min={1}
+              max={MAX_BINS}
+              step={1}
+              value={field('bins') || String(DEFAULT_BINS)}
+              onChange={(e) => setField('bins')(e.target.value)}
+              required
+            />
+          </label>
+        </>
+      )}
+
+      {kind === 'boxplot' && (
+        <>
+          <ColumnSelect
+            label="Value"
+            value={field('value')}
+            onChange={setField('value')}
+            columns={numbers}
+            placeholder="Choose a number column"
+          />
+          <label>
+            Group by
+            <select value={field('group')} onChange={(e) => setField('group')(e.target.value)}>
+              <option value="">Nothing: one box</option>
+              {axes.map((column) => (
+                <option key={column.name}>{column.name}</option>
+              ))}
+            </select>
+          </label>
         </>
       )}
 

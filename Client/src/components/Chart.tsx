@@ -1,17 +1,21 @@
 import { useEffect, useRef } from 'react'
-import { BarChart, CandlestickChart, LineChart, PieChart, ScatterChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent } from 'echarts/components'
+import { BarChart, BoxplotChart, CandlestickChart, HeatmapChart, LineChart, PieChart, ScatterChart } from 'echarts/charts'
+import { GridComponent, LegendComponent, TooltipComponent, VisualMapComponent } from 'echarts/components'
 import * as echarts from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 
 echarts.use([
   BarChart,
+  BoxplotChart,
   CandlestickChart,
+  HeatmapChart,
   LineChart,
   PieChart,
   ScatterChart,
   GridComponent,
+  LegendComponent,
   TooltipComponent,
+  VisualMapComponent,
   CanvasRenderer,
 ])
 

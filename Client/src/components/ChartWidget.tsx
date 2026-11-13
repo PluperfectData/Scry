@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
-import { getCandles, getPoints, getRows, getSeries, type Rows, type Series } from '../api'
-import { candlestickOption, scatterOption, seriesOption } from '../chartOptions'
+import { getBoxes, getCandles, getGroups, getHistogram, getPoints, getRows, getSeries, type Rows, type Series } from '../api'
+import {
+  boxplotOption,
+  candlestickOption,
+  heatmapOption,
+  histogramOption,
+  scatterOption,
+  seriesOption,
+  stackedOption,
+} from '../chartOptions'
 import type { Widget, WidgetSettings } from '../dashboard'
 import { useTheme } from '../theme'
 import { Chart } from './Chart'
@@ -9,9 +17,19 @@ import { TableView } from './TableView'
 function load(widget: WidgetSettings): Promise<Series | Rows> {
   switch (widget.kind) {
     case 'line':
+    case 'area':
     case 'bar':
     case 'pie':
       return getSeries(widget.sourceId, widget.x, widget.y, widget.aggregate)
+    case 'stacked':
+    case 'heatmap': {
+      const { x, group, y, aggregate } = widget
+      return getGroups(widget.sourceId, { x, group, y, aggregate })
+    }
+    case 'histogram':
+      return getHistogram(widget.sourceId, widget.column, widget.bins)
+    case 'boxplot':
+      return getBoxes(widget.sourceId, widget.value, widget.group)
     case 'scatter':
       return getPoints(widget.sourceId, widget.x, widget.y)
     case 'candlestick': {
@@ -53,6 +71,14 @@ export function ChartWidget({ widget, onRemove }: { widget: Widget; onRemove: ()
   const option = useMemo(() => {
     if (!data || !('points' in data)) return null
     switch (widget.kind) {
+      case 'stacked':
+        return stackedOption(data, theme)
+      case 'heatmap':
+        return heatmapOption(data, theme)
+      case 'histogram':
+        return histogramOption(data, theme)
+      case 'boxplot':
+        return boxplotOption(data, theme)
       case 'scatter':
         return scatterOption(data, theme)
       case 'candlestick':

@@ -114,6 +114,25 @@ export function getCandles(
   return request<Series>(`/sources/${sourceId}/candles?${new URLSearchParams(prices)}`)
 }
 
+export function getGroups(
+  sourceId: number,
+  settings: { x: string; group: string; y: string | null; aggregate: Aggregate },
+): Promise<Series> {
+  const query = new URLSearchParams({ x: settings.x, group: settings.group, aggregate: settings.aggregate })
+  if (settings.y) query.set('y', settings.y)
+  return request<Series>(`/sources/${sourceId}/groups?${query}`)
+}
+
+export function getHistogram(sourceId: number, column: string, bins: number): Promise<Series> {
+  return request<Series>(`/sources/${sourceId}/histogram?${new URLSearchParams({ column, bins: String(bins) })}`)
+}
+
+export function getBoxes(sourceId: number, value: string, group: string | null): Promise<Series> {
+  const query = new URLSearchParams({ value })
+  if (group) query.set('group', group)
+  return request<Series>(`/sources/${sourceId}/boxes?${query}`)
+}
+
 export function getRows(sourceId: number, columns: string[]): Promise<Rows> {
   const query = new URLSearchParams()
   for (const column of columns) query.append('columns', column)

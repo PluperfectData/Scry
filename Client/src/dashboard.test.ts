@@ -32,4 +32,9 @@ it('titles a chart by what it plots', () => {
     'o, h, l, and c by day',
   )
   expect(titleFor({ kind: 'table', sourceId: 1, columns: [] })).toBe('All columns')
+  expect(titleFor({ kind: 'stacked', sourceId: 1, x: 'day', group: 'region', y: 'amount', aggregate: 'avg' })).toBe(
+    'Average of amount by day and region',
+  )
+  expect(titleFor({ kind: 'histogram', sourceId: 1, column: 'price', bins: 20 })).toBe('Distribution of price')
+  expect(titleFor({ kind: 'boxplot', sourceId: 1, value: 'amount', group: null })).toBe('Spread of amount')
 })

@@ -8,18 +8,38 @@ export const AGGREGATES = ['sum', 'avg', 'min', 'max', 'count'] as const
 
 export type Aggregate = (typeof AGGREGATES)[number]
 
-export const CHART_KINDS = ['bar', 'line', 'pie', 'scatter', 'candlestick', 'table'] as const
+export const CHART_KINDS = [
+  'bar',
+  'stacked',
+  'line',
+  'area',
+  'pie',
+  'scatter',
+  'heatmap',
+  'histogram',
+  'boxplot',
+  'candlestick',
+  'table',
+] as const
 
 export type ChartKind = (typeof CHART_KINDS)[number]
 
 export const CHART_LABELS: Record<ChartKind, string> = {
   bar: 'Bar',
+  stacked: 'Stacked bar',
   line: 'Line',
+  area: 'Area',
   pie: 'Pie',
   scatter: 'Scatter',
+  heatmap: 'Heatmap',
+  histogram: 'Histogram',
+  boxplot: 'Box plot',
   candlestick: 'Candlestick',
   table: 'Table',
 }
+
+export const DEFAULT_BINS = 20
+export const MAX_BINS = 200
 
 /** One item's place in a react-grid-layout grid, in grid units. */
 export interface GridItem {
@@ -41,10 +61,33 @@ interface WidgetBase {
 
 /** y aggregated per value of x. */
 export interface SeriesWidget extends WidgetBase {
-  kind: 'line' | 'bar' | 'pie'
+  kind: 'line' | 'area' | 'bar' | 'pie'
   x: string
   y: string | null
   aggregate: Aggregate
+}
+
+/** y aggregated per pair of x and group: a bar stack per group, or a heatmap row per group. */
+export interface GroupedWidget extends WidgetBase {
+  kind: 'stacked' | 'heatmap'
+  x: string
+  group: string
+  y: string | null
+  aggregate: Aggregate
+}
+
+/** Equal-width bins over one number column. */
+export interface HistogramWidget extends WidgetBase {
+  kind: 'histogram'
+  column: string
+  bins: number
+}
+
+/** A box of a number column per group, or one box over every row. */
+export interface BoxplotWidget extends WidgetBase {
+  kind: 'boxplot'
+  value: string
+  group: string | null
 }
 
 /** One point per row. */
@@ -70,7 +113,14 @@ export interface TableWidget extends WidgetBase {
   columns: string[]
 }
 
-export type Widget = SeriesWidget | ScatterWidget | CandlestickWidget | TableWidget
+export type Widget =
+  | SeriesWidget
+  | GroupedWidget
+  | ScatterWidget
+  | HistogramWidget
+  | BoxplotWidget
+  | CandlestickWidget
+  | TableWidget
 
 type WithoutNames<T> = T extends unknown ? Omit<T, 'id' | 'title'> : never
 
@@ -126,11 +176,21 @@ const AGGREGATE_NAMES: Record<Aggregate, string> = {
 export function titleFor(settings: WidgetSettings): string {
   switch (settings.kind) {
     case 'line':
+    case 'area':
     case 'bar':
     case 'pie':
       return settings.aggregate === 'count'
         ? `Count by ${settings.x}`
         : `${AGGREGATE_NAMES[settings.aggregate]} of ${settings.y} by ${settings.x}`
+    case 'stacked':
+    case 'heatmap':
+      return settings.aggregate === 'count'
+        ? `Count by ${settings.x} and ${settings.group}`
+        : `${AGGREGATE_NAMES[settings.aggregate]} of ${settings.y} by ${settings.x} and ${settings.group}`
+    case 'histogram':
+      return `Distribution of ${settings.column}`
+    case 'boxplot':
+      return settings.group ? `Spread of ${settings.value} by ${settings.group}` : `Spread of ${settings.value}`
     case 'scatter':
       return `${settings.y} against ${settings.x}`
     case 'candlestick':

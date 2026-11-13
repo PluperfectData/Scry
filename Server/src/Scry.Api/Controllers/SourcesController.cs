@@ -134,6 +134,35 @@ public sealed partial class SourcesController(ScryDbContext db, Workspace worksp
         CancellationToken ct) =>
         Chart(id, (source, columns) => ChartQueries.Candles(source.Name, columns, x, open, high, low, close), ct);
 
+    /// <summary><paramref name="y"/> aggregated per <paramref name="x"/> and <paramref name="group"/>, as <c>[x, group, y]</c>.</summary>
+    [HttpGet("{id:int}/groups")]
+    public Task<ActionResult<Series>> GetGroups(
+        int id,
+        [FromQuery] string x,
+        [FromQuery] string group,
+        [FromQuery] string? y,
+        [FromQuery] string aggregate,
+        CancellationToken ct) =>
+        Chart(id, (source, columns) => ChartQueries.Groups(source.Name, columns, x, group, y, aggregate), ct);
+
+    /// <summary>Equal-width bins over a number column, as <c>[start, end, count]</c>.</summary>
+    [HttpGet("{id:int}/histogram")]
+    public Task<ActionResult<Series>> GetHistogram(
+        int id,
+        [FromQuery] string column,
+        [FromQuery] int? bins,
+        CancellationToken ct) =>
+        Chart(id, (source, columns) => ChartQueries.Histogram(source.Name, columns, column, bins ?? 20), ct);
+
+    /// <summary>Box plot statistics per group, as <c>[group, min, q1, median, q3, max]</c>.</summary>
+    [HttpGet("{id:int}/boxes")]
+    public Task<ActionResult<Series>> GetBoxes(
+        int id,
+        [FromQuery] string value,
+        [FromQuery] string? group,
+        CancellationToken ct) =>
+        Chart(id, (source, columns) => ChartQueries.Boxes(source.Name, columns, value, group), ct);
+
     /// <summary>The first rows of the chosen columns, or of every column, as text.</summary>
     [HttpGet("{id:int}/rows")]
     public async Task<ActionResult<Rows>> GetRows(int id, [FromQuery] string[]? columns, CancellationToken ct)

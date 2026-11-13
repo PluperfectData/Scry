@@ -123,6 +123,55 @@ public sealed class ApiTests
         rows.GetProperty("truncated").GetBoolean().ShouldBeFalse();
     }
 
+    [Test]
+    public async Task Groups_aggregate_y_per_x_and_group()
+    {
+        var id = await UploadId("orders", Orders);
+
+        var groups = await _client.GetFromJsonAsync<JsonElement>(
+            $"/sources/{id}/groups?x=day&group=region&y=amount&aggregate=sum");
+
+        groups.GetProperty("points").EnumerateArray()
+            .Select(point => (point[0].GetInt64(), point[1].GetString(), point[2].GetDouble()))
+            .ShouldBe(
+            [
+                (Milliseconds(2026, 1, 1), "east", 10.0),
+                (Milliseconds(2026, 1, 1), "west", 5.0),
+                (Milliseconds(2026, 1, 2), "east", 7.0),
+            ]);
+    }
+
+    [Test]
+    public async Task A_histogram_counts_every_bin_and_puts_the_largest_value_in_the_last()
+    {
+        var id = await UploadId("values", "v\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n");
+
+        var histogram = await _client.GetFromJsonAsync<JsonElement>($"/sources/{id}/histogram?column=v&bins=3");
+
+        histogram.GetProperty("points").EnumerateArray()
+            .Select(point => (point[0].GetDouble(), point[1].GetDouble(), point[2].GetDouble()))
+            .ShouldBe([(1.0, 4.0, 3.0), (4.0, 7.0, 3.0), (7.0, 10.0, 4.0)]);
+    }
+
+    [Test]
+    public async Task Boxes_hold_the_five_numbers_per_group()
+    {
+        var id = await UploadId("orders", Orders);
+
+        var boxes = await _client.GetFromJsonAsync<JsonElement>($"/sources/{id}/boxes?value=amount&group=region");
+        var all = await _client.GetFromJsonAsync<JsonElement>($"/sources/{id}/boxes?value=amount");
+
+        boxes.GetProperty("points").EnumerateArray()
+            .Select(point => string.Join(" ", point.EnumerateArray().Select(value => value.ToString())))
+            .ShouldBe(["east 7 7.75 8.5 9.25 10", "west 5 5 5 5 5"]);
+        all.GetProperty("points")[0][0].GetString().ShouldBe("All rows");
+        all.GetProperty("points")[0][3].GetDouble().ShouldBe(7.0);
+    }
+
+    [TestCase("groups?x=day&group=missing&y=amount&aggregate=sum")]
+    [TestCase("histogram?column=region")]
+    [TestCase("histogram?column=amount&bins=0")]
+    [TestCase("boxes?value=region")]
     [TestCase("series?x=missing&y=amount&aggregate=sum")]
     [TestCase("series?x=day&y=region&aggregate=sum")]
     [TestCase("series?x=day&y=amount&aggregate=median")]

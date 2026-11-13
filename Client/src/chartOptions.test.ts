@@ -1,4 +1,14 @@
-import { candlestickOption, labelFor, PALETTES, scatterOption, seriesOption } from './chartOptions'
+import {
+  boxplotOption,
+  candlestickOption,
+  heatmapOption,
+  histogramOption,
+  labelFor,
+  PALETTES,
+  scatterOption,
+  seriesOption,
+  stackedOption,
+} from './chartOptions'
 
 const JAN_1 = Date.UTC(2026, 0, 1)
 const JAN_2 = Date.UTC(2026, 0, 2)
@@ -62,6 +72,61 @@ it('puts candles on a category axis of their x labels, rising and falling in the
         itemStyle: { color: PALETTES.light.up, color0: PALETTES.light.down },
       },
     ],
+  })
+})
+
+it('fills the area under an area chart', () => {
+  const option = seriesOption('area', { xType: 'value', points: [[1, 2]], truncated: false }, 'light')
+
+  expect(option).toMatchObject({ series: [{ type: 'line', areaStyle: { opacity: 0.25 } }] })
+})
+
+const grouped = {
+  xType: 'time' as const,
+  points: [[JAN_1, 'west', 5], [JAN_1, 'east', 10], [JAN_2, 'east', 7]],
+  truncated: false,
+}
+
+it('stacks a bar per group, leaving a gap where a group has no value', () => {
+  const option = stackedOption(grouped, 'light')
+
+  expect(option).toMatchObject({
+    xAxis: { type: 'category', data: ['2026-01-01', '2026-01-02'] },
+    series: [
+      { type: 'bar', name: 'east', stack: 'total', data: [10, 7] },
+      { type: 'bar', name: 'west', stack: 'total', data: [5, null] },
+    ],
+  })
+})
+
+it('shades a heatmap cell per x and group, scaled from the smallest value to the largest', () => {
+  const option = heatmapOption(grouped, 'dark')
+
+  expect(option).toMatchObject({
+    yAxis: { type: 'category', data: ['east', 'west'] },
+    visualMap: { min: 5, max: 10, inRange: { color: PALETTES.dark.heat } },
+    series: [{ type: 'heatmap', data: [[0, 0, 10], [0, 1, 5], [1, 0, 7]] }],
+  })
+})
+
+it('labels histogram bars by their range', () => {
+  const option = histogramOption(
+    { xType: 'value', points: [[1, 4, 3], [4, 7, 3], [7, 10, 4]], truncated: false },
+    'light',
+  )
+
+  expect(option).toMatchObject({
+    xAxis: { data: ['1–4', '4–7', '7–10'] },
+    series: [{ type: 'bar', data: [3, 3, 4] }],
+  })
+})
+
+it('draws a box per group from its five numbers', () => {
+  const option = boxplotOption({ xType: 'category', points: [['east', 7, 7.75, 8.5, 9.25, 10]], truncated: false }, 'light')
+
+  expect(option).toMatchObject({
+    xAxis: { data: ['east'] },
+    series: [{ type: 'boxplot', data: [[7, 7.75, 8.5, 9.25, 10]] }],
   })
 })
 
