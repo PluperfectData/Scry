@@ -17,6 +17,12 @@
   --header-muted: #dbeafe;
   --header-border: #1d4ed8;
   --header-control: rgb(255 255 255 / 0.4);
+  --kind-file-bg: #ecfdf5;
+  --kind-file-text: #047857;
+  --kind-database-bg: #eff6ff;
+  --kind-database-text: #1d4ed8;
+  --kind-broker-bg: #fffbeb;
+  --kind-broker-text: #b45309;
   --gutter: 1rem;
   color-scheme: light;
   font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -41,6 +47,12 @@
   --header-muted: #a9b4cc;
   --header-border: #2a3550;
   --header-control: #3d4a6b;
+  --kind-file-bg: #16241d;
+  --kind-file-text: #7fb59a;
+  --kind-database-bg: #1b2438;
+  --kind-database-text: #7c93c9;
+  --kind-broker-bg: #2a2316;
+  --kind-broker-text: #c9a66b;
   color-scheme: dark;
 }
 
@@ -429,6 +441,29 @@ button.quiet {
   display: block;
 }
 
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinning {
+    animation: none;
+  }
+}
+
 .list h2 {
   font-size: 1.05rem;
   margin: 0;
@@ -456,6 +491,29 @@ button.quiet {
   margin: 0;
   text-align: center;
   overflow-wrap: anywhere;
+}
+
+/* The space a heading keeps below it, which the row's centered h1 gives up. */
+.title-row {
+  margin-bottom: 1rem;
+}
+
+.title-row:last-child {
+  margin-bottom: 0;
+}
+
+.title-name {
+  grid-column: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.card-actions {
+  display: flex;
+  flex-shrink: 0;
 }
 
 .title-actions {
@@ -567,8 +625,33 @@ button.quiet {
   min-height: 0;
 }
 
-.chart-zoomable .chart {
+.chart-zoomable .chart-frame {
   min-width: 0;
+}
+
+.chart-frame {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+/* The x-axis slider's range, just above the slider (SLIDER in chartOptions.ts), in the charts' tooltip style. */
+.slider-range {
+  position: absolute;
+  bottom: 3rem;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 2px 8px;
+  background: #fff;
+  border: 1px solid #b7b9be;
+  border-radius: 4px;
+  box-shadow: 1px 2px 10px rgba(0, 0, 0, 0.2);
+  color: #6d6e73;
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
 }
 
 .zoom {
@@ -835,6 +918,73 @@ button.quiet {
 .slideout .form {
   grid-template-columns: 1fr;
   margin-bottom: 0;
+}
+
+.connector-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+  gap: 0.75rem;
+}
+
+.connector-tile {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.375rem;
+  padding: 0.875rem;
+  text-align: left;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+
+.connector-tile:hover {
+  border-color: var(--accent);
+}
+
+.connector-icon {
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.5rem;
+  background: var(--kind-bg);
+  color: var(--kind-text);
+}
+
+.connector-icon svg {
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+.connector-icon[data-kind='file'] {
+  --kind-bg: var(--kind-file-bg);
+  --kind-text: var(--kind-file-text);
+}
+
+.connector-icon[data-kind='database'] {
+  --kind-bg: var(--kind-database-bg);
+  --kind-text: var(--kind-database-text);
+}
+
+.connector-icon[data-kind='broker'] {
+  --kind-bg: var(--kind-broker-bg);
+  --kind-text: var(--kind-broker-text);
+}
+
+.connector-name {
+  font-weight: 600;
+}
+
+.connector-description {
+  font-size: 0.875rem;
+  color: var(--muted);
 }
 
 .modal {

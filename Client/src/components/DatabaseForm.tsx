@@ -1,5 +1,5 @@
 import { type FormEvent, useState } from 'react'
-import { addDatabaseSources, listTables, type Database, type DatabaseTable, type SettingField, type Source } from '../api'
+import { addDatabaseSources, listTables, type Connector, type DatabaseTable, type SettingField, type Source } from '../api'
 import { sourceName } from '../sources'
 
 /** One of a connector's settings, as the control its kind calls for. */
@@ -42,15 +42,14 @@ function SettingInput({ field, value, onChange }: { field: SettingField; value: 
 
 /** Connects to a database, lists its tables, and adds the ones picked as sources, each under a name it can change. */
 export function DatabaseForm({
-  databases,
+  database,
   onAdded,
   onCancel,
 }: {
-  databases: Database[]
+  database: Connector
   onAdded: (sources: Source[]) => void
   onCancel: () => void
 }) {
-  const [connector, setConnector] = useState(databases[0].id)
   const [values, setValues] = useState<Record<string, string>>({})
   const [tables, setTables] = useState<DatabaseTable[] | null>(null)
   // Each picked table, keyed by its name in the database, to the name of the source it becomes.
@@ -58,7 +57,6 @@ export function DatabaseForm({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const database = databases.find((d) => d.id === connector) ?? databases[0]
   const settings = Object.fromEntries(database.fields.map((field) => [field.name, values[field.name] || null]))
   const count = Object.keys(picked).length
 
@@ -96,24 +94,6 @@ export function DatabaseForm({
 
   return (
     <form className="form" onSubmit={list}>
-      <label>
-        Database
-        <select
-          value={connector}
-          onChange={(e) =>
-            change(() => {
-              setConnector(e.target.value)
-              setValues({})
-            })
-          }
-        >
-          {databases.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.name}
-            </option>
-          ))}
-        </select>
-      </label>
       {database.fields.map((field) => (
         <SettingInput
           key={field.name}

@@ -1,27 +1,49 @@
-import { type FormEvent, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
-import { createDashboard, deleteDashboard, listDashboards, type DashboardSummary } from '../api'
+import { createDashboard, deleteDashboard, editDashboard, listDashboards, type DashboardSummary } from '../api'
+import { DashboardForm } from '../components/DashboardForm'
+import { PencilIcon } from '../components/PencilIcon'
+import { Slideout } from '../components/Slideout'
+import { Tooltip } from '../components/Tooltip'
 
-export function DashboardsPage() {
+const charts = (count: number) => (count === 0 ? 'No charts' : count === 1 ? '1 chart' : `${count} charts`)
+
+const byName = (a: DashboardSummary, b: DashboardSummary) => a.name.localeCompare(b.name)
+
+/** Every dashboard. As the index, it opens the landing dashboard in its place when there is one. */
+export function DashboardsPage({ openLanding = false }: { openLanding?: boolean }) {
   const navigate = useNavigate()
   const [dashboards, setDashboards] = useState<DashboardSummary[] | null>(null)
-  const [name, setName] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [adding, setAdding] = useState(false)
+  const [editing, setEditing] = useState<DashboardSummary | null>(null)
 
   useEffect(() => {
     listDashboards()
-      .then(setDashboards)
+      .then((list) => {
+        const landing = openLanding ? list.find((dashboard) => dashboard.isLanding) : undefined
+        if (landing) navigate(`/dashboards/${landing.id}`, { replace: true })
+        else setDashboards(list)
+      })
       .catch((e: Error) => setError(e.message))
-  }, [])
+  }, [navigate, openLanding])
 
-  async function create(event: FormEvent) {
-    event.preventDefault()
-    try {
-      const created = await createDashboard(name)
-      navigate(`/dashboards/${created.id}`)
-    } catch (e) {
-      setError((e as Error).message)
-    }
+  async function create(name: string) {
+    const created = await createDashboard(name)
+    navigate(`/dashboards/${created.id}`)
+  }
+
+  async function edit(name: string, isLanding: boolean) {
+    if (!editing) return
+    const saved = await editDashboard(editing.id, name, isLanding)
+    setDashboards((list) =>
+      (list ?? [])
+        .map((d) =>
+          d.id === saved.id ? { ...d, name: saved.name, isLanding: saved.isLanding } : saved.isLanding ? { ...d, isLanding: false } : d,
+        )
+        .sort(byName),
+    )
+    setEditing(null)
   }
 
   async function remove(dashboard: DashboardSummary) {
@@ -35,34 +57,83 @@ export function DashboardsPage() {
 
   return (
     <div className="page">
-      <h1>Dashboards</h1>
-
-      <form className="form" onSubmit={create}>
-        <label>
-          New dashboard
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Sales" required maxLength={200} />
-        </label>
-        <button type="submit">Create</button>
-      </form>
+      <div className="title-row">
+        <h1>Dashboards</h1>
+        <div className="title-actions">
+          <Tooltip label="Add dashboard">
+            <button type="button" className="icon-button emblem" onClick={() => setAdding(true)}>
+              <span className="sr-only">Add dashboard</span>
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+              </svg>
+            </button>
+          </Tooltip>
+        </div>
+      </div>
 
       {error && <p className="error">{error}</p>}
 
       {dashboards === null ? (
         !error && <p className="muted">Loading…</p>
       ) : dashboards.length === 0 ? (
-        <p className="muted">No dashboards yet.</p>
+        <p className="muted">No dashboards yet. Add one to start charting.</p>
       ) : (
-        <ul className="list">
+        <ul className="list cards">
           {dashboards.map((dashboard) => (
             <li key={dashboard.id}>
-              <Link to={`/dashboards/${dashboard.id}`}>{dashboard.name}</Link>
-              <button type="button" className="quiet" onClick={() => remove(dashboard)}>
-                Delete
-              </button>
+              <div className="card-head">
+                <h2>
+                  <Link to={`/dashboards/${dashboard.id}`}>{dashboard.name}</Link>
+                </h2>
+                <div className="card-actions">
+                  <Tooltip label="Edit dashboard">
+                    <button
+                      type="button"
+                      className="widget-action"
+                      onClick={() => setEditing(dashboard)}
+                      aria-label={`Edit ${dashboard.name}`}
+                    >
+                      <PencilIcon />
+                    </button>
+                  </Tooltip>
+                  <Tooltip label="Delete dashboard">
+                    <button
+                      type="button"
+                      className="widget-action"
+                      onClick={() => remove(dashboard)}
+                      aria-label={`Delete ${dashboard.name}`}
+                    >
+                      ×
+                    </button>
+                  </Tooltip>
+                </div>
+              </div>
+              <p className="muted">
+                {charts(dashboard.chartCount)}
+                {dashboard.isLanding && ' · Landing page'}
+              </p>
             </li>
           ))}
         </ul>
       )}
+
+      <Slideout open={adding} title="Add a dashboard" onClose={() => setAdding(false)}>
+        {adding && <DashboardForm offerLanding={false} submitLabel="Create" onSave={(name) => create(name)} onCancel={() => setAdding(false)} />}
+      </Slideout>
+
+      <Slideout open={editing !== null} title="Edit dashboard" onClose={() => setEditing(null)}>
+        {editing && (
+          <DashboardForm
+            key={editing.id}
+            name={editing.name}
+            isLanding={editing.isLanding}
+            offerLanding
+            submitLabel="Save"
+            onSave={edit}
+            onCancel={() => setEditing(null)}
+          />
+        )}
+      </Slideout>
     </div>
   )
 }

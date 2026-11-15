@@ -19,6 +19,7 @@ import {
   sankeyOption,
   scatterOption,
   seriesOption,
+  sliderRange,
   stackedOption,
   themeRiverOption,
   treeOption,
@@ -77,9 +78,17 @@ it('fits a number x axis and a line to the data, with a zoom slider under the x 
   expect(option).toMatchObject({
     xAxis: { type: 'value', scale: true },
     yAxis: { type: 'value', scale: true },
-    grid: { bottom: 64 },
-    dataZoom: [{ type: 'slider', xAxisIndex: 0 }],
+    grid: { bottom: 84 },
+    dataZoom: [{ type: 'slider', xAxisIndex: 0, bottom: 28, showDetail: false }],
   })
+})
+
+it("writes a slider's range as one line in its axis's own terms", () => {
+  expect(sliderRange({ type: 'value' }, 1975, 2020.5)).toBe('1975 to 2020.5')
+  expect(sliderRange({ type: 'time' }, Date.UTC(2026, 0, 1), Date.UTC(2026, 10, 15, 12, 30))).toBe(
+    '2026-01-01 to 2026-11-15 12:30',
+  )
+  expect(sliderRange({ type: 'category', data: ['east', { value: 'north' }, 'west'] }, 1, 2)).toBe('north to west')
 })
 
 it('starts bars at zero until a scale is set', () => {

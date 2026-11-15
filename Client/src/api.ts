@@ -36,7 +36,7 @@ export interface Source {
   syncedAt: string
 }
 
-/** One setting a database's Nexus connector asks for. */
+/** One setting a Nexus connector asks for. */
 export interface SettingField {
   name: string
   label: string
@@ -45,10 +45,11 @@ export interface SettingField {
   choices: string[] | null
 }
 
-/** A database Scry reads, with the settings its connector asks for. */
-export interface Database {
+/** A Nexus connector a source can come from: CSV, or a database. */
+export interface Connector {
   id: string
   name: string
+  description: string
   fields: SettingField[]
 }
 
@@ -89,6 +90,9 @@ export interface RowsRequest {
 export interface DashboardSummary {
   id: number
   name: string
+  chartCount: number
+  /** Whether the index opens this dashboard in place of the list. At most one does. */
+  isLanding: boolean
   updatedAt: string
 }
 
@@ -97,6 +101,7 @@ export interface Dashboard {
   name: string
   layouts: Layouts
   widgets: Widget[]
+  isLanding: boolean
   createdAt: string
   updatedAt: string
 }
@@ -125,7 +130,7 @@ function json(method: string, body: unknown): RequestInit {
 
 export const listSources = () => request<Source[]>('/sources')
 
-export const listDatabases = () => request<Database[]>('/databases')
+export const listConnectors = () => request<Connector[]>('/connectors')
 
 /** Connects with the settings and lists the database's tables; nothing is kept. */
 export const listTables = (connector: string, settings: Settings) =>
@@ -275,3 +280,7 @@ export function saveDashboard(dashboard: Pick<Dashboard, 'id' | 'name' | 'layout
 }
 
 export const deleteDashboard = (id: number) => request<void>(`/dashboards/${id}`, { method: 'DELETE' })
+
+/** Renames a dashboard, and makes it the landing dashboard, clearing any other, or stops it being one. */
+export const editDashboard = (id: number, name: string, isLanding: boolean) =>
+  request<Dashboard>(`/dashboards/${id}`, json('PATCH', { name, isLanding }))

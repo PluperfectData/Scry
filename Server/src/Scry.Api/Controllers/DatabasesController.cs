@@ -5,9 +5,6 @@ using Scry.Api.Data;
 
 namespace Scry.Api.Controllers;
 
-/// <summary>A database Scry can read, and the settings its Nexus connector asks for.</summary>
-public sealed record DatabaseView(string Id, string Name, IReadOnlyList<SettingField> Fields);
-
 /// <summary>A database's connector and the settings to reach it, password included.</summary>
 public sealed record DatabaseRequest(string Connector, Dictionary<string, string?> Settings);
 
@@ -27,11 +24,6 @@ public sealed class DatabasesController(
     DatabaseConnectors connectors,
     ConnectionSecrets secrets) : ControllerBase
 {
-    /// <summary>The databases Scry reads, each with the settings its connector asks for.</summary>
-    [HttpGet]
-    public IEnumerable<DatabaseView> List() =>
-        connectors.All.Select(connector => new DatabaseView(connector.Spec.Id, connector.Spec.DisplayName, connector.Spec.Fields));
-
     /// <summary>Connects with the settings and lists the database's tables. Nothing is kept.</summary>
     [HttpPost("tables")]
     public async Task<ActionResult<IReadOnlyList<DatabaseTable>>> Tables(DatabaseRequest request, CancellationToken ct)

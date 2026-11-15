@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { echartsFor } from '../echartsLoader'
 import { Chart } from './Chart'
@@ -37,6 +37,37 @@ it('zooms the geo component of a chart drawn on one', async () => {
   await userEvent.click(screen.getByRole('button', { name: 'Zoom in' }))
 
   expect(setOption).toHaveBeenLastCalledWith({ geo: { zoom: expect.closeTo(Math.SQRT2) } })
+})
+
+it("shows the x-axis slider's range over it while the pointer is there, and through a drag that began there", async () => {
+  const handlers: Record<string, (event?: { offsetY: number }) => void> = {}
+  jest.mocked(echartsFor).mockResolvedValue({
+    init: () => ({
+      setOption,
+      resize: jest.fn(),
+      dispose: jest.fn(),
+      getHeight: () => 300,
+      getOption: () => ({ dataZoom: [{ startValue: 1975, endValue: 2020 }], xAxis: [{ type: 'value' }] }),
+      getZr: () => ({ on: (name: string, handler: () => void) => (handlers[name] = handler), off: jest.fn() }),
+      on: (name: string, handler: () => void) => (handlers[name] = handler),
+      off: jest.fn(),
+    }),
+  } as unknown as Awaited<ReturnType<typeof echartsFor>>)
+  render(<Chart kind="line" option={{ dataZoom: [{ type: 'slider' }] }} onError={jest.fn()} />)
+  await waitFor(() => expect(handlers.mousemove).toBeDefined())
+
+  act(() => handlers.mousemove({ offsetY: 300 - 28 - 8 }))
+  expect(screen.getByText('1975 to 2020')).toBeInTheDocument()
+
+  act(() => handlers.mousedown())
+  act(() => handlers.globalout())
+  expect(screen.getByText('1975 to 2020')).toBeInTheDocument()
+
+  act(() => window.dispatchEvent(new Event('pointerup')))
+  expect(screen.queryByText('1975 to 2020')).not.toBeInTheDocument()
+
+  act(() => handlers.mousemove({ offsetY: 100 }))
+  expect(screen.queryByText('1975 to 2020')).not.toBeInTheDocument()
 })
 
 it('has no slider unless it zooms', async () => {

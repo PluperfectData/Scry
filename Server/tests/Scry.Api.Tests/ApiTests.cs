@@ -4,7 +4,10 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using NUnit.Framework;
+using Scry.Api.Data;
 using Shouldly;
 
 namespace Scry.Api.Tests;
@@ -423,6 +426,70 @@ public sealed class ApiTests
     }
 
     [Test]
+    public async Task The_list_counts_each_dashboards_charts()
+    {
+        var sales = await CreateDashboard("Sales");
+        await CreateDashboard("Costs");
+        using var updated = await _client.PutAsJsonAsync($"/dashboards/{sales}", new
+        {
+            name = "Sales",
+            layouts = new { },
+            widgets = new object[] { new { id = "a" }, new { id = "b" } },
+        });
+
+        var list = await _client.GetFromJsonAsync<JsonElement>("/dashboards");
+
+        list.EnumerateArray().Select(d => (d.GetProperty("name").GetString(), d.GetProperty("chartCount").GetInt32()))
+            .ShouldBe([("Costs", 0), ("Sales", 2)]);
+    }
+
+    [Test]
+    public async Task Editing_renames_a_dashboard_and_moves_the_landing_page_to_it()
+    {
+        var sales = await CreateDashboard("Sales");
+        var costs = await CreateDashboard("Costs");
+
+        using var first = await _client.PatchAsJsonAsync($"/dashboards/{sales}", new { name = "Sales 2026", isLanding = true });
+        using var second = await _client.PatchAsJsonAsync($"/dashboards/{costs}", new { name = "Costs", isLanding = true });
+        var list = await _client.GetFromJsonAsync<JsonElement>("/dashboards");
+
+        (await first.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("name").GetString().ShouldBe("Sales 2026");
+        list.EnumerateArray().Select(d => (d.GetProperty("name").GetString(), d.GetProperty("isLanding").GetBoolean()))
+            .ShouldBe([("Costs", true), ("Sales 2026", false)]);
+
+        using var cleared = await _client.PatchAsJsonAsync($"/dashboards/{costs}", new { name = "Costs", isLanding = false });
+        (await _client.GetFromJsonAsync<JsonElement>("/dashboards")).EnumerateArray()
+            .ShouldAllBe(d => !d.GetProperty("isLanding").GetBoolean());
+    }
+
+    [Test]
+    public async Task The_database_refuses_a_second_landing_dashboard()
+    {
+        await CreateDashboard("Sales");
+        await CreateDashboard("Costs");
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ScryDbContext>();
+        foreach (var dashboard in await db.Dashboards.ToListAsync())
+        {
+            dashboard.Landing = true;
+        }
+
+        await Should.ThrowAsync<DbUpdateException>(() => db.SaveChangesAsync());
+    }
+
+    [Test]
+    public async Task Editing_refuses_a_blank_name_and_a_missing_dashboard()
+    {
+        var sales = await CreateDashboard("Sales");
+
+        using var blank = await _client.PatchAsJsonAsync($"/dashboards/{sales}", new { name = " ", isLanding = false });
+        using var missing = await _client.PatchAsJsonAsync("/dashboards/999", new { name = "Gone", isLanding = false });
+
+        blank.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        missing.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+    }
+
+    [Test]
     public async Task A_dashboard_keeps_its_layouts_and_widgets()
     {
         using var created = await _client.PostAsJsonAsync("/dashboards", new { name = "Sales" });
@@ -458,6 +525,12 @@ public sealed class ApiTests
         file.Headers.ContentType = new MediaTypeHeaderValue("text/csv");
         content.Add(file, "file", "orders.csv");
         return await _client.PostAsync(new Uri("/sources", UriKind.Relative), content);
+    }
+
+    private async Task<int> CreateDashboard(string name)
+    {
+        using var created = await _client.PostAsJsonAsync("/dashboards", new { name });
+        return (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt32();
     }
 
     private async Task<int> UploadId(string name, string csv)

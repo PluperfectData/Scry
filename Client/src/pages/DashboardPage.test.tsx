@@ -1,6 +1,6 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { ApiError, getDashboard, listSources, saveDashboard, type Dashboard, type Source } from '../api'
+import { ApiError, editDashboard, getDashboard, listSources, saveDashboard, type Dashboard, type Source } from '../api'
 import type { Widget } from '../dashboard'
 import { DashboardPage } from './DashboardPage'
 
@@ -12,6 +12,7 @@ jest.mock('../notices', () => ({ useNotices: () => ({ notify: mockNotify }) }))
 
 jest.mock('../api', () => ({
   ...jest.requireActual('../api'),
+  editDashboard: jest.fn(),
   getDashboard: jest.fn(),
   listSources: jest.fn(),
   saveDashboard: jest.fn(),
@@ -39,6 +40,12 @@ jest.mock('../components/ChartForm', () => ({
   },
 }))
 
+// The form is its own unit; here it saves a new name and makes the dashboard the landing page.
+jest.mock('../components/DashboardForm', () => ({
+  DashboardForm: ({ onSave }: { onSave: (name: string, isLanding: boolean) => void }) =>
+    jest.requireActual('react').createElement('button', { type: 'button', onClick: () => onSave('Sales 2026', true) }, 'Save the dashboard'),
+}))
+
 const orders: Source = {
   id: 7,
   name: 'orders',
@@ -55,6 +62,7 @@ const sales = (widgets: Widget[], layouts: Dashboard['layouts']): Dashboard => (
   name: 'Sales',
   layouts,
   widgets,
+  isLanding: false,
   createdAt: '2026-11-13T12:00:00Z',
   updatedAt: '2026-11-13T12:00:00Z',
 })
@@ -131,4 +139,17 @@ it('offers no chart to add or edit until there is a source', async () => {
   expect(await screen.findByRole('link', { name: 'Upload a CSV file' })).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: 'Add chart' })).not.toBeInTheDocument()
   expect(screen.queryByRole('button', { name: 'Edit Sum of amount by day' })).not.toBeInTheDocument()
+})
+
+it('renames the dashboard from the pencil beside its name, saving it on its own', async () => {
+  jest.mocked(getDashboard).mockResolvedValue(sales([], {}))
+  jest.mocked(editDashboard).mockResolvedValue({ ...sales([], {}), name: 'Sales 2026', isLanding: true })
+  render(<DashboardPage />)
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Edit Sales' }))
+  await userEvent.click(within(screen.getByRole('dialog', { name: 'Edit dashboard' })).getByRole('button', { name: 'Save the dashboard' }))
+
+  expect(editDashboard).toHaveBeenCalledWith(3, 'Sales 2026', true)
+  expect(await screen.findByRole('heading', { level: 1, name: 'Sales 2026' })).toBeInTheDocument()
+  expect(saveDashboard).not.toHaveBeenCalled()
 })

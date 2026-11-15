@@ -3,9 +3,11 @@ import { Responsive, useContainerWidth } from 'react-grid-layout'
 import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'
 import { Link, useParams } from 'react-router'
-import { getDashboard, listSources, saveDashboard, type Dashboard, type Source } from '../api'
+import { editDashboard, getDashboard, listSources, saveDashboard, type Dashboard, type Source } from '../api'
 import { ChartForm } from '../components/ChartForm'
 import { ChartWidget } from '../components/ChartWidget'
+import { DashboardForm } from '../components/DashboardForm'
+import { PencilIcon } from '../components/PencilIcon'
 import { Slideout } from '../components/Slideout'
 import { Tooltip } from '../components/Tooltip'
 import {
@@ -32,6 +34,7 @@ export function DashboardPage() {
   const [error, setError] = useState<string | null>(null)
   // The chart open in the slideout: 'new' while adding one, null while the slideout is closed.
   const [editing, setEditing] = useState<Widget | 'new' | null>(null)
+  const [renaming, setRenaming] = useState(false)
   const changed = useRef(false)
 
   useEffect(() => {
@@ -78,6 +81,13 @@ export function DashboardPage() {
     setEditing(null)
   }
 
+  // Saved on its own rather than through the autosave, which a name change would otherwise wait on.
+  async function rename(name: string, isLanding: boolean) {
+    const saved = await editDashboard(id, name, isLanding)
+    setDashboard((current) => (current ? { ...current, name: saved.name, isLanding: saved.isLanding } : current))
+    setRenaming(false)
+  }
+
   const remove = (widgetId: string) =>
     change((current) => ({
       ...current,
@@ -89,7 +99,14 @@ export function DashboardPage() {
     <>
       <div className="page">
         <div className="title-row">
-          <h1>{dashboard.name}</h1>
+          <div className="title-name">
+            <h1>{dashboard.name}</h1>
+            <Tooltip label="Edit dashboard">
+              <button type="button" className="widget-action" onClick={() => setRenaming(true)} aria-label={`Edit ${dashboard.name}`}>
+                <PencilIcon />
+              </button>
+            </Tooltip>
+          </div>
           {sources.length > 0 && (
             <div className="title-actions">
               <Tooltip label="Add chart">
@@ -125,6 +142,19 @@ export function DashboardPage() {
           onSave={save}
           onCancel={() => setEditing(null)}
         />
+      </Slideout>
+
+      <Slideout open={renaming} title="Edit dashboard" onClose={() => setRenaming(false)}>
+        {renaming && (
+          <DashboardForm
+            name={dashboard.name}
+            isLanding={dashboard.isLanding}
+            offerLanding
+            submitLabel="Save"
+            onSave={rename}
+            onCancel={() => setRenaming(false)}
+          />
+        )}
       </Slideout>
     </>
   )

@@ -69,21 +69,43 @@ function scaled(scale: AxisScale | undefined, fromZero: boolean) {
   }
 }
 
-/** A slider under the x axis that narrows the range shown, with the grid raised to make room for it. */
+/** Where the x-axis zoom slider sits, in pixels from the chart's bottom edge. */
+export const SLIDER = {
+  // Clears the widget's 20px resize corner, which would otherwise take presses on the right handle.
+  bottom: 28,
+  height: 16,
+}
+
+/**
+ * A slider under the x axis that narrows the range shown, with the grid raised to make room for it. Its own end
+ * labels are off, since ECharts draws the right one past the chart's edge; the chart shows the range over it instead.
+ */
 function zoom(palette: Palette, grid: object = GRID) {
   return {
-    grid: { ...grid, bottom: 64 },
+    grid: { ...grid, bottom: 84 },
     dataZoom: [
       {
         type: 'slider',
         xAxisIndex: 0,
-        height: 16,
-        bottom: 8,
+        ...SLIDER,
+        showDetail: false,
         borderColor: palette.grid,
-        textStyle: { color: palette.muted },
       },
     ],
   }
+}
+
+const RANGE_NUMBER = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2, useGrouping: false })
+
+/** The x range a zoom slider keeps, as one line, such as "1975 to 2020". A category axis's range is in indexes. */
+export function sliderRange(axis: { type?: string; data?: unknown[] }, start: number, end: number): string {
+  const label = (value: number) => {
+    if (axis.type === 'time') return labelFor(value, 'time')
+    if (axis.type !== 'category') return RANGE_NUMBER.format(value)
+    const item = axis.data?.[Math.round(value)]
+    return String(item !== null && typeof item === 'object' && 'value' in item ? item.value : (item ?? ''))
+  }
+  return `${label(start)} to ${label(end)}`
 }
 
 /** A label for an x value: a UTC date or date and time for a time axis, the value itself otherwise. */

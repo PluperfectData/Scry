@@ -30,6 +30,7 @@ public sealed class FakeDatabase : ISourceConnector
     public ConnectorSpec Spec { get; } = new(
         Id,
         "Fake DB",
+        "Reads two tables the tests control.",
         "1.0.0",
         AuthKind.ConnectionFields,
         [

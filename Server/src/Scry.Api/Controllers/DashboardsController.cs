@@ -5,13 +5,14 @@ using Scry.Api.Data;
 
 namespace Scry.Api.Controllers;
 
-public sealed record DashboardSummary(int Id, string Name, DateTime UpdatedAt);
+public sealed record DashboardSummary(int Id, string Name, int ChartCount, bool IsLanding, DateTime UpdatedAt);
 
 public sealed record DashboardView(
     int Id,
     string Name,
     JsonElement Layouts,
     JsonElement Widgets,
+    bool IsLanding,
     DateTime CreatedAt,
     DateTime UpdatedAt)
 {
@@ -20,6 +21,7 @@ public sealed record DashboardView(
         dashboard.Name,
         Parse(dashboard.Layouts),
         Parse(dashboard.Widgets),
+        dashboard.Landing == true,
         dashboard.CreatedAt,
         dashboard.UpdatedAt);
 
@@ -34,17 +36,28 @@ public sealed record DashboardCreate(string? Name);
 
 public sealed record DashboardUpdate(string? Name, JsonElement Layouts, JsonElement Widgets);
 
+public sealed record DashboardEdit(string? Name, bool IsLanding);
+
 [ApiController]
 [Route("dashboards")]
 public sealed class DashboardsController(ScryDbContext db) : ControllerBase
 {
     [HttpGet]
-    public async Task<IEnumerable<DashboardSummary>> List(CancellationToken ct) =>
-        await db.Dashboards
+    public async Task<IEnumerable<DashboardSummary>> List(CancellationToken ct)
+    {
+        var dashboards = await db.Dashboards
             .AsNoTracking()
             .OrderBy(dashboard => dashboard.Name)
-            .Select(dashboard => new DashboardSummary(dashboard.Id, dashboard.Name, dashboard.UpdatedAt))
+            .Select(dashboard => new { dashboard.Id, dashboard.Name, dashboard.Widgets, dashboard.Landing, dashboard.UpdatedAt })
             .ToListAsync(ct);
+
+        return dashboards.Select(dashboard => new DashboardSummary(
+            dashboard.Id,
+            dashboard.Name,
+            ChartCount(dashboard.Widgets),
+            dashboard.Landing == true,
+            dashboard.UpdatedAt));
+    }
 
     [HttpGet("{id:int}")]
     public async Task<ActionResult<DashboardView>> Get(int id, CancellationToken ct) =>
@@ -102,6 +115,38 @@ public sealed class DashboardsController(ScryDbContext db) : ControllerBase
         return DashboardView.From(dashboard);
     }
 
+    /// <summary>Renames a dashboard, and makes it the landing dashboard or stops it being one.</summary>
+    [HttpPatch("{id:int}")]
+    public async Task<ActionResult<DashboardView>> Edit(int id, [FromBody] DashboardEdit body, CancellationToken ct)
+    {
+        if (CheckName(body.Name) is { } problem)
+        {
+            return problem;
+        }
+
+        if (await db.Dashboards.FindAsync([id], ct) is not { } dashboard)
+        {
+            return NotFound();
+        }
+
+        // The old landing dashboard is cleared first, since the unique index refuses two at once.
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        if (body.IsLanding)
+        {
+            await db.Dashboards
+                .Where(d => d.Landing == true && d.Id != id)
+                .ExecuteUpdateAsync(set => set.SetProperty(d => d.Landing, (bool?)null), ct);
+        }
+
+        dashboard.Name = body.Name!.Trim();
+        dashboard.Landing = body.IsLanding ? true : null;
+        dashboard.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
+
+        return DashboardView.From(dashboard);
+    }
+
     [HttpDelete("{id:int}")]
     public async Task<IActionResult> Delete(int id, CancellationToken ct)
     {
@@ -113,6 +158,12 @@ public sealed class DashboardsController(ScryDbContext db) : ControllerBase
         db.Dashboards.Remove(dashboard);
         await db.SaveChangesAsync(ct);
         return NoContent();
+    }
+
+    private static int ChartCount(string widgets)
+    {
+        using var document = JsonDocument.Parse(widgets);
+        return document.RootElement.GetArrayLength();
     }
 
     private ObjectResult? CheckName(string? name) =>

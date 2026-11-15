@@ -34,12 +34,14 @@ public sealed class DatabaseTests
     }
 
     [Test]
-    public async Task Lists_each_database_with_the_settings_its_connector_asks_for()
+    public async Task Lists_CSV_then_each_database_with_its_description_and_settings()
     {
-        var databases = await _client.GetFromJsonAsync<JsonElement>("/databases");
+        var connectors = (await _client.GetFromJsonAsync<JsonElement>("/connectors")).EnumerateArray().ToList();
 
-        var fake = databases.EnumerateArray().Single();
-        fake.GetProperty("id").GetString().ShouldBe(FakeDatabase.Id);
+        connectors.Select(connector => connector.GetProperty("id").GetString()).ShouldBe(["csv", FakeDatabase.Id]);
+        connectors[0].GetProperty("description").GetString().ShouldNotBeNullOrWhiteSpace();
+        var fake = connectors[1];
+        fake.GetProperty("description").GetString().ShouldBe("Reads two tables the tests control.");
         fake.GetProperty("fields").EnumerateArray()
             .Select(field => (field.GetProperty("name").GetString(), field.GetProperty("kind").GetString()))
             .ShouldBe([("host", "Text"), ("password", "Secret")]);

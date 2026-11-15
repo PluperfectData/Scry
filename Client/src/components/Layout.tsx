@@ -6,7 +6,7 @@ import { NoticeStack } from './NoticeStack'
 import { Tooltip } from './Tooltip'
 
 const NAV = [
-  { to: '/', label: 'Dashboards' },
+  { to: '/dashboards', label: 'Dashboards' },
   { to: '/sources', label: 'Sources' },
 ]
 

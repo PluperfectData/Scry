@@ -1,13 +1,13 @@
-import { type FormEvent, useEffect, useState } from 'react'
-import { listDatabases, listSources, syncSource, uploadSource, type Database, type Source } from '../api'
+import { useEffect, useState } from 'react'
+import { listConnectors, listSources, syncSource, type Connector, type Source } from '../api'
+import { ConnectorGrid } from '../components/ConnectorGrid'
 import { DatabaseForm } from '../components/DatabaseForm'
 import { Modal } from '../components/Modal'
 import { Slideout } from '../components/Slideout'
 import { TableView } from '../components/TableView'
+import { Tooltip } from '../components/Tooltip'
+import { UploadForm } from '../components/UploadForm'
 import type { TableSettings } from '../dashboard'
-import { nameFrom, tooLarge } from '../sources'
-
-const DELIMITERS = ['Comma', 'Semicolon', 'Tab', 'Pipe']
 
 const PREVIEW_ROWS = 50
 
@@ -27,22 +27,20 @@ const previewOf = (source: Source): TableSettings => ({
 
 export function SourcesPage() {
   const [sources, setSources] = useState<Source[] | null>(null)
-  const [file, setFile] = useState<File | null>(null)
-  const [name, setName] = useState('')
-  const [delimiter, setDelimiter] = useState('Comma')
-  const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [previewing, setPreviewing] = useState<TableSettings | null>(null)
-  const [databases, setDatabases] = useState<Database[]>([])
+  const [connectors, setConnectors] = useState<Connector[]>([])
   const [adding, setAdding] = useState(false)
+  // The connector picked from the grid, whose form the slideout shows in place of the grid.
+  const [picked, setPicked] = useState<Connector | null>(null)
   const [syncing, setSyncing] = useState<number | null>(null)
 
   useEffect(() => {
     listSources()
       .then(setSources)
       .catch((e: Error) => setError(e.message))
-    listDatabases()
-      .then(setDatabases)
+    listConnectors()
+      .then(setConnectors)
       .catch((e: Error) => setError(e.message))
   }, [])
 
@@ -52,6 +50,16 @@ export function SourcesPage() {
         a.name.localeCompare(b.name),
       ),
     )
+
+  function close() {
+    setAdding(false)
+    setPicked(null)
+  }
+
+  function added(list: Source[]) {
+    keep(list)
+    close()
+  }
 
   async function sync(source: Source) {
     setSyncing(source.id)
@@ -66,94 +74,67 @@ export function SourcesPage() {
   }
 
   const origin = (source: Source) =>
-    source.fileName ?? `${databases.find((d) => d.id === source.connector)?.name ?? source.connector} table ${source.stream}`
-
-  // A file over the limit is refused here, since the API would hang up partway through it.
-  function choose(chosen: File | null) {
-    const refusal = chosen && tooLarge(chosen)
-    setError(refusal)
-    setFile(refusal ? null : chosen)
-    if (chosen && !refusal) setName(nameFrom(chosen.name))
-  }
-
-  async function upload(event: FormEvent) {
-    event.preventDefault()
-    if (!file) return
-    const form = event.currentTarget as HTMLFormElement
-    setUploading(true)
-    setError(null)
-    try {
-      keep([await uploadSource(name, file, delimiter)])
-      form.reset()
-      setFile(null)
-      setName('')
-    } catch (e) {
-      setError((e as Error).message)
-    } finally {
-      setUploading(false)
-    }
-  }
+    source.fileName ?? `${connectors.find((c) => c.id === source.connector)?.name ?? source.connector} table ${source.stream}`
 
   return (
     <div className="page">
-      <h1>Sources</h1>
-
-      <form className="form" onSubmit={upload}>
-        <label>
-          CSV file
-          <input type="file" accept=".csv,text/csv" onChange={(e) => choose(e.target.files?.[0] ?? null)} />
-        </label>
-        <label>
-          Name
-          <input value={name} onChange={(e) => setName(e.target.value)} required maxLength={63} pattern="[a-z][a-z0-9_]*" />
-        </label>
-        <label>
-          Delimiter
-          <select value={delimiter} onChange={(e) => setDelimiter(e.target.value)}>
-            {DELIMITERS.map((choice) => (
-              <option key={choice}>{choice}</option>
-            ))}
-          </select>
-        </label>
-        <button type="submit" disabled={uploading || !file}>
-          {uploading ? 'Uploading…' : 'Upload'}
-        </button>
-      </form>
-
-      {databases.length > 0 && (
-        <p>
-          <button type="button" className="secondary" onClick={() => setAdding(true)}>
-            Add a database
-          </button>
-        </p>
-      )}
+      <div className="title-row">
+        <h1>Sources</h1>
+        <div className="title-actions">
+          <Tooltip label="Add source">
+            <button type="button" className="icon-button emblem" onClick={() => setAdding(true)}>
+              <span className="sr-only">Add source</span>
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+              </svg>
+            </button>
+          </Tooltip>
+        </div>
+      </div>
 
       {error && <p className="error">{error}</p>}
 
       {sources === null ? (
         !error && <p className="muted">Loading…</p>
       ) : sources.length === 0 ? (
-        <p className="muted">No sources yet. Upload a CSV file or add a database to chart it.</p>
+        <p className="muted">No sources yet. Add a CSV file or a database to chart it.</p>
       ) : (
         <ul className="list cards">
           {sources.map((source) => (
             <li key={source.id}>
-              <h2>
-                <button type="button" className="link-button" onClick={() => setPreviewing(previewOf(source))}>
-                  {source.name}
-                </button>
-              </h2>
+              <div className="card-head">
+                <h2>
+                  <button type="button" className="link-button" onClick={() => setPreviewing(previewOf(source))}>
+                    {source.name}
+                  </button>
+                </h2>
+                {source.connector && (
+                  <Tooltip label={syncing === source.id ? 'Syncing…' : 'Sync now'}>
+                    <button
+                      type="button"
+                      className="widget-action"
+                      onClick={() => sync(source)}
+                      disabled={syncing === source.id}
+                      aria-label={syncing === source.id ? `Syncing ${source.name}…` : `Sync ${source.name} now`}
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" className={syncing === source.id ? 'spinning' : undefined}>
+                        <path
+                          d="M20 11a8 8 0 0 0-15.3-3.2M4 4v4h4M4 13a8 8 0 0 0 15.3 3.2M20 20v-4h-4"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    </button>
+                  </Tooltip>
+                )}
+              </div>
               <p className="muted">
                 {origin(source)}: {source.rowCount.toLocaleString()} rows, synced {new Date(source.syncedAt).toLocaleString()}
               </p>
               <p className="columns">{source.columns.map((column) => `${column.name} (${column.type})`).join(', ')}</p>
-              {source.connector && (
-                <p>
-                  <button type="button" className="quiet" onClick={() => sync(source)} disabled={syncing === source.id}>
-                    {syncing === source.id ? 'Syncing…' : 'Sync now'}
-                  </button>
-                </p>
-              )}
             </li>
           ))}
         </ul>
@@ -167,16 +148,22 @@ export function SourcesPage() {
         {previewing && <TableView table={previewing} />}
       </Modal>
 
-      <Slideout open={adding} title="Add a database" onClose={() => setAdding(false)}>
-        {databases.length > 0 && (
-          <DatabaseForm
-            databases={databases}
-            onAdded={(added) => {
-              keep(added)
-              setAdding(false)
-            }}
-            onCancel={() => setAdding(false)}
-          />
+      <Slideout open={adding} title={picked ? `Add ${picked.name}` : 'Add a source'} onClose={close}>
+        {picked === null ? (
+          <ConnectorGrid connectors={connectors} onPick={setPicked} />
+        ) : (
+          <>
+            <p>
+              <button type="button" className="link-button" onClick={() => setPicked(null)}>
+                All connectors
+              </button>
+            </p>
+            {picked.id === 'csv' ? (
+              <UploadForm onUploaded={(source) => added([source])} onCancel={close} />
+            ) : (
+              <DatabaseForm key={picked.id} database={picked} onAdded={added} onCancel={close} />
+            )}
+          </>
         )}
       </Slideout>
     </div>

@@ -32,8 +32,12 @@ parent directory.
 | Route | Does |
 |---|---|
 | `GET /health` | Answers `{"status": "ok"}` |
-| `GET /sources` | Lists sources: name, file, columns and their types, row count, sync time |
+| `GET /sources` | Lists sources: name, the file or the database table the rows come from, columns and their types, row count, sync time |
 | `POST /sources` | Form fields `name`, `file`, and optional `delimiter`. Syncs the file through Nexus into a table named `name`. |
+| `POST /sources/{id}/sync` | Copies a database table's rows into its source again. An uploaded file answers 400; upload it again instead. |
+| `GET /connectors` | Lists the connectors a source can come from, CSV first and then each database: id, name, description, and the settings its Nexus connector asks for |
+| `POST /databases/tables` | From `{"connector": "...", "settings": {...}}`, connects and lists the database's tables. Nothing is kept. A failed connection answers 400 with the reason. |
+| `POST /databases` | From `{"connector", "settings", "tables": [{"table": "...", "name": "..."}]}`, keeps the connection with its settings encrypted and syncs each table into a source named `name`. A failure saves no source and no connection. |
 | `GET /sources/{id}/series?x=&y=&aggregate=` | `[x, y]`: `y` aggregated per value of `x`, in `x` order, for bar, pictorial bar, line, area, pie, funnel, and region map charts |
 | `GET /sources/{id}/links?from=&to=&y=&aggregate=` | `[from, to, y]`: `y` aggregated per pair of ends, both as text, for Sankey, network graph, and chord charts. A row whose ends match is left out. |
 | `GET /sources/{id}/values?columns=` | `[value, ...]`: 1 to 12 number columns, repeated, one row per source row with all of them filled in, for parallel coordinates and flow maps |
@@ -47,8 +51,9 @@ parent directory.
 | `GET /sources/{id}/points?x=&y=` | `[x, y]`, one per row, for a scatter chart. `x` is a number or a time. |
 | `GET /sources/{id}/candles?x=&open=&high=&low=&close=` | `[x, open, close, low, high]`, one per row, in `x` order |
 | `GET /sources/{id}/rows?columns=&sort=&direction=&count=&offset=&limit=` | `limit` rows, 1 to 1,000, from `offset`, of the chosen columns, repeated, or every column, as text, with the source's `total` row count. Sorted by `sort` in `direction` (`asc` or `desc`) with blanks last, or in source order without `sort`. With `count=true`, rows matching in every shown column become one, with a last column, Count; it sorts by `sort=__scry_count` or a shown column, and by the count, highest first, without `sort`. |
-| `GET`, `POST /dashboards` | Lists, or creates from `{"name": "..."}` |
+| `GET`, `POST /dashboards` | Lists each dashboard's name, `chartCount`, and `isLanding`, or creates one from `{"name": "..."}` |
 | `GET`, `PUT`, `DELETE /dashboards/{id}` | Reads, replaces `name`, `layouts`, and `widgets`, or deletes |
+| `PATCH /dashboards/{id}` | From `{"name": "...", "isLanding": true}`, renames the dashboard and makes it the landing dashboard, clearing any other, or with `false` stops it being one |
 
 - A source name starts with a lowercase letter and holds lowercase letters, digits, and underscores, 63 at most.
   A taken name answers 409. The file can be up to 1 GB.
@@ -67,7 +72,7 @@ parent directory.
 | Setting | Default |
 |---|---|
 | `ConnectionStrings:Scry` | Required: a MySQL connection string |
-| `Scry:DataDirectory` | `data`, beside the API. Uploads and `workspaces/default/data.duckdb` live here. |
+| `Scry:DataDirectory` | `data`, beside the API. Uploads, `workspaces/default/data.duckdb`, and `keys`, the keys that encrypt stored connections, live here. |
 | `Scry:ClientOrigin` | `http://localhost:6160`, the one origin CORS allows |
 
 ## Run it

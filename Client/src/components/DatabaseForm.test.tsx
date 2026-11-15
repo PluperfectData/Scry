@@ -1,41 +1,36 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { ApiError, addDatabaseSources, listTables, type Database } from '../api'
+import { ApiError, addDatabaseSources, listTables, type Connector } from '../api'
 import { DatabaseForm } from './DatabaseForm'
 
 jest.mock('../api', () => ({ ...jest.requireActual('../api'), listTables: jest.fn(), addDatabaseSources: jest.fn() }))
 
-const databases: Database[] = [
-  {
-    id: 'postgres',
-    name: 'PostgreSQL',
-    fields: [
-      { name: 'host', label: 'Host', kind: 'Text', required: true, choices: null },
-      { name: 'port', label: 'Port', kind: 'Number', required: false, choices: null },
-      { name: 'password', label: 'Password', kind: 'Secret', required: false, choices: null },
-      { name: 'tls', label: 'TLS', kind: 'Choice', required: false, choices: ['Disable', 'Require'] },
-    ],
-  },
-  { id: 'mysql', name: 'MySQL', fields: [{ name: 'host', label: 'Host', kind: 'Text', required: true, choices: null }] },
-]
+const postgres: Connector = {
+  id: 'postgres',
+  name: 'PostgreSQL',
+  description: 'Reads tables from a PostgreSQL database.',
+  fields: [
+    { name: 'host', label: 'Host', kind: 'Text', required: true, choices: null },
+    { name: 'port', label: 'Port', kind: 'Number', required: false, choices: null },
+    { name: 'password', label: 'Password', kind: 'Secret', required: false, choices: null },
+    { name: 'tls', label: 'TLS', kind: 'Choice', required: false, choices: ['Disable', 'Require'] },
+  ],
+}
 
 function renderForm() {
   const onAdded = jest.fn()
-  render(<DatabaseForm databases={databases} onAdded={onAdded} onCancel={jest.fn()} />)
+  render(<DatabaseForm database={postgres} onAdded={onAdded} onCancel={jest.fn()} />)
   return { onAdded }
 }
 
 beforeEach(() => jest.clearAllMocks())
 
-it("asks for the chosen database's own settings, masking a secret", async () => {
+it("asks for the database's own settings, masking a secret", () => {
   renderForm()
 
   expect(screen.getByLabelText('Password')).toHaveAttribute('type', 'password')
   expect(screen.getByLabelText('Port')).toHaveAttribute('type', 'number')
   expect(screen.getByLabelText('TLS')).toHaveValue('')
-
-  await userEvent.selectOptions(screen.getByLabelText('Database'), 'mysql')
-  expect(screen.queryByLabelText('Password')).not.toBeInTheDocument()
 })
 
 it('lists the tables, then adds the ones picked under the names given them', async () => {
