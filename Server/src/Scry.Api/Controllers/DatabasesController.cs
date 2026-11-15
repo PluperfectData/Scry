@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Nexus;
-using Scry.Api.Data;
+using Scry.Api.Storage;
 
 namespace Scry.Api.Controllers;
 
@@ -63,26 +63,10 @@ public sealed class DatabasesController(
             return UnknownConnector(request.Connector);
         }
 
-        if (request.Tables.Count == 0)
-        {
-            return Problem("Choose at least one table.", statusCode: StatusCodes.Status400BadRequest);
-        }
-
         var names = request.Tables.Select(choice => choice.Name.Trim()).ToList();
-        if (names.FirstOrDefault(name => !Source.IsValidName(name)) is { } invalid)
+        if (await SourceNames.CheckAsync(db, names, "table", ct) is { } problem)
         {
-            return Problem($"'{invalid}': {Source.NameRule}", statusCode: StatusCodes.Status400BadRequest);
-        }
-
-        if (names.GroupBy(name => name).FirstOrDefault(group => group.Count() > 1) is { } repeated)
-        {
-            return Problem($"Two tables are both named '{repeated.Key}'.", statusCode: StatusCodes.Status400BadRequest);
-        }
-
-        if (await db.Sources.Where(source => names.Contains(source.Name)).Select(source => source.Name).FirstOrDefaultAsync(ct)
-            is { } taken)
-        {
-            return Problem($"A source named '{taken}' already exists.", statusCode: StatusCodes.Status409Conflict);
+            return Problem(problem.Detail, statusCode: problem.Status);
         }
 
         var connection = new Connection

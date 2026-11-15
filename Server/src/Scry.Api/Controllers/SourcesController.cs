@@ -2,7 +2,7 @@ using System.Globalization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Nexus;
-using Scry.Api.Data;
+using Scry.Api.Storage;
 
 namespace Scry.Api.Controllers;
 
@@ -17,8 +17,9 @@ public sealed class SourceUpload
     public string? Delimiter { get; set; }
 }
 
-/// <summary>A source: an uploaded file, with its <paramref name="FileName"/>, or a database table, with the
-/// <paramref name="Connector"/> that reads it and its <paramref name="Stream"/> name there.</summary>
+/// <summary>A source: an uploaded file, with its <paramref name="FileName"/>, or a connection's stream, with the
+/// <paramref name="Connector"/> that reads it and its <paramref name="Stream"/> name there. <paramref name="Status"/>
+/// and <paramref name="Error"/> say how its last sync went.</summary>
 public sealed record SourceView(
     int Id,
     string Name,
@@ -27,7 +28,9 @@ public sealed record SourceView(
     string? Stream,
     IReadOnlyList<ColumnInfo> Columns,
     long RowCount,
-    DateTime SyncedAt)
+    DateTime? SyncedAt,
+    SourceStatus Status,
+    string? Error)
 {
     public static SourceView From(Source source) => new(
         source.Id,
@@ -37,7 +40,9 @@ public sealed record SourceView(
         source.Stream,
         ColumnInfo.Deserialize(source.Columns),
         source.RowCount,
-        source.SyncedAt);
+        source.SyncedAt,
+        source.Status,
+        source.Error);
 }
 
 /// <summary>
@@ -58,11 +63,7 @@ public sealed class SourceJoin
 
 [ApiController]
 [Route("sources")]
-public sealed class SourcesController(
-    ScryDbContext db,
-    Workspace workspace,
-    DatabaseConnectors connectors,
-    ConnectionSecrets secrets) : ControllerBase
+public sealed class SourcesController(ScryDbContext db, Workspace workspace, SourceSync sync) : ControllerBase
 {
     [HttpGet]
     public async Task<IEnumerable<SourceView>> List(CancellationToken ct) =>
@@ -75,7 +76,7 @@ public sealed class SourcesController(
             ? SourceView.From(source)
             : NotFound();
 
-    /// <summary>Copies a database table into DuckDB again. An uploaded file syncs once, when it is uploaded.</summary>
+    /// <summary>Copies a connection's stream into DuckDB again. An uploaded file syncs once, when it is uploaded.</summary>
     [HttpPost("{id:int}/sync")]
     public async Task<ActionResult<SourceView>> Sync(int id, CancellationToken ct)
     {
@@ -84,33 +85,27 @@ public sealed class SourcesController(
             return NotFound();
         }
 
-        if (source.Connection is not { } connection || source.Stream is not { } stream)
+        if (source.Connection is null || source.Stream is null)
         {
             return Problem(
                 "An uploaded file syncs once, when it is uploaded. Upload it again to refresh it.",
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
-        if (connectors.Find(connection.Connector) is not { } connector)
+        if (source.Status == SourceStatus.Syncing)
         {
-            return Problem($"'{connection.Connector}' is not a database Scry reads.", statusCode: StatusCodes.Status400BadRequest);
+            return Problem($"{source.Name} is syncing already.", statusCode: StatusCodes.Status409Conflict);
         }
 
-        SyncResult result;
         try
         {
-            result = await workspace.SyncAsync(
-                connector, new ConnectorConfig(secrets.Unprotect(connection.Settings)), stream, source.Name, ct);
+            await sync.RunAsync(source, ct);
         }
         catch (ConnectorException ex)
         {
             return this.ConnectorProblem(ex);
         }
 
-        source.Columns = ColumnInfo.Serialize(result.Columns);
-        source.RowCount = result.RowCount;
-        source.SyncedAt = DateTime.UtcNow;
-        await db.SaveChangesAsync(ct);
         return SourceView.From(source);
     }
 

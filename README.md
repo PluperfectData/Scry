@@ -32,9 +32,13 @@ parent directory.
 | Route | Does |
 |---|---|
 | `GET /health` | Answers `{"status": "ok"}` |
-| `GET /sources` | Lists sources: name, the file or the database table the rows come from, columns and their types, row count, sync time |
+| `GET /sources` | Lists sources: name, the file or the connection's stream the rows come from, columns and their types, row count, sync time, and `status` (`Ready`, `Syncing`, `Failed`, or `SignInNeeded`) with any `error` |
 | `POST /sources` | Form fields `name`, `file`, and optional `delimiter`. Syncs the file through Nexus into a table named `name`. |
-| `POST /sources/{id}/sync` | Copies a database table's rows into its source again. An uploaded file answers 400; upload it again instead. |
+| `POST /sources/{id}/sync` | Copies a connection's stream into its source again. An uploaded file answers 400; upload it again instead. A source syncing in the background answers 409. |
+| `POST /sources/{id}/sign-in` | For a Schwab source, starts a sign-in that renews its connection's, and answers `{"url"}`: Schwab's sign-in page |
+| `GET /schwab/streams` | Lists the streams a Schwab connection offers. Needs no sign-in. |
+| `POST /schwab/sign-in` | From `{"settings", "streams": [{"table": "balances", "name": "..."}]}`, checks the names and answers `{"url"}`: Schwab's sign-in page, which returns to the callback |
+| `GET /schwab/callback?code=&state=` | Where Schwab sends the browser after its sign-in. Keeps the tokens encrypted, queues each picked stream to copy in the background, and sends the browser to the client's Sources page, with `error` when the sign-in failed. |
 | `GET /connectors` | Lists the connectors a source can come from, CSV first and then each database: id, name, description, and the settings its Nexus connector asks for |
 | `POST /databases/tables` | From `{"connector": "...", "settings": {...}}`, connects and lists the database's tables. Nothing is kept. A failed connection answers 400 with the reason. |
 | `POST /databases` | From `{"connector", "settings", "tables": [{"table": "...", "name": "..."}]}`, keeps the connection with its settings encrypted and syncs each table into a source named `name`. A failure saves no source and no connection. |
@@ -73,7 +77,9 @@ parent directory.
 |---|---|
 | `ConnectionStrings:Scry` | Required: a MySQL connection string |
 | `Scry:DataDirectory` | `data`, beside the API. Uploads, `workspaces/default/data.duckdb`, and `keys`, the keys that encrypt stored connections, live here. |
-| `Scry:ClientOrigin` | `http://localhost:6160`, the one origin CORS allows |
+| `Scry:ClientOrigin` | `http://localhost:6160`, the one origin CORS allows, and where the Schwab callback sends the browser |
+| `Schwab:AppKey`, `Schwab:AppSecret` | The key and secret of your Schwab app. Without both, the Schwab form says to set them. |
+| `Schwab:CallbackUrl` | `https://127.0.0.1:6162/schwab/callback`, which must match the app's callback on Schwab's developer portal exactly |
 
 ## Run it
 
@@ -93,8 +99,20 @@ npm --prefix Client install
 npm --prefix Client run dev
 ```
 
-The API listens on `http://localhost:6161` and the client on `http://localhost:6160`. The client reads the
-API's address from `VITE_API_URL`, set in `Client/.env.development`.
+The API listens on `http://localhost:6161`, and on `https://127.0.0.1:6162` for Schwab's callback, with the .NET
+development certificate. The client listens on `http://localhost:6160` and reads the API's address from
+`VITE_API_URL`, set in `Client/.env.development`.
+
+To add Schwab sources, set the app's key and secret, and register `https://127.0.0.1:6162/schwab/callback` as the
+app's callback on Schwab's developer portal:
+
+```bash
+dotnet user-secrets set Schwab:AppKey "<app key>" --project Server/src/Scry.Api
+```
+
+```bash
+dotnet user-secrets set Schwab:AppSecret "<app secret>" --project Server/src/Scry.Api
+```
 
 ## Build
 

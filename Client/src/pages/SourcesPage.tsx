@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
-import { listConnectors, listSources, syncSource, type Connector, type Source } from '../api'
+import { listConnectors, listSources, signInAgain, syncSource, type Connector, type Source } from '../api'
+import { leaveFor } from '../browser'
 import { ConnectorGrid } from '../components/ConnectorGrid'
 import { DatabaseForm } from '../components/DatabaseForm'
 import { Modal } from '../components/Modal'
+import { SchwabForm } from '../components/SchwabForm'
 import { Slideout } from '../components/Slideout'
 import { TableView } from '../components/TableView'
 import { Tooltip } from '../components/Tooltip'
@@ -10,6 +12,16 @@ import { UploadForm } from '../components/UploadForm'
 import type { TableSettings } from '../dashboard'
 
 const PREVIEW_ROWS = 50
+
+// How often the list is read again while a source syncs in the background.
+const POLL_MS = 2000
+
+const progress = (source: Source) =>
+  source.status === 'Syncing'
+    ? 'syncing…'
+    : source.syncedAt === null
+      ? 'not synced yet'
+      : `${source.rowCount.toLocaleString()} rows, synced ${new Date(source.syncedAt).toLocaleString()}`
 
 /** A source's every column, in source order, a page at a time: a table as a chart would show it, unsaved. */
 const previewOf = (source: Source): TableSettings => ({
@@ -27,7 +39,8 @@ const previewOf = (source: Source): TableSettings => ({
 
 export function SourcesPage() {
   const [sources, setSources] = useState<Source[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  // A sign-in that failed comes back to this page with its reason in the address.
+  const [error, setError] = useState<string | null>(() => new URLSearchParams(window.location.search).get('error'))
   const [previewing, setPreviewing] = useState<TableSettings | null>(null)
   const [connectors, setConnectors] = useState<Connector[]>([])
   const [adding, setAdding] = useState(false)
@@ -42,7 +55,21 @@ export function SourcesPage() {
     listConnectors()
       .then(setConnectors)
       .catch((e: Error) => setError(e.message))
+    if (new URLSearchParams(window.location.search).has('error')) {
+      window.history.replaceState(window.history.state, '', window.location.pathname)
+    }
   }, [])
+
+  const anySyncing = sources?.some((source) => source.status === 'Syncing') ?? false
+  useEffect(() => {
+    if (!anySyncing) return
+    const timer = setInterval(() => {
+      listSources()
+        .then(setSources)
+        .catch((e: Error) => setError(e.message))
+    }, POLL_MS)
+    return () => clearInterval(timer)
+  }, [anySyncing])
 
   const keep = (added: Source[]) =>
     setSources((list) =>
@@ -61,20 +88,36 @@ export function SourcesPage() {
     close()
   }
 
+  // A failed sync is recorded on its source, so the card shows it; anything else shows over the list.
   async function sync(source: Source) {
     setSyncing(source.id)
     setError(null)
     try {
       keep([await syncSource(source.id)])
     } catch (e) {
-      setError((e as Error).message)
+      const list = await listSources().catch(() => null)
+      if (list) setSources(list)
+      const recorded = list?.find((s) => s.id === source.id)
+      if (recorded?.status !== 'Failed' && recorded?.status !== 'SignInNeeded') setError((e as Error).message)
     } finally {
       setSyncing(null)
     }
   }
 
-  const origin = (source: Source) =>
-    source.fileName ?? `${connectors.find((c) => c.id === source.connector)?.name ?? source.connector} table ${source.stream}`
+  async function renew(source: Source) {
+    setError(null)
+    try {
+      leaveFor((await signInAgain(source.id)).url)
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+
+  const origin = (source: Source) => {
+    if (source.fileName) return source.fileName
+    const name = connectors.find((c) => c.id === source.connector)?.name ?? source.connector
+    return `${name} ${source.connector === 'schwab' ? 'stream' : 'table'} ${source.stream}`
+  }
 
   return (
     <div className="page">
@@ -108,7 +151,7 @@ export function SourcesPage() {
                     {source.name}
                   </button>
                 </h2>
-                {source.connector && (
+                {source.connector && source.status !== 'Syncing' && source.status !== 'SignInNeeded' && (
                   <Tooltip label={syncing === source.id ? 'Syncing…' : 'Sync now'}>
                     <button
                       type="button"
@@ -132,8 +175,16 @@ export function SourcesPage() {
                 )}
               </div>
               <p className="muted">
-                {origin(source)}: {source.rowCount.toLocaleString()} rows, synced {new Date(source.syncedAt).toLocaleString()}
+                {origin(source)}: {progress(source)}
               </p>
+              {source.error && <p className="error">{source.error}</p>}
+              {source.status === 'SignInNeeded' && (
+                <p>
+                  <button type="button" className="secondary" onClick={() => renew(source)}>
+                    Sign in again
+                  </button>
+                </p>
+              )}
               <p className="columns">{source.columns.map((column) => `${column.name} (${column.type})`).join(', ')}</p>
             </li>
           ))}
@@ -160,6 +211,8 @@ export function SourcesPage() {
             </p>
             {picked.id === 'csv' ? (
               <UploadForm onUploaded={(source) => added([source])} onCancel={close} />
+            ) : picked.id === 'schwab' ? (
+              <SchwabForm connector={picked} onCancel={close} />
             ) : (
               <DatabaseForm key={picked.id} database={picked} onAdded={added} onCancel={close} />
             )}

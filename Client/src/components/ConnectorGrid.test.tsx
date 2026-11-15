@@ -4,9 +4,9 @@ import type { Connector } from '../api'
 import { ConnectorGrid } from './ConnectorGrid'
 
 const connectors: Connector[] = [
-  { id: 'csv', name: 'CSV', description: 'Reads a delimited text file.', fields: [] },
-  { id: 'postgres', name: 'PostgreSQL', description: 'Reads tables from a PostgreSQL database.', fields: [] },
-  { id: 'schwab', name: 'Charles Schwab', description: 'Reads a Schwab sign-in.', fields: [] },
+  { id: 'csv', name: 'CSV', description: 'Reads a delimited text file.', fields: [], needs: [] },
+  { id: 'postgres', name: 'PostgreSQL', description: 'Reads tables from a PostgreSQL database.', fields: [], needs: [] },
+  { id: 'schwab', name: 'Charles Schwab', description: 'Reads a Schwab sign-in.', fields: [], needs: [] },
 ]
 
 it('shows each connector with its description, on the tint of its kind', () => {

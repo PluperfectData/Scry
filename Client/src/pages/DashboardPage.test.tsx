@@ -55,6 +55,8 @@ const orders: Source = {
   columns: [{ name: 'day', type: 'Date' }, { name: 'amount', type: 'Int64' }],
   rowCount: 3,
   syncedAt: '2026-11-13T12:00:00Z',
+  status: 'Ready',
+  error: null,
 }
 
 const sales = (widgets: Widget[], layouts: Dashboard['layouts']): Dashboard => ({

@@ -25,6 +25,9 @@ export interface Column {
 }
 
 /** An uploaded file, with its `fileName`, or a database table, with the `connector` that reads it and its `stream` name there. */
+/** How a source's last sync went. `SignInNeeded` means the service ended the sign-in it syncs with. */
+export type SourceStatus = 'Ready' | 'Syncing' | 'Failed' | 'SignInNeeded'
+
 export interface Source {
   id: number
   name: string
@@ -33,7 +36,11 @@ export interface Source {
   stream: string | null
   columns: Column[]
   rowCount: number
-  syncedAt: string
+  /** When the last sync finished; null until the first one has. */
+  syncedAt: string | null
+  status: SourceStatus
+  /** Why the last sync failed, when it did. */
+  error: string | null
 }
 
 /** One setting a Nexus connector asks for. */
@@ -45,12 +52,14 @@ export interface SettingField {
   choices: string[] | null
 }
 
-/** A Nexus connector a source can come from: CSV, or a database. */
+/** A Nexus connector a source can come from: CSV, a database, or Schwab. */
 export interface Connector {
   id: string
   name: string
   description: string
   fields: SettingField[]
+  /** The settings this connector requires that Scry lacks, by their configuration names. */
+  needs: string[]
 }
 
 /** A table a database offers, by its connector's name for it, such as `public.orders`. */
@@ -140,8 +149,18 @@ export const listTables = (connector: string, settings: Settings) =>
 export const addDatabaseSources = (connector: string, settings: Settings, tables: { table: string; name: string }[]) =>
   request<Source[]>('/databases', json('POST', { connector, settings, tables }))
 
-/** Copies a database table's source again. */
+/** Copies a connection's stream into its source again. */
 export const syncSource = (id: number) => request<Source>(`/sources/${id}/sync`, { method: 'POST' })
+
+/** The streams a Schwab connection offers, by name; listing them needs no sign-in. */
+export const listSchwabStreams = () => request<DatabaseTable[]>('/schwab/streams')
+
+/** Starts a Schwab sign-in for a new connection, and returns Schwab's sign-in page for the browser to go to. */
+export const startSchwabSignIn = (settings: Settings, streams: { table: string; name: string }[]) =>
+  request<{ url: string }>('/schwab/sign-in', json('POST', { settings, streams }))
+
+/** Starts a sign-in that renews the one a Schwab source's connection holds. */
+export const signInAgain = (id: number) => request<{ url: string }>(`/sources/${id}/sign-in`, { method: 'POST' })
 
 export function uploadSource(name: string, file: File, delimiter: string): Promise<Source> {
   const form = new FormData()

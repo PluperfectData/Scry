@@ -7,7 +7,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using NUnit.Framework;
-using Scry.Api.Data;
+using Scry.Api.Storage;
 using Shouldly;
 
 namespace Scry.Api.Tests;

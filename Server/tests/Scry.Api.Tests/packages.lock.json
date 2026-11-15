@@ -718,6 +718,12 @@
           "Npgsql": "[10.0.3, )"
         }
       },
+      "nexus.schwab": {
+        "type": "Project",
+        "dependencies": {
+          "Nexus.Abstractions": "[1.0.0, )"
+        }
+      },
       "nexus.sql": {
         "type": "Project",
         "dependencies": {
@@ -742,6 +748,7 @@
           "Nexus.DuckDb": "[1.0.0, )",
           "Nexus.MySql": "[1.0.0, )",
           "Nexus.Postgres": "[1.0.0, )",
+          "Nexus.Schwab": "[1.0.0, )",
           "Nexus.SqlServer": "[1.0.0, )",
           "Pomelo.EntityFrameworkCore.MySql": "[9.0.0, )"
         }

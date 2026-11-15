@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Text.Json;
 using DuckDB.NET.Data;
 using Nexus;
 using Nexus.Csv;
@@ -6,7 +7,8 @@ using Nexus.DuckDb;
 
 namespace Scry.Api;
 
-public sealed record SyncResult(IReadOnlyList<ColumnInfo> Columns, long RowCount);
+/// <summary>A synced table's columns and row count, and the connector's last checkpoint.</summary>
+public sealed record SyncResult(IReadOnlyList<ColumnInfo> Columns, long RowCount, JsonElement? State);
 
 /// <summary>The one built-in workspace: its uploads and its DuckDB file. Every DuckDB access takes one lock.</summary>
 public sealed class Workspace : IDisposable
@@ -46,18 +48,30 @@ public sealed class Workspace : IDisposable
     /// Reads all of <paramref name="stream"/> from <paramref name="source"/> through Nexus and replaces
     /// <paramref name="table"/> with it.
     /// </summary>
+    public Task<SyncResult> SyncAsync(ISourceConnector source, ConnectorConfig config, string stream, string table, CancellationToken ct) =>
+        SyncAsync(source, config, stream, table, SyncMode.FullRefresh, null, null, ct);
+
+    /// <summary>
+    /// Reads <paramref name="stream"/> from <paramref name="source"/> through Nexus into <paramref name="table"/>. A full
+    /// refresh replaces the table; an incremental read starts from <paramref name="state"/> and merges into it by the
+    /// stream's primary key. Tokens the connector refreshes go to <paramref name="saveTokens"/> as they come.
+    /// </summary>
     public async Task<SyncResult> SyncAsync(
         ISourceConnector source,
         ConnectorConfig config,
         string stream,
         string table,
+        SyncMode mode,
+        JsonElement? state,
+        Func<OAuthTokens, Task>? saveTokens,
         CancellationToken ct)
     {
         var destinationConfig = new ConnectorConfig(
             new Dictionary<string, string?> { [DuckDbDestination.PathSetting] = Database });
 
         StreamSpec? spec = null;
-        long rows = 0;
+        JsonElement? checkpoint = null;
+        long rows;
 
         // The table is named for the Scry source, not for the stream, which may be a database's schema.table.
         async IAsyncEnumerable<SyncMessage> Renamed(IAsyncEnumerable<SyncMessage> messages)
@@ -71,11 +85,14 @@ public sealed class Workspace : IDisposable
                         yield return new SchemaMessage(spec);
                         break;
                     case RecordBatch batch when batch.Stream == stream:
-                        rows += batch.Rows.Count;
                         yield return batch with { Stream = table };
                         break;
-                    case StateCheckpoint checkpoint when checkpoint.Stream == stream:
-                        yield return checkpoint with { Stream = table };
+                    case StateCheckpoint read when read.Stream == stream:
+                        yield return read with { Stream = table };
+                        break;
+                    case CredentialsRefreshed refreshed when saveTokens is not null:
+                        await saveTokens(refreshed.Tokens);
+                        yield return message;
                         break;
                     default:
                         yield return message;
@@ -88,17 +105,29 @@ public sealed class Workspace : IDisposable
         try
         {
             Directory.CreateDirectory(Root);
-            var read = source.ReadAsync(config, new ReadRequest([new StreamSelection(stream, SyncMode.FullRefresh)]), ct);
+            var request = new ReadRequest(
+                [new StreamSelection(stream, mode)],
+                state is { } saved ? new Dictionary<string, JsonElement> { [stream] = saved } : null);
+            var read = source.ReadAsync(config, request, ct);
             var write = new DuckDbDestination().WriteAsync(
                 destinationConfig,
-                new WriteRequest(new Dictionary<string, WriteMode> { [table] = WriteMode.Overwrite }),
+                new WriteRequest(new Dictionary<string, WriteMode>
+                {
+                    [table] = mode == SyncMode.Incremental ? WriteMode.Upsert : WriteMode.Overwrite,
+                }),
                 Renamed(read),
                 ct);
 
-            // The destination commits as it yields checkpoints; only reaching the end matters here.
-            await foreach (var _ in write)
+            // The destination yields each checkpoint once it has committed the rows before it.
+            await foreach (var message in write)
             {
+                if (message is StateCheckpoint committed)
+                {
+                    checkpoint = committed.State.Clone();
+                }
             }
+
+            rows = spec is null ? 0 : await CountAsync(table, ct);
         }
         finally
         {
@@ -106,7 +135,18 @@ public sealed class Workspace : IDisposable
         }
 
         var written = spec ?? throw new InvalidOperationException($"The source sent no schema for {stream}.");
-        return new SyncResult(written.Columns.Select(column => new ColumnInfo(column.Name, column.Type)).ToList(), rows);
+        return new SyncResult(written.Columns.Select(column => new ColumnInfo(column.Name, column.Type)).ToList(), rows, checkpoint);
+    }
+
+    // An incremental sync adds to the table, so the rows it read are not the rows it holds.
+    [SuppressMessage("Security", "CA2100", Justification = "A source name holds only lowercase letters, digits, and underscores.")]
+    private async Task<long> CountAsync(string table, CancellationToken ct)
+    {
+        await using var connection = new DuckDBConnection($"Data Source={Database}");
+        await connection.OpenAsync(ct);
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"SELECT COUNT(*) FROM \"{table}\"";
+        return Convert.ToInt64(await command.ExecuteScalarAsync(ct), System.Globalization.CultureInfo.InvariantCulture);
     }
 
     /// <summary>Runs a query built by <see cref="ChartQueries"/> and returns at most <paramref name="limit"/> rows.</summary>

@@ -2,7 +2,7 @@ using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Scry.Api;
-using Scry.Api.Data;
+using Scry.Api.Storage;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -14,9 +14,18 @@ if (string.IsNullOrWhiteSpace(connectionString))
 }
 
 builder.Services.AddSingleton(settings);
+builder.Services.AddSingleton(builder.Configuration.GetSection(SchwabApp.Section).Get<SchwabApp>() ?? new SchwabApp());
 builder.Services.AddSingleton<Workspace>();
 builder.Services.AddSingleton(DatabaseConnectors.FromNexus());
+builder.Services.AddHttpClient(SchwabConnector.HttpClientName);
+builder.Services.AddSingleton<SchwabConnector>();
+builder.Services.AddSingleton<SourceConnectors>();
 builder.Services.AddSingleton<ConnectionSecrets>();
+builder.Services.AddMemoryCache();
+builder.Services.AddSingleton<SchwabSignIns>();
+builder.Services.AddScoped<SourceSync>();
+builder.Services.AddSingleton<PendingSyncs>();
+builder.Services.AddHostedService<SyncWorker>();
 // The keys that encrypt stored connections live with the workspace's files, outside the database they protect.
 builder.Services.AddDataProtection()
     .SetApplicationName("Scry")
@@ -36,6 +45,13 @@ using (var scope = app.Services.CreateScope())
     if (db.Database.IsMySql())
     {
         await db.Database.MigrateAsync();
+
+        // A background sync that a restart cut off starts again.
+        var queue = app.Services.GetRequiredService<PendingSyncs>();
+        foreach (var id in await db.Sources.Where(source => source.Status == SourceStatus.Syncing).Select(source => source.Id).ToListAsync())
+        {
+            queue.Enqueue(id);
+        }
     }
 }
 

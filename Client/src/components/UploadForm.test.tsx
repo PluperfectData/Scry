@@ -14,6 +14,8 @@ const uploaded: Source = {
   columns: [{ name: 'day', type: 'Date' }],
   rowCount: 3,
   syncedAt: '2026-11-13T12:00:00Z',
+  status: 'Ready',
+  error: null,
 }
 
 beforeEach(() => jest.clearAllMocks())

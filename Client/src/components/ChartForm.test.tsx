@@ -19,6 +19,8 @@ const orders: Source = {
   ],
   rowCount: 3,
   syncedAt: '2026-11-13T12:00:00Z',
+  status: 'Ready',
+  error: null,
 }
 
 const regions: Source = {
@@ -33,6 +35,8 @@ const regions: Source = {
   ],
   rowCount: 2,
   syncedAt: '2026-11-13T12:00:00Z',
+  status: 'Ready',
+  error: null,
 }
 
 const COMBINING = 'Sum adds them up, Average averages them, Minimum and Maximum keep the smallest or largest, and Count counts the rows.'

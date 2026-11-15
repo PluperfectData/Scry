@@ -15,6 +15,7 @@ const postgres: Connector = {
     { name: 'password', label: 'Password', kind: 'Secret', required: false, choices: null },
     { name: 'tls', label: 'TLS', kind: 'Choice', required: false, choices: ['Disable', 'Require'] },
   ],
+  needs: [],
 }
 
 function renderForm() {

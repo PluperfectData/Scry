@@ -6,7 +6,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using NUnit.Framework;
-using Scry.Api.Data;
+using Scry.Api.Storage;
 using Shouldly;
 
 namespace Scry.Api.Tests;
@@ -38,7 +38,7 @@ public sealed class DatabaseTests
     {
         var connectors = (await _client.GetFromJsonAsync<JsonElement>("/connectors")).EnumerateArray().ToList();
 
-        connectors.Select(connector => connector.GetProperty("id").GetString()).ShouldBe(["csv", FakeDatabase.Id]);
+        connectors.Select(connector => connector.GetProperty("id").GetString()).ShouldBe(["csv", FakeDatabase.Id, "schwab"]);
         connectors[0].GetProperty("description").GetString().ShouldNotBeNullOrWhiteSpace();
         var fake = connectors[1];
         fake.GetProperty("description").GetString().ShouldBe("Reads two tables the tests control.");
