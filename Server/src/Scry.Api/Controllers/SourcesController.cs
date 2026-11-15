@@ -17,15 +17,31 @@ public sealed class SourceUpload
     public string? Delimiter { get; set; }
 }
 
-/// <summary>A source: an uploaded file, with its <paramref name="FileName"/>, or a connection's stream, with the
-/// <paramref name="Connector"/> that reads it and its <paramref name="Stream"/> name there. <paramref name="Status"/>
-/// and <paramref name="Error"/> say how its last sync went.</summary>
+/// <summary>Where a source's rows come from.</summary>
+public enum SourceKind
+{
+    /// <summary>An uploaded file.</summary>
+    Upload,
+
+    /// <summary>A stream of a connection, such as a database table.</summary>
+    Connection,
+
+    /// <summary>Rows sent through the push API.</summary>
+    Push,
+}
+
+/// <summary>A source: an uploaded file, with its <paramref name="FileName"/>; a connection's stream, with the
+/// <paramref name="Connector"/> that reads it and its <paramref name="Stream"/> name there; or rows pushed with the key
+/// named <paramref name="PushedBy"/>, null once that key is revoked. <paramref name="Status"/> and
+/// <paramref name="Error"/> say how its last sync went.</summary>
 public sealed record SourceView(
     int Id,
     string Name,
+    SourceKind Kind,
     string? FileName,
     string? Connector,
     string? Stream,
+    string? PushedBy,
     IReadOnlyList<ColumnInfo> Columns,
     long RowCount,
     DateTime? SyncedAt,
@@ -35,9 +51,11 @@ public sealed record SourceView(
     public static SourceView From(Source source) => new(
         source.Id,
         source.Name,
+        source.Pushed ? SourceKind.Push : source.ConnectionId is null ? SourceKind.Upload : SourceKind.Connection,
         source.FileName,
         source.Connection?.Connector,
         source.Stream,
+        source.IngestKey?.Name,
         ColumnInfo.Deserialize(source.Columns),
         source.RowCount,
         source.SyncedAt,
@@ -67,12 +85,12 @@ public sealed class SourcesController(ScryDbContext db, Workspace workspace, Sou
 {
     [HttpGet]
     public async Task<IEnumerable<SourceView>> List(CancellationToken ct) =>
-        (await db.Sources.AsNoTracking().Include(source => source.Connection).OrderBy(source => source.Name).ToListAsync(ct))
+        (await db.Sources.AsNoTracking().Include(source => source.Connection).Include(source => source.IngestKey).OrderBy(source => source.Name).ToListAsync(ct))
         .Select(SourceView.From);
 
     [HttpGet("{id:int}")]
     public async Task<ActionResult<SourceView>> Get(int id, CancellationToken ct) =>
-        await db.Sources.Include(source => source.Connection).FirstOrDefaultAsync(source => source.Id == id, ct) is { } source
+        await db.Sources.Include(source => source.Connection).Include(source => source.IngestKey).FirstOrDefaultAsync(source => source.Id == id, ct) is { } source
             ? SourceView.From(source)
             : NotFound();
 
@@ -88,7 +106,9 @@ public sealed class SourcesController(ScryDbContext db, Workspace workspace, Sou
         if (source.Connection is null || source.Stream is null)
         {
             return Problem(
-                "An uploaded file syncs once, when it is uploaded. Upload it again to refresh it.",
+                source.Pushed
+                    ? "A pushed source gets its rows through the push API, so Scry has nothing to sync."
+                    : "An uploaded file syncs once, when it is uploaded. Upload it again to refresh it.",
                 statusCode: StatusCodes.Status400BadRequest);
         }
 

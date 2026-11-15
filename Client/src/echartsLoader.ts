@@ -54,7 +54,7 @@ const NEEDS = {
   funnel: ['funnel', 'tooltip'],
   scatter: ['scatter', 'grid', 'tooltip', 'zoomSlider'],
   ripple: ['effectScatter', 'grid', 'tooltip', 'zoomSlider'],
-  heatmap: ['heatmap', 'grid', 'tooltip', 'visualMap'],
+  heatmap: ['heatmap', 'grid', 'tooltip', 'visualMap', 'zoomSlider'],
   boxplot: ['boxplot', 'grid', 'tooltip', 'zoomSlider'],
   parallel: ['parallelChart', 'parallelAxes'],
   radar: ['radarChart', 'radarAxes', 'tooltip', 'legend'],

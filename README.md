@@ -58,6 +58,12 @@ parent directory.
 | `GET`, `POST /dashboards` | Lists each dashboard's name, `chartCount`, and `isLanding`, or creates one from `{"name": "..."}` |
 | `GET`, `PUT`, `DELETE /dashboards/{id}` | Reads, replaces `name`, `layouts`, and `widgets`, or deletes |
 | `PATCH /dashboards/{id}` | From `{"name": "...", "isLanding": true}`, renames the dashboard and makes it the landing dashboard, clearing any other, or with `false` stops it being one |
+| `GET`, `POST /keys` | Lists push API keys, each with the sources it writes, or makes one from `{"name": "..."}` and answers it with `key`, shown this once |
+| `DELETE /keys/{id}` | Revokes a key. Its sources stay, and no key writes to them. |
+| `PUT /ingest/sources/{name}` | Push API: makes a source from `{"columns": [{"name", "type"}], "primaryKey": [...]}`, or adds columns to one |
+| `POST /ingest/sources/{name}/batches` | Push API: from `{"id", "mode", "rows": [[...]]}`, appends the rows or merges them by the key, in one transaction; a batch id already written is skipped |
+| `POST /ingest/sources/{name}/replace` | Push API: starts a replacement, with new columns or the source's own; batches go to it until a commit |
+| `POST /ingest/sources/{name}/commit` | Push API: swaps a replacement in, and answers the source with its row count |
 
 - A source name starts with a lowercase letter and holds lowercase letters, digits, and underscores, 63 at most.
   A taken name answers 409. The file can be up to 1 GB.
@@ -71,6 +77,8 @@ parent directory.
   (`left`), the other (`right`), or both (`full`). Joined, columns are named for their source, as `orders.amount`,
   and source order is this source's, then the other's.
 - Errors are problem details, with a `detail` safe to show.
+- The push API's routes take a key as `Authorization: Bearer <key>`, and a key writes only to the sources it made.
+  The client's `/docs/push-api` page is the reference for people using it: column types, modes, limits, and answers.
 - The API applies its EF migrations at startup.
 
 | Setting | Default |

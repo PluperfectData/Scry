@@ -478,6 +478,27 @@ public sealed class ApiTests
     }
 
     [Test]
+    public async Task Editing_keeps_how_the_dashboard_scrolls_in_full_screen()
+    {
+        var sales = await CreateDashboard("Sales");
+
+        using var edited = await _client.PatchAsJsonAsync($"/dashboards/{sales}", new
+        {
+            name = "Sales",
+            isLanding = false,
+            presentation = new { scroll = true, wrap = "reverse", pace = "custom", seconds = 12 },
+        });
+        using var refused = await _client.PatchAsJsonAsync($"/dashboards/{sales}", new { name = "Sales", isLanding = false, presentation = "fast" });
+
+        edited.StatusCode.ShouldBe(HttpStatusCode.OK);
+        refused.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        var dashboard = await _client.GetFromJsonAsync<JsonElement>($"/dashboards/{sales}");
+        dashboard.GetProperty("presentation").GetProperty("seconds").GetInt32().ShouldBe(12);
+        var listed = (await _client.GetFromJsonAsync<JsonElement>("/dashboards")).EnumerateArray().Single();
+        listed.GetProperty("presentation").GetProperty("wrap").GetString().ShouldBe("reverse");
+    }
+
+    [Test]
     public async Task Editing_refuses_a_blank_name_and_a_missing_dashboard()
     {
         var sales = await CreateDashboard("Sales");

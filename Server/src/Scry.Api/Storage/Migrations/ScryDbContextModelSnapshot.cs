@@ -73,6 +73,9 @@ namespace Scry.Api.Storage.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("varchar(200)");
 
+                    b.Property<string>("Presentation")
+                        .HasColumnType("longtext");
+
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("datetime(6)");
 
@@ -86,6 +89,40 @@ namespace Scry.Api.Storage.Migrations
                         .IsUnique();
 
                     b.ToTable("dashboards", (string)null);
+                });
+
+            modelBuilder.Entity("Scry.Api.Storage.IngestKey", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Hash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<string>("Prefix")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("varchar(16)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Hash")
+                        .IsUnique();
+
+                    b.ToTable("ingest_keys", (string)null);
                 });
 
             modelBuilder.Entity("Scry.Api.Storage.Source", b =>
@@ -114,10 +151,22 @@ namespace Scry.Api.Storage.Migrations
                     b.Property<bool>("Incremental")
                         .HasColumnType("tinyint(1)");
 
+                    b.Property<int?>("IngestKeyId")
+                        .HasColumnType("int");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(63)
                         .HasColumnType("varchar(63)");
+
+                    b.Property<string>("PrimaryKey")
+                        .HasColumnType("longtext");
+
+                    b.Property<bool>("Pushed")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<string>("Replacement")
+                        .HasColumnType("longtext");
 
                     b.Property<long>("RowCount")
                         .HasColumnType("bigint");
@@ -145,6 +194,8 @@ namespace Scry.Api.Storage.Migrations
 
                     b.HasIndex("ConnectionId");
 
+                    b.HasIndex("IngestKeyId");
+
                     b.HasIndex("Name")
                         .IsUnique();
 
@@ -158,7 +209,14 @@ namespace Scry.Api.Storage.Migrations
                         .HasForeignKey("ConnectionId")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.HasOne("Scry.Api.Storage.IngestKey", "IngestKey")
+                        .WithMany()
+                        .HasForeignKey("IngestKeyId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.Navigation("Connection");
+
+                    b.Navigation("IngestKey");
                 });
 #pragma warning restore 612, 618
         }

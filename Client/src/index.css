@@ -19,6 +19,8 @@
   --header-control: rgb(255 255 255 / 0.4);
   --kind-file-bg: #ecfdf5;
   --kind-file-text: #047857;
+  --kind-api-bg: #f5f3ff;
+  --kind-api-text: #6d28d9;
   --kind-database-bg: #eff6ff;
   --kind-database-text: #1d4ed8;
   --kind-broker-bg: #fffbeb;
@@ -49,6 +51,8 @@
   --header-control: #3d4a6b;
   --kind-file-bg: #16241d;
   --kind-file-text: #7fb59a;
+  --kind-api-bg: #221b33;
+  --kind-api-text: #a99bd9;
   --kind-database-bg: #1b2438;
   --kind-database-text: #7c93c9;
   --kind-broker-bg: #2a2316;
@@ -184,7 +188,8 @@ h1 {
   display: none;
 }
 
-@media (max-width: 30rem) {
+/* The row of four links, the brand, and the header's buttons runs out of room near 34rem. */
+@media (max-width: 40rem) {
   .nav-toggle {
     display: inline-flex;
   }
@@ -536,6 +541,10 @@ button.quiet {
   min-height: 4rem;
 }
 
+.grid[data-fixed] .widget-header {
+  cursor: default;
+}
+
 /* While a chart is dragged, a line marks the canvas's top edge, which is as high as a chart can go. */
 .grid[data-dragging]::before {
   content: '';
@@ -692,6 +701,15 @@ button.quiet {
   flex: 1;
   min-height: 0;
   overflow: auto;
+}
+
+/* Presented, a list scrolls itself, so its scrollbar goes. */
+.table-wrap[data-presenting] {
+  scrollbar-width: none;
+}
+
+.table-wrap[data-presenting]::-webkit-scrollbar {
+  display: none;
 }
 
 .table-wrap table {
@@ -968,6 +986,11 @@ button.quiet {
   --kind-text: var(--kind-file-text);
 }
 
+.connector-icon[data-kind='api'] {
+  --kind-bg: var(--kind-api-bg);
+  --kind-text: var(--kind-api-text);
+}
+
 .connector-icon[data-kind='database'] {
   --kind-bg: var(--kind-database-bg);
   --kind-text: var(--kind-database-text);
@@ -1031,4 +1054,39 @@ button.quiet {
   .overlay[open] {
     animation: none;
   }
+}
+
+.docs {
+  max-width: 48rem;
+}
+
+.docs h2 {
+  margin-top: 2rem;
+}
+
+.docs pre {
+  overflow-x: auto;
+  padding: 0.75rem 1rem;
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  font-size: 0.85rem;
+}
+
+.docs-table {
+  overflow-x: auto;
+}
+
+.docs-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.docs-table th,
+.docs-table td {
+  padding: 0.4rem 0.75rem 0.4rem 0;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
 }

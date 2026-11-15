@@ -54,7 +54,7 @@ function axis(type: string, palette: Palette, extra: object = {}) {
   }
 }
 
-const GRID = { left: 56, right: 16, top: 16, bottom: 32 }
+export const GRID = { left: 56, right: 16, top: 16, bottom: 32 }
 
 /**
  * A number axis's scale: a set bound where there is one, log when chosen, and otherwise fitted to the data or, for
@@ -562,13 +562,15 @@ export function mapOption(series: Series, map: MapName, theme: Theme, name: stri
   return {
     ...base(palette),
     tooltip: { trigger: 'item' },
+    // The color slider stands at the left, beside the map rather than over it; the zoom slider has the right.
     visualMap: {
       min: values.length > 0 ? Math.min(...values) : 0,
       max: values.length > 0 ? Math.max(...values) : 0,
       calculable: true,
-      orient: 'horizontal',
-      left: 'center',
-      bottom: 0,
+      orient: 'vertical',
+      left: 0,
+      top: 'middle',
+      itemHeight: 120,
       inRange: { color: palette.heat },
       textStyle: { color: palette.muted },
     },
@@ -578,6 +580,10 @@ export function mapOption(series: Series, map: MapName, theme: Theme, name: stri
         // The map's tooltip is headed by this name, and shows the stand-in "series0" without one.
         name,
         map,
+        left: 72,
+        right: 8,
+        top: 8,
+        bottom: 8,
         ...(PROJECTED_MAPS.includes(map) && { projection: AS_DRAWN }),
         ...land(palette),
         data: series.points.map(([name, value]) => ({ name: String(name), value })),

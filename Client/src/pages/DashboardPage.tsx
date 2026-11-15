@@ -21,6 +21,8 @@ import {
   type Widget,
   type WidgetSettings,
 } from '../dashboard'
+import { useFullscreen } from '../fullscreen'
+import { DEFAULT_PRESENTATION, PresentationContext, type PresentationSettings } from '../presentation'
 import { useNotices } from '../notices'
 
 const SAVE_DELAY_MS = 600
@@ -35,6 +37,8 @@ export function DashboardPage() {
   // The chart open in the slideout: 'new' while adding one, null while the slideout is closed.
   const [editing, setEditing] = useState<Widget | 'new' | null>(null)
   const [renaming, setRenaming] = useState(false)
+  // In full screen the dashboard is read only: its name and charts, with nothing to edit, move, or resize.
+  const readOnly = useFullscreen()
   const changed = useRef(false)
 
   useEffect(() => {
@@ -82,9 +86,11 @@ export function DashboardPage() {
   }
 
   // Saved on its own rather than through the autosave, which a name change would otherwise wait on.
-  async function rename(name: string, isLanding: boolean) {
-    const saved = await editDashboard(id, name, isLanding)
-    setDashboard((current) => (current ? { ...current, name: saved.name, isLanding: saved.isLanding } : current))
+  async function rename(name: string, isLanding: boolean, presentation: PresentationSettings) {
+    const saved = await editDashboard(id, name, isLanding, presentation)
+    setDashboard((current) =>
+      current ? { ...current, name: saved.name, isLanding: saved.isLanding, presentation: saved.presentation } : current,
+    )
     setRenaming(false)
   }
 
@@ -95,45 +101,56 @@ export function DashboardPage() {
       layouts: removeWidget(current.layouts, widgetId),
     }))
 
+  const presentation = dashboard.presentation ?? DEFAULT_PRESENTATION
+  const titled = !readOnly || presentation.showTitle
+
   return (
     <>
-      <div className="page">
-        <div className="title-row">
-          <div className="title-name">
-            <h1>{dashboard.name}</h1>
-            <Tooltip label="Edit dashboard">
-              <button type="button" className="widget-action" onClick={() => setRenaming(true)} aria-label={`Edit ${dashboard.name}`}>
-                <PencilIcon />
-              </button>
-            </Tooltip>
-          </div>
-          {sources.length > 0 && (
-            <div className="title-actions">
-              <Tooltip label="Add chart">
-                <button type="button" className="icon-button emblem" onClick={() => setEditing('new')}>
-                  <span className="sr-only">Add chart</span>
-                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                    <path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
-                  </svg>
-                </button>
-              </Tooltip>
+      {(titled || sources.length === 0) && (
+        <div className="page">
+          {titled && (
+            <div className="title-row">
+              <div className="title-name">
+                <h1>{dashboard.name}</h1>
+                {!readOnly && (
+                  <Tooltip label="Edit dashboard">
+                    <button type="button" className="widget-action" onClick={() => setRenaming(true)} aria-label={`Edit ${dashboard.name}`}>
+                      <PencilIcon />
+                    </button>
+                  </Tooltip>
+                )}
+              </div>
+              {!readOnly && sources.length > 0 && (
+                <div className="title-actions">
+                  <Tooltip label="Add chart">
+                    <button type="button" className="icon-button emblem" onClick={() => setEditing('new')}>
+                      <span className="sr-only">Add chart</span>
+                      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+                      </svg>
+                    </button>
+                  </Tooltip>
+                </div>
+              )}
             </div>
           )}
+
+          {sources.length === 0 && (
+            <p className="muted">
+              <Link to="/sources">Upload a CSV file</Link> to chart it here.
+            </p>
+          )}
         </div>
+      )}
 
-        {sources.length === 0 && (
-          <p className="muted">
-            <Link to="/sources">Upload a CSV file</Link> to chart it here.
-          </p>
-        )}
-      </div>
-
-      <DashboardGrid
-        dashboard={dashboard}
-        onLayoutsChange={(layouts) => change((current) => ({ ...current, layouts }))}
-        onEdit={sources.length > 0 ? setEditing : undefined}
-        onRemove={remove}
-      />
+      <PresentationContext.Provider value={readOnly ? presentation : null}>
+        <DashboardGrid
+          dashboard={dashboard}
+          onLayoutsChange={(layouts) => change((current) => ({ ...current, layouts }))}
+          onEdit={!readOnly && sources.length > 0 ? setEditing : undefined}
+          onRemove={readOnly ? undefined : remove}
+        />
+      </PresentationContext.Provider>
 
       <Slideout open={editing !== null} title={editing === 'new' ? 'Add a chart' : 'Edit chart'} onClose={() => setEditing(null)}>
         <ChartForm
@@ -149,7 +166,8 @@ export function DashboardPage() {
           <DashboardForm
             name={dashboard.name}
             isLanding={dashboard.isLanding}
-            offerLanding
+            presentation={dashboard.presentation}
+            editing
             submitLabel="Save"
             onSave={rename}
             onCancel={() => setRenaming(false)}
@@ -169,13 +187,19 @@ function DashboardGrid({
   dashboard: Dashboard
   onLayoutsChange: (layouts: Layouts) => void
   onEdit?: (widget: Widget) => void
-  onRemove: (widgetId: string) => void
+  /** Removes a chart; without it, the grid is read only, and no chart moves or resizes. */
+  onRemove?: (widgetId: string) => void
 }) {
   const { width, containerRef, mounted } = useContainerWidth()
   const [dragging, setDragging] = useState(false)
 
   return (
-    <div ref={containerRef} className="grid" data-dragging={dragging ? '' : undefined}>
+    <div
+      ref={containerRef}
+      className="grid"
+      data-dragging={dragging ? '' : undefined}
+      data-fixed={onRemove === undefined ? '' : undefined}
+    >
       {mounted && (
         <Responsive
           width={width}
@@ -184,7 +208,8 @@ function DashboardGrid({
           layouts={dashboard.layouts}
           rowHeight={40}
           containerPadding={[0, 0]}
-          dragConfig={{ handle: '.widget-header', cancel: 'button' }}
+          dragConfig={{ enabled: onRemove !== undefined, handle: '.widget-header', cancel: 'button' }}
+          resizeConfig={{ enabled: onRemove !== undefined }}
           onDragStart={() => setDragging(true)}
           onDragStop={() => setDragging(false)}
           onLayoutChange={(_layout, all) => {
@@ -197,7 +222,7 @@ function DashboardGrid({
               <ChartWidget
                 widget={widget}
                 onEdit={onEdit && (() => onEdit(widget))}
-                onRemove={() => onRemove(widget.id)}
+                onRemove={onRemove && (() => onRemove(widget.id))}
               />
             </div>
           ))}

@@ -1,8 +1,29 @@
 import { useEffect, useRef, useState } from 'react'
 import type { EChartsCoreOption, EChartsType } from 'echarts/core'
-import { SLIDER, sliderRange } from '../chartOptions'
+import { REST_MS } from '../autoScroll'
+import { GRID, SLIDER, sliderRange } from '../chartOptions'
 import { echartsFor, type DrawnKind } from '../echartsLoader'
+import type { ScrollPlan } from '../presentation'
 import { ZoomSlider } from './ZoomSlider'
+
+/** A full-screen chart's window along its x axis: the positions it slides over, in order, and how. */
+export interface XSlide {
+  positions: number[]
+  plan: ScrollPlan
+}
+
+/**
+ * What a presented chart drops: its zoom bar, its color slider's handles, and its legend's toggles. A chart that
+ * slides keeps a hidden zoom to move its window with.
+ */
+function presented(option: EChartsCoreOption, sliding: boolean): EChartsCoreOption {
+  const changes: EChartsCoreOption = {}
+  if (option.dataZoom || sliding) changes.dataZoom = sliding ? [{ type: 'slider', show: false, xAxisIndex: 0 }] : []
+  if (option.dataZoom && option.grid) changes.grid = { bottom: GRID.bottom }
+  if (option.visualMap) changes.visualMap = { calculable: false }
+  if (option.legend) changes.legend = { selectedMode: false }
+  return changes
+}
 
 // How far above and below the x-axis slider a pointer still counts as over it.
 const SLIDER_REACH = 4
@@ -30,12 +51,17 @@ export function Chart({
   option,
   onError,
   zoomOn,
+  presenting = false,
+  slide = null,
 }: {
   kind: DrawnKind
   option: EChartsCoreOption
   onError: (message: string) => void
   /** Adds a zoom slider beside the chart, which zooms its first series or its geo component. */
   zoomOn?: 'series' | 'geo'
+  /** In full screen: no zoom bar, slider, or legend toggle, and the window along `slide` moves on its own. */
+  presenting?: boolean
+  slide?: XSlide | null
 }) {
   const element = useRef<HTMLDivElement>(null)
   const chart = useRef<EChartsType | null>(null)
@@ -68,6 +94,7 @@ export function Chart({
     }
   }, [kind, onError])
 
+  // Runs again when full screen starts or ends, so leaving it brings back what presenting dropped.
   useEffect(() => {
     if (!ready) return
     try {
@@ -75,17 +102,64 @@ export function Chart({
     } catch (e) {
       onError(`This chart cannot draw this data: ${(e as Error).message}`)
     }
-  }, [option, onError, ready])
+  }, [option, onError, ready, presenting])
 
   // Runs after every new option as well, since one replaces the chart whole and starts it back at its own zoom.
   useEffect(() => {
     if (ready && zoomOn) chart.current?.setOption(zoomOn === 'geo' ? { geo: { zoom } } : { series: [{ zoom }] })
-  }, [zoom, zoomOn, ready, option])
+  }, [zoom, zoomOn, ready, option, presenting])
+
+  // Steps the window one x value at a time, a window's worth every plan.seconds, resting at each end it turns or
+  // jumps from. Looping has no seam to pass on an axis, so it jumps back without resting.
+  useEffect(() => {
+    const instance = chart.current
+    if (!ready || !instance || !presenting) return
+    const changes = presented(option, slide !== null)
+    // ECharts refuses to replaceMerge a component it has not installed, and only charts that zoom install dataZoom.
+    instance.setOption(changes, changes.dataZoom ? { replaceMerge: ['dataZoom'] } : {})
+    if (!slide) return
+
+    const { positions, plan } = slide
+    const size = Math.min(plan.window, positions.length)
+    const last = positions.length - size
+    const show = (start: number) =>
+      instance.setOption({ dataZoom: [{ startValue: positions[start], endValue: positions[start + size - 1] }] })
+    const rest = plan.wrap === 'loop' ? 0 : REST_MS
+    const stepMs = (plan.seconds * 1000) / size
+    let start = 0
+    let direction = 1
+    show(start)
+    if (last <= 0) return
+
+    const advance = () => {
+      if (direction > 0 && start === last) {
+        if (plan.wrap === 'reverse') {
+          direction = -1
+          return stepMs
+        }
+        start = 0
+        show(start)
+        return rest + stepMs
+      }
+      if (direction < 0 && start === 0) {
+        direction = 1
+        return stepMs
+      }
+      start += direction
+      show(start)
+      return start === last || start === 0 ? rest + stepMs : stepMs
+    }
+
+    let timer = setTimeout(function tick() {
+      timer = setTimeout(tick, advance())
+    }, stepMs)
+    return () => clearTimeout(timer)
+  }, [option, presenting, ready, slide])
 
   // The range shows while the pointer is over the x-axis slider, and stays while a press that began there drags.
   useEffect(() => {
     const instance = chart.current
-    if (!ready || !instance || !hasSlider(option)) return
+    if (!ready || !instance || presenting || !hasSlider(option)) return
     const zr = instance.getZr()
     let over = false
     let pressed = false
@@ -121,7 +195,7 @@ export function Chart({
       instance.off('datazoom', show)
       setRange(null)
     }
-  }, [option, ready])
+  }, [option, presenting, ready])
 
   const drawn = (
     <div className="chart-frame">
@@ -132,10 +206,11 @@ export function Chart({
 
   if (!zoomOn) return drawn
 
+  // The wrapper stays in full screen: dropping it would make React discard the element ECharts draws into.
   return (
     <div className="chart-zoomable">
       {drawn}
-      <ZoomSlider zoom={zoom} onZoom={setZoom} />
+      {!presenting && <ZoomSlider zoom={zoom} onZoom={setZoom} />}
     </div>
   )
 }

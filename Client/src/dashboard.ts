@@ -1,3 +1,5 @@
+import type { ChartPresentation } from './presentation'
+
 export const BREAKPOINTS = { lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 } as const
 
 export type Breakpoint = keyof typeof BREAKPOINTS
@@ -145,7 +147,8 @@ export const SCALED_KINDS: readonly ChartKind[] = [
 
 /**
  * `name` replaces the title generated from a widget's settings, when given. `scales` holds an x and y axis chart's
- * axis scales, and is null for any other chart.
+ * axis scales, and is null for any other chart. `presentation` says how the chart scrolls in full screen; a chart
+ * without one follows its dashboard and shows 20 x values at a time.
  */
 interface WidgetBase {
   id: string
@@ -154,6 +157,7 @@ interface WidgetBase {
   sourceId: number
   join: Join | null
   scales: Scales | null
+  presentation?: ChartPresentation
 }
 
 /** y aggregated per value of x. */

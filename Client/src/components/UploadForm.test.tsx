@@ -8,6 +8,8 @@ jest.mock('../api', () => ({ ...jest.requireActual('../api'), uploadSource: jest
 const uploaded: Source = {
   id: 7,
   name: 'q3_orders',
+  kind: 'Upload',
+  pushedBy: null,
   fileName: 'Q3 Orders.csv',
   connector: null,
   stream: null,

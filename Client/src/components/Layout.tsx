@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router'
+import { canRequestFullscreen, enterFullscreen, useFullscreen } from '../fullscreen'
 import { useTheme } from '../theme'
 import { BrandMark } from './BrandMark'
 import { NoticeStack } from './NoticeStack'
@@ -8,6 +9,8 @@ import { Tooltip } from './Tooltip'
 const NAV = [
   { to: '/dashboards', label: 'Dashboards' },
   { to: '/sources', label: 'Sources' },
+  { to: '/settings', label: 'Settings' },
+  { to: '/docs', label: 'Docs' },
 ]
 
 /** Shows the theme a press switches to: a sun for light, a moon for dark. */
@@ -33,9 +36,33 @@ function ThemeToggle() {
   )
 }
 
+/** Asks the browser to show the page in full screen. Escape, or the browser's own key, leaves it. */
+function FullscreenButton() {
+  return (
+    <Tooltip label="Full screen">
+      <button type="button" className="icon-button" onClick={enterFullscreen} aria-label="Full screen">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path
+            d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </button>
+    </Tooltip>
+  )
+}
+
 export function Layout() {
   const [menuOpen, setMenuOpen] = useState(false)
   const { pathname } = useLocation()
+  const fullscreen = useFullscreen()
+  const onDashboard = /^\/dashboards\/[^/]+$/.test(pathname)
+  // A dashboard in full screen shows only its name and charts, so the header and its banners go.
+  const presenting = fullscreen && onDashboard
 
   // Navigating with the menu open leaves it covering the page it just went to.
   useEffect(() => setMenuOpen(false), [pathname])
@@ -46,51 +73,54 @@ export function Layout() {
         Skip to content
       </a>
 
-      <div className="site-top">
-        <header className="site-header">
-          <div className="wrap">
-            <NavLink to="/" className="brand">
-              <BrandMark />
-              Scry
-            </NavLink>
+      {!presenting && (
+        <div className="site-top">
+          <header className="site-header">
+            <div className="wrap">
+              <NavLink to="/" className="brand">
+                <BrandMark />
+                Scry
+              </NavLink>
 
-            <nav className="nav" id="site-nav" aria-label="Main" data-open={menuOpen ? '' : undefined}>
-              {NAV.map((item) => (
-                <NavLink key={item.to} to={item.to} end className={({ isActive }) => (isActive ? 'is-active' : '')}>
-                  {item.label}
-                </NavLink>
-              ))}
-            </nav>
+              <nav className="nav" id="site-nav" aria-label="Main" data-open={menuOpen ? '' : undefined}>
+                {NAV.map((item) => (
+                  <NavLink key={item.to} to={item.to} end className={({ isActive }) => (isActive ? 'is-active' : '')}>
+                    {item.label}
+                  </NavLink>
+                ))}
+              </nav>
 
-            <div className="header-actions">
-              <ThemeToggle />
+              <div className="header-actions">
+                {onDashboard && canRequestFullscreen() && <FullscreenButton />}
+                <ThemeToggle />
 
-              <Tooltip label={menuOpen ? 'Close menu' : 'Open menu'}>
-                <button
-                  type="button"
-                  className="icon-button nav-toggle"
-                  onClick={() => setMenuOpen((open) => !open)}
-                  aria-expanded={menuOpen}
-                  aria-controls="site-nav"
-                >
-                  <span className="sr-only">{menuOpen ? 'Close menu' : 'Open menu'}</span>
-                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                    <path
-                      d={menuOpen ? 'M5 5l14 14M19 5L5 19' : 'M4 7h16M4 12h16M4 17h16'}
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                </button>
-              </Tooltip>
+                <Tooltip label={menuOpen ? 'Close menu' : 'Open menu'}>
+                  <button
+                    type="button"
+                    className="icon-button nav-toggle"
+                    onClick={() => setMenuOpen((open) => !open)}
+                    aria-expanded={menuOpen}
+                    aria-controls="site-nav"
+                  >
+                    <span className="sr-only">{menuOpen ? 'Close menu' : 'Open menu'}</span>
+                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                      <path
+                        d={menuOpen ? 'M5 5l14 14M19 5L5 19' : 'M4 7h16M4 12h16M4 17h16'}
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                  </button>
+                </Tooltip>
+              </div>
             </div>
-          </div>
-        </header>
+          </header>
 
-        <NoticeStack />
-      </div>
+          <NoticeStack />
+        </div>
+      )}
 
       <main id="main">
         <Outlet />

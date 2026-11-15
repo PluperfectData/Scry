@@ -5,6 +5,8 @@ import { leaveFor } from '../browser'
 import type { TableSettings } from '../dashboard'
 import { SourcesPage } from './SourcesPage'
 
+jest.mock('react-router', () => jest.requireActual('../../jest/router').reactRouterMock())
+
 jest.mock('../api', () => ({
   ...jest.requireActual('../api'),
   listSources: jest.fn(),
@@ -45,6 +47,8 @@ jest.mock('../components/TableView', () => ({
 const mockUpload: Source = {
   id: 7,
   name: 'q3_orders',
+  kind: 'Upload',
+  pushedBy: null,
   fileName: 'Q3 Orders.csv',
   connector: null,
   stream: null,
@@ -58,6 +62,8 @@ const mockUpload: Source = {
 const mockTable: Source = {
   id: 9,
   name: 'public_orders',
+  kind: 'Connection',
+  pushedBy: null,
   fileName: null,
   connector: 'mysql',
   stream: 'public.orders',
@@ -198,4 +204,30 @@ it('says why a sign-in failed when Schwab sends the browser back, then clears it
 
   expect(await screen.findByText('Schwab did not sign you in: access_denied.')).toBeInTheDocument()
   expect(window.location.search).toBe('')
+})
+
+it('says which key pushes a pushed source, and offers it no sync', async () => {
+  jest.mocked(listSources).mockResolvedValue([
+    { ...mockTable, id: 20, name: 'trades', kind: 'Push', connector: null, stream: null, pushedBy: 'Nexus', rowCount: 3 },
+    { ...mockTable, id: 21, name: 'events', kind: 'Push', connector: null, stream: null, pushedBy: null, syncedAt: null, rowCount: 0 },
+  ])
+  render(<SourcesPage />)
+
+  expect(await screen.findByText(/^pushed by Nexus: 3 rows/)).toBeInTheDocument()
+  expect(screen.getByText('pushed by a revoked key: no rows pushed yet')).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /^Sync .* now$/ })).not.toBeInTheDocument()
+})
+
+it('offers the push API beside CSV, pointing to Settings and the reference', async () => {
+  render(<SourcesPage />)
+
+  await userEvent.click(screen.getByRole('button', { name: 'Add source' }))
+  const grid = screen.getByRole('dialog', { name: 'Add a source' })
+  const tiles = await within(grid).findAllByRole('button', { name: /^(CSV|Push API|MySQL|Charles Schwab)/ })
+  expect(tiles.map((tile) => tile.querySelector('.connector-name')?.textContent)).toEqual(['CSV', 'Push API', 'MySQL', 'Charles Schwab'])
+  await userEvent.click(tiles[1])
+
+  const panel = screen.getByRole('dialog', { name: 'Push API' })
+  expect(within(panel).getByRole('link', { name: 'Make a key on Settings' })).toHaveAttribute('href', '/settings')
+  expect(within(panel).getByRole('link', { name: 'Read the push API reference' })).toHaveAttribute('href', '/docs/push-api')
 })

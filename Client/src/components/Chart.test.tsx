@@ -76,3 +76,74 @@ it('has no slider unless it zooms', async () => {
 
   expect(screen.queryByRole('slider', { name: 'Zoom' })).not.toBeInTheDocument()
 })
+
+it('drops its zoom bar in full screen and slides its x window one value at a time', async () => {
+  jest.useFakeTimers()
+  try {
+    render(
+      <Chart
+        kind="line"
+        option={{ dataZoom: [{ type: 'slider' }], grid: { bottom: 84 } }}
+        onError={jest.fn()}
+        presenting
+        slide={{ positions: [10, 20, 30, 40], plan: { seconds: 2, wrap: 'restart', window: 2 } }}
+      />,
+    )
+    await waitFor(() =>
+      expect(setOption).toHaveBeenCalledWith(
+        { dataZoom: [{ type: 'slider', show: false, xAxisIndex: 0 }], grid: { bottom: 32 } },
+        { replaceMerge: ['dataZoom'] },
+      ),
+    )
+    expect(setOption).toHaveBeenLastCalledWith({ dataZoom: [{ startValue: 10, endValue: 20 }] })
+
+    act(() => jest.advanceTimersByTime(1000))
+
+    expect(setOption).toHaveBeenLastCalledWith({ dataZoom: [{ startValue: 20, endValue: 30 }] })
+  } finally {
+    jest.useRealTimers()
+  }
+})
+
+it('shows no zoom slider beside a map in full screen, and names no zoom it has not installed', async () => {
+  render(<Chart kind="map" option={{ visualMap: {} }} onError={jest.fn()} zoomOn="series" presenting />)
+  await waitFor(() => expect(setOption).toHaveBeenCalledWith({ visualMap: { calculable: false } }, {}))
+
+  expect(setOption).not.toHaveBeenCalledWith(expect.anything(), { replaceMerge: ['dataZoom'] })
+  expect(screen.queryByRole('button', { name: 'Zoom in' })).not.toBeInTheDocument()
+})
+
+it('keeps the element it draws into through full screen and back', async () => {
+  let drawnInto: HTMLElement | undefined
+  jest.mocked(echartsFor).mockResolvedValue({
+    init: (node: HTMLElement) => {
+      drawnInto = node
+      return { setOption, resize: jest.fn(), dispose: jest.fn() }
+    },
+  } as unknown as Awaited<ReturnType<typeof echartsFor>>)
+  const onError = jest.fn()
+  const { rerender } = render(<Chart kind="map" option={{ id: 1 }} onError={onError} zoomOn="series" />)
+  await waitFor(() => expect(drawnInto).toBeDefined())
+
+  rerender(<Chart kind="map" option={{ id: 1 }} onError={onError} zoomOn="series" presenting />)
+  expect(drawnInto).toBeInTheDocument()
+  expect(drawnInto).toHaveClass('chart')
+
+  rerender(<Chart kind="map" option={{ id: 1 }} onError={onError} zoomOn="series" />)
+  expect(drawnInto).toBeInTheDocument()
+  expect(drawnInto).toHaveClass('chart')
+})
+
+it('draws its option whole again when full screen ends', async () => {
+  const option = { dataZoom: [{ type: 'inside' }], legend: {} }
+  const onError = jest.fn()
+  const { rerender } = render(<Chart kind="line" option={option} onError={onError} presenting />)
+  await waitFor(() =>
+    expect(setOption).toHaveBeenCalledWith({ dataZoom: [], legend: { selectedMode: false } }, { replaceMerge: ['dataZoom'] }),
+  )
+  setOption.mockClear()
+
+  rerender(<Chart kind="line" option={option} onError={onError} />)
+
+  expect(setOption).toHaveBeenCalledWith(option, { notMerge: true })
+})

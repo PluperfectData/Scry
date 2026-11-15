@@ -11,7 +11,7 @@ namespace Scry.Api;
 public sealed record SyncResult(IReadOnlyList<ColumnInfo> Columns, long RowCount, JsonElement? State);
 
 /// <summary>The one built-in workspace: its uploads and its DuckDB file. Every DuckDB access takes one lock.</summary>
-public sealed class Workspace : IDisposable
+public sealed partial class Workspace : IDisposable
 {
     private readonly SemaphoreSlim _lock = new(1, 1);
 

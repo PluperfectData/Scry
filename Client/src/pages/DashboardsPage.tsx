@@ -5,6 +5,7 @@ import { DashboardForm } from '../components/DashboardForm'
 import { PencilIcon } from '../components/PencilIcon'
 import { Slideout } from '../components/Slideout'
 import { Tooltip } from '../components/Tooltip'
+import type { PresentationSettings } from '../presentation'
 
 const charts = (count: number) => (count === 0 ? 'No charts' : count === 1 ? '1 chart' : `${count} charts`)
 
@@ -33,13 +34,17 @@ export function DashboardsPage({ openLanding = false }: { openLanding?: boolean 
     navigate(`/dashboards/${created.id}`)
   }
 
-  async function edit(name: string, isLanding: boolean) {
+  async function edit(name: string, isLanding: boolean, presentation: PresentationSettings) {
     if (!editing) return
-    const saved = await editDashboard(editing.id, name, isLanding)
+    const saved = await editDashboard(editing.id, name, isLanding, presentation)
     setDashboards((list) =>
       (list ?? [])
         .map((d) =>
-          d.id === saved.id ? { ...d, name: saved.name, isLanding: saved.isLanding } : saved.isLanding ? { ...d, isLanding: false } : d,
+          d.id === saved.id
+            ? { ...d, name: saved.name, isLanding: saved.isLanding, presentation: saved.presentation }
+            : saved.isLanding
+              ? { ...d, isLanding: false }
+              : d,
         )
         .sort(byName),
     )
@@ -118,7 +123,7 @@ export function DashboardsPage({ openLanding = false }: { openLanding?: boolean 
       )}
 
       <Slideout open={adding} title="Add a dashboard" onClose={() => setAdding(false)}>
-        {adding && <DashboardForm offerLanding={false} submitLabel="Create" onSave={(name) => create(name)} onCancel={() => setAdding(false)} />}
+        {adding && <DashboardForm editing={false} submitLabel="Create" onSave={(name) => create(name)} onCancel={() => setAdding(false)} />}
       </Slideout>
 
       <Slideout open={editing !== null} title="Edit dashboard" onClose={() => setEditing(null)}>
@@ -127,7 +132,8 @@ export function DashboardsPage({ openLanding = false }: { openLanding?: boolean 
             key={editing.id}
             name={editing.name}
             isLanding={editing.isLanding}
-            offerLanding
+            presentation={editing.presentation}
+            editing
             submitLabel="Save"
             onSave={edit}
             onCancel={() => setEditing(null)}

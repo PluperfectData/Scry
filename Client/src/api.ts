@@ -1,6 +1,10 @@
 import type { Aggregate, Join, Layouts, TableSort, Widget } from './dashboard'
+import type { PresentationSettings } from './presentation'
 
 const baseUrl = import.meta.env.VITE_API_URL
+
+/** The API's address, for pages that show it, such as the push API reference. */
+export const apiUrl: string = baseUrl
 
 export type ColumnType =
   | 'String'
@@ -31,9 +35,13 @@ export type SourceStatus = 'Ready' | 'Syncing' | 'Failed' | 'SignInNeeded'
 export interface Source {
   id: number
   name: string
+  /** Where the rows come from: an uploaded file, a connection's stream, or the push API. */
+  kind: 'Upload' | 'Connection' | 'Push'
   fileName: string | null
   connector: string | null
   stream: string | null
+  /** The name of the push API key that writes to a pushed source; null once that key is revoked. */
+  pushedBy: string | null
   columns: Column[]
   rowCount: number
   /** When the last sync finished; null until the first one has. */
@@ -102,6 +110,8 @@ export interface DashboardSummary {
   chartCount: number
   /** Whether the index opens this dashboard in place of the list. At most one does. */
   isLanding: boolean
+  /** How its data scrolls in full screen; null for the defaults. */
+  presentation: PresentationSettings | null
   updatedAt: string
 }
 
@@ -111,6 +121,7 @@ export interface Dashboard {
   layouts: Layouts
   widgets: Widget[]
   isLanding: boolean
+  presentation: PresentationSettings | null
   createdAt: string
   updatedAt: string
 }
@@ -158,6 +169,24 @@ export const listSchwabStreams = () => request<DatabaseTable[]>('/schwab/streams
 /** Starts a Schwab sign-in for a new connection, and returns Schwab's sign-in page for the browser to go to. */
 export const startSchwabSignIn = (settings: Settings, streams: { table: string; name: string }[]) =>
   request<{ url: string }>('/schwab/sign-in', json('POST', { settings, streams }))
+
+/** A push API key: the prefix that tells it apart, and the sources it writes. */
+export interface IngestKey {
+  id: number
+  name: string
+  prefix: string
+  createdAt: string
+  sources: string[]
+}
+
+export const listKeys = () => request<IngestKey[]>('/keys')
+
+/** Makes a key, and answers with the key itself, which Scry shows only this once. */
+export const makeKey = (name: string) =>
+  request<Omit<IngestKey, 'sources'> & { key: string }>('/keys', json('POST', { name }))
+
+/** Revokes a key. The sources it made stay, and no key writes to them. */
+export const revokeKey = (id: number) => request<void>(`/keys/${id}`, { method: 'DELETE' })
 
 /** Starts a sign-in that renews the one a Schwab source's connection holds. */
 export const signInAgain = (id: number) => request<{ url: string }>(`/sources/${id}/sign-in`, { method: 'POST' })
@@ -300,6 +329,9 @@ export function saveDashboard(dashboard: Pick<Dashboard, 'id' | 'name' | 'layout
 
 export const deleteDashboard = (id: number) => request<void>(`/dashboards/${id}`, { method: 'DELETE' })
 
-/** Renames a dashboard, and makes it the landing dashboard, clearing any other, or stops it being one. */
-export const editDashboard = (id: number, name: string, isLanding: boolean) =>
-  request<Dashboard>(`/dashboards/${id}`, json('PATCH', { name, isLanding }))
+/**
+ * Renames a dashboard, makes it the landing dashboard, clearing any other, or stops it being one, and sets how its
+ * data scrolls in full screen.
+ */
+export const editDashboard = (id: number, name: string, isLanding: boolean, presentation: PresentationSettings) =>
+  request<Dashboard>(`/dashboards/${id}`, json('PATCH', { name, isLanding, presentation }))

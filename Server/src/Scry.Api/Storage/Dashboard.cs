@@ -21,6 +21,9 @@ public sealed class Dashboard
     /// </summary>
     public bool? Landing { get; set; }
 
+    /// <summary>How the dashboard's data scrolls in full screen, as a JSON object the client owns; null for the defaults.</summary>
+    public string? Presentation { get; set; }
+
     public DateTime CreatedAt { get; set; }
 
     public DateTime UpdatedAt { get; set; }

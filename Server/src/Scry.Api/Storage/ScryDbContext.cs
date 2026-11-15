@@ -18,6 +18,8 @@ public sealed class ScryDbContext(DbContextOptions<ScryDbContext> options) : DbC
 
     public DbSet<Dashboard> Dashboards => Set<Dashboard>();
 
+    public DbSet<IngestKey> IngestKeys => Set<IngestKey>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<Source>(source =>
@@ -32,6 +34,17 @@ public sealed class ScryDbContext(DbContextOptions<ScryDbContext> options) : DbC
             source.Property(s => s.Status).HasConversion<string>().HasMaxLength(16);
             source.Property(s => s.Error).HasMaxLength(1000);
             source.HasOne(s => s.Connection).WithMany().HasForeignKey(s => s.ConnectionId).OnDelete(DeleteBehavior.Restrict);
+            source.HasOne(s => s.IngestKey).WithMany().HasForeignKey(s => s.IngestKeyId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<IngestKey>(key =>
+        {
+            key.ToTable("ingest_keys");
+            key.HasIndex(k => k.Hash).IsUnique();
+            key.Property(k => k.Name).HasMaxLength(IngestKey.MaxNameLength);
+            key.Property(k => k.Hash).HasMaxLength(64);
+            key.Property(k => k.Prefix).HasMaxLength(16);
+            key.Property(k => k.CreatedAt).HasConversion(Utc);
         });
 
         modelBuilder.Entity<Connection>(connection =>

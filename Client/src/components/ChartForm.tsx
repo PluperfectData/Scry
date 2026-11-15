@@ -32,7 +32,14 @@ import {
   type WidgetSettings,
 } from '../dashboard'
 import { FORMAT_LABELS, MAX_DECIMALS, currencies, formatsFor, startFormat, type FormatKind } from '../formats'
+import { DEFAULT_WINDOW, MAX_SECONDS, MOVING_KINDS, PACES, validSeconds, type ChartPresentation } from '../presentation'
 import { Help } from './Help'
+import { PresentationFields } from './PresentationFields'
+
+// A chart follows its dashboard's full-screen scrolling until its own settings say otherwise.
+const FOLLOW: ChartPresentation = { follow: 'dashboard', wrap: 'loop', pace: 'medium', seconds: PACES.medium, window: DEFAULT_WINDOW }
+
+const MAX_WINDOW = 1000
 
 /** A labeled control, with a question mark beside the label explaining a technical term in plain words. */
 function Field({
@@ -417,6 +424,7 @@ export function ChartForm({
   const [columns, setColumns] = useState<string[]>(start.columns)
   const [formats, setFormats] = useState<Record<string, ColumnFormat>>(start.formats)
   const [join, setJoin] = useState<JoinDraft>(start.join)
+  const [presentation, setPresentation] = useState<ChartPresentation>(() => widget?.presentation ?? FOLLOW)
 
   const source = sources.find((s) => s.id === sourceId) ?? sources[0]
   const other = sources.find((s) => s.id === join.sourceId) ?? null
@@ -463,7 +471,21 @@ export function ChartForm({
       ? { x: xScale, y: yScale }
       : undefined
     : null
-  const from = { sourceId: source.id, join: joined, name: field('name').trim() || null, scales: scales ?? null }
+  // Only moving charts keep presentation settings, and only ones that differ from following the dashboard.
+  const moving = MOVING_KINDS.includes(kind)
+  const windowed = moving && kind !== 'table' && kind !== 'pivot'
+  const ownValid = presentation.follow !== 'own' || presentation.pace !== 'custom' || validSeconds(presentation.seconds)
+  const windowValid =
+    !windowed || (Number.isInteger(presentation.window) && presentation.window >= 2 && presentation.window <= MAX_WINDOW)
+  const kept = windowed ? presentation : { ...presentation, window: DEFAULT_WINDOW }
+  const presented = moving && (kept.follow !== 'dashboard' || kept.window !== DEFAULT_WINDOW)
+  const from = {
+    sourceId: source.id,
+    join: joined,
+    name: field('name').trim() || null,
+    scales: scales ?? null,
+    ...(presented && { presentation: kept }),
+  }
   const aggregated = (['line', 'area', 'bar', 'pictorial', 'pie', 'funnel', 'map'] as ChartKind[]).includes(kind)
   const crossed = kind === 'stacked' || kind === 'heatmap' || kind === 'themeriver'
   const tree = kind === 'treemap' || kind === 'sunburst' || kind === 'tree'
@@ -487,7 +509,7 @@ export function ChartForm({
   }
 
   function settings(): WidgetSettings | null {
-    if ((other && !joined) || scales === undefined) return null
+    if ((other && !joined) || scales === undefined || !ownValid || !windowValid) return null
     const x = field('x')
     const y = aggregate === 'count' ? null : field('y')
     switch (kind) {
@@ -1036,6 +1058,57 @@ export function ChartForm({
           <ScalePick axis="y" field={field} setField={setField} />
           {scales === undefined && (
             <p className="error hint">Each minimum must be below its maximum, and a log scale's bounds above zero.</p>
+          )}
+        </fieldset>
+      )}
+
+      {moving && (
+        <fieldset className="column-formats">
+          <legend>Full screen</legend>
+          <span className="field-label">
+            <label>
+              Scrolling
+              <select
+                value={presentation.follow}
+                onChange={(e) => setPresentation({ ...presentation, follow: e.target.value as ChartPresentation['follow'] })}
+              >
+                <option value="dashboard">As the dashboard's</option>
+                <option value="off">Off</option>
+                <option value="own">Its own</option>
+              </select>
+            </label>
+            <Help term="Scrolling">
+              In full screen this chart scrolls its data on its own: as its dashboard sets it, not at all, or with its
+              own speed and ending.
+            </Help>
+          </span>
+          {presentation.follow === 'own' && (
+            <PresentationFields value={presentation} onChange={(next) => setPresentation({ ...presentation, ...next })} />
+          )}
+          {windowed && presentation.follow !== 'off' && (
+            <span className="field-label">
+              <label>
+                X values at once
+                <input
+                  type="number"
+                  min={2}
+                  max={MAX_WINDOW}
+                  step={1}
+                  required
+                  value={Number.isNaN(presentation.window) ? '' : presentation.window}
+                  onChange={(e) => setPresentation({ ...presentation, window: e.target.valueAsNumber })}
+                />
+              </label>
+              <Help term="X values at once">
+                How much of the x axis shows at a time as it slides along: a screenful.
+              </Help>
+            </span>
+          )}
+          {(!ownValid || !windowValid) && (
+            <p className="error hint">
+              A screenful takes 1 to {MAX_SECONDS.toLocaleString()} seconds, and shows 2 to {MAX_WINDOW.toLocaleString()} x
+              values.
+            </p>
           )}
         </fieldset>
       )}

@@ -110,3 +110,14 @@ it('loads the next 100 rows of a list once its end comes into view', async () =>
   expect(screen.queryByText('Loading more…')).not.toBeInTheDocument()
   expect(screen.getByText('150 rows')).toBeInTheDocument()
 })
+
+it('presents one scrolling list with no pages or sort buttons, the first rows again after the last when looping', async () => {
+  jest.mocked(getRows).mockResolvedValue({ columns, values: rows(3), total: 3 })
+  render(<TableView table={table({ pageSize: 2 })} presenting plan={{ seconds: 15, wrap: 'loop', window: 20 }} />)
+
+  expect(await screen.findByText('3 rows')).toBeInTheDocument()
+  expect(getRows).toHaveBeenCalledWith(expect.objectContaining({ sourceId: 7 }), expect.objectContaining({ offset: 0, limit: 100 }))
+  expect(screen.queryByRole('button', { name: /region/ })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Next' })).not.toBeInTheDocument()
+  expect(screen.getAllByText('r0')).toHaveLength(2)
+})

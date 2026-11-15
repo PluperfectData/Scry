@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router'
 import { listConnectors, listSources, signInAgain, syncSource, type Connector, type Source } from '../api'
 import { leaveFor } from '../browser'
 import { ConnectorGrid } from '../components/ConnectorGrid'
@@ -13,6 +14,15 @@ import type { TableSettings } from '../dashboard'
 
 const PREVIEW_ROWS = 50
 
+/// The push API is Scry's own way in, so its tile joins the connectors' after CSV's.
+const PUSH: Connector = {
+  id: 'push',
+  name: 'Push API',
+  description: 'Rows a script or another service sends with a key.',
+  fields: [],
+  needs: [],
+}
+
 // How often the list is read again while a source syncs in the background.
 const POLL_MS = 2000
 
@@ -20,7 +30,9 @@ const progress = (source: Source) =>
   source.status === 'Syncing'
     ? 'syncing…'
     : source.syncedAt === null
-      ? 'not synced yet'
+      ? source.kind === 'Push'
+        ? 'no rows pushed yet'
+        : 'not synced yet'
       : `${source.rowCount.toLocaleString()} rows, synced ${new Date(source.syncedAt).toLocaleString()}`
 
 /** A source's every column, in source order, a page at a time: a table as a chart would show it, unsaved. */
@@ -114,6 +126,7 @@ export function SourcesPage() {
   }
 
   const origin = (source: Source) => {
+    if (source.kind === 'Push') return `pushed by ${source.pushedBy ?? 'a revoked key'}`
     if (source.fileName) return source.fileName
     const name = connectors.find((c) => c.id === source.connector)?.name ?? source.connector
     return `${name} ${source.connector === 'schwab' ? 'stream' : 'table'} ${source.stream}`
@@ -199,9 +212,13 @@ export function SourcesPage() {
         {previewing && <TableView table={previewing} />}
       </Modal>
 
-      <Slideout open={adding} title={picked ? `Add ${picked.name}` : 'Add a source'} onClose={close}>
+      <Slideout
+        open={adding}
+        title={picked === null ? 'Add a source' : picked.id === PUSH.id ? PUSH.name : `Add ${picked.name}`}
+        onClose={close}
+      >
         {picked === null ? (
-          <ConnectorGrid connectors={connectors} onPick={setPicked} />
+          <ConnectorGrid connectors={connectors.flatMap((c) => (c.id === 'csv' ? [c, PUSH] : [c]))} onPick={setPicked} />
         ) : (
           <>
             <p>
@@ -209,7 +226,20 @@ export function SourcesPage() {
                 All connectors
               </button>
             </p>
-            {picked.id === 'csv' ? (
+            {picked.id === PUSH.id ? (
+              <div className="form">
+                <p>
+                  A script or another service sends rows through the push API, and each source it makes is one of yours.
+                  Make it a key on Settings, then send rows as the reference shows.
+                </p>
+                <p>
+                  <Link to="/settings">Make a key on Settings</Link>
+                </p>
+                <p>
+                  <Link to="/docs/push-api">Read the push API reference</Link>
+                </p>
+              </div>
+            ) : picked.id === 'csv' ? (
               <UploadForm onUploaded={(source) => added([source])} onCancel={close} />
             ) : picked.id === 'schwab' ? (
               <SchwabForm connector={picked} onCancel={close} />

@@ -9,6 +9,8 @@ const AUTO = { x: AUTO_SCALE, y: AUTO_SCALE }
 const orders: Source = {
   id: 7,
   name: 'orders',
+  kind: 'Upload',
+  pushedBy: null,
   fileName: 'orders.csv',
   connector: null,
   stream: null,
@@ -26,6 +28,8 @@ const orders: Source = {
 const regions: Source = {
   id: 8,
   name: 'regions',
+  kind: 'Upload',
+  pushedBy: null,
   fileName: 'regions.csv',
   connector: null,
   stream: null,
@@ -360,4 +364,29 @@ it('cancels without saving', async () => {
 
   expect(onCancel).toHaveBeenCalled()
   expect(onSave).not.toHaveBeenCalled()
+})
+
+it("keeps a chart's own full-screen scrolling, and how many x values a screenful shows", async () => {
+  const { onSave } = renderForm({
+    id: 'w1',
+    title: 'Sum of amount by day',
+    kind: 'bar',
+    sourceId: 7,
+    join: null,
+    name: null,
+    scales: null,
+    x: 'day',
+    y: 'amount',
+    aggregate: 'sum',
+  })
+
+  await userEvent.selectOptions(screen.getByLabelText('Scrolling'), 'Its own')
+  await userEvent.selectOptions(screen.getByLabelText('Speed'), 'Fast, 8 s a screenful')
+  await userEvent.clear(screen.getByLabelText('X values at once'))
+  await userEvent.type(screen.getByLabelText('X values at once'), '30')
+  await userEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+
+  expect(onSave).toHaveBeenCalledWith(
+    expect.objectContaining({ presentation: { follow: 'own', wrap: 'loop', pace: 'fast', seconds: 15, window: 30 } }),
+  )
 })

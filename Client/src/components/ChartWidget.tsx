@@ -38,8 +38,9 @@ import {
 import { measureName, type ChartKind, type Widget, type WidgetSettings } from '../dashboard'
 import type { DrawnKind } from '../echartsLoader'
 import { loadMap } from '../maps'
+import { usePresentation, xPositions } from '../presentation'
 import { useTheme } from '../theme'
-import { Chart } from './Chart'
+import { Chart, type XSlide } from './Chart'
 import { PivotView } from './PivotView'
 import { TableView } from './TableView'
 import { Tooltip } from './Tooltip'
@@ -118,7 +119,7 @@ interface Loaded {
   error: string | null
 }
 
-export function ChartWidget({ widget, onEdit, onRemove }: { widget: Widget; onEdit?: () => void; onRemove: () => void }) {
+export function ChartWidget({ widget, onEdit, onRemove }: { widget: Widget; onEdit?: () => void; onRemove?: () => void }) {
   const { theme } = useTheme()
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const { id: _id, title: _title, ...rest } = widget
@@ -132,6 +133,11 @@ export function ChartWidget({ widget, onEdit, onRemove }: { widget: Widget; onEd
   const data = current?.data ?? null
   const error = current?.error ?? null
   const setError = useCallback((message: string) => setLoaded({ settingsKey, data: null, error: message }), [settingsKey])
+  const { presenting, plan } = usePresentation(settings.kind, settings.presentation)
+  const slide = useMemo<XSlide | null>(
+    () => (plan && data && settings.kind !== 'table' && settings.kind !== 'pivot' ? { positions: xPositions(settings.kind, data), plan } : null),
+    [plan, data, settings.kind],
+  )
 
   useEffect(() => {
     if (settings.kind === 'table') return
@@ -218,24 +224,33 @@ export function ChartWidget({ widget, onEdit, onRemove }: { widget: Widget; onEd
               </button>
             </Tooltip>
           )}
-          <Tooltip label="Remove chart">
-            <button type="button" className="widget-action" onClick={onRemove} aria-label={`Remove ${widget.title}`}>
-              ×
-            </button>
-          </Tooltip>
+          {onRemove && (
+            <Tooltip label="Remove chart">
+              <button type="button" className="widget-action" onClick={onRemove} aria-label={`Remove ${widget.title}`}>
+                ×
+              </button>
+            </Tooltip>
+          )}
         </div>
       </header>
       {settings.kind === 'table' ? (
         // Keyed on the settings, so an edit starts the table again from its default sort and first page.
-        <TableView key={settingsKey} table={settings} />
+        <TableView key={settingsKey} table={settings} presenting={presenting} plan={plan} />
       ) : error ? (
         <p className="error">{error}</p>
       ) : !data ? (
         <p className="muted">Loading…</p>
       ) : settings.kind === 'pivot' ? (
-        <PivotView series={data} rowLabel={settings.row} />
+        <PivotView series={data} rowLabel={settings.row} presenting={presenting} plan={plan} />
       ) : option ? (
-        <Chart kind={settings.kind as DrawnKind} option={option} onError={setError} zoomOn={ZOOM_ON[settings.kind]} />
+        <Chart
+          kind={settings.kind as DrawnKind}
+          option={option}
+          onError={setError}
+          zoomOn={ZOOM_ON[settings.kind]}
+          presenting={presenting}
+          slide={slide}
+        />
       ) : null}
       {data?.truncated && <p className="muted">Showing the first 10,000 points.</p>}
     </section>

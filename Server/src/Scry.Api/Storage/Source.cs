@@ -52,6 +52,23 @@ public sealed partial class Source
     /// <summary>The stream's name, as its connector names it, such as a database's <c>public.orders</c>.</summary>
     public string? Stream { get; set; }
 
+    /// <summary>The push API key that made the source and alone writes to it; null for any other source.</summary>
+    public int? IngestKeyId { get; set; }
+
+    public IngestKey? IngestKey { get; set; }
+
+    /// <summary>Whether the push API made the source. Revoking its key leaves this true and the key null.</summary>
+    public bool Pushed { get; set; }
+
+    /// <summary>The columns a pushed source's merges match on, as a JSON array of names; empty when it has none.</summary>
+    public string? PrimaryKey { get; set; }
+
+    /// <summary>
+    /// A pushed source's replacement under way, as JSON <c>{"columns": [...], "primaryKey": [...]}</c>: batches go to a
+    /// staging table until a commit swaps it in. Null when none is.
+    /// </summary>
+    public string? Replacement { get; set; }
+
     /// <summary>
     /// Whether each sync reads on from <see cref="State"/> and merges into the table by its primary key. Otherwise each
     /// sync reads the whole stream and replaces the table.

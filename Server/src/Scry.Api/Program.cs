@@ -25,6 +25,7 @@ builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<SchwabSignIns>();
 builder.Services.AddScoped<SourceSync>();
 builder.Services.AddSingleton<PendingSyncs>();
+builder.Services.AddScoped<IngestKeys>();
 builder.Services.AddHostedService<SyncWorker>();
 // The keys that encrypt stored connections live with the workspace's files, outside the database they protect.
 builder.Services.AddDataProtection()

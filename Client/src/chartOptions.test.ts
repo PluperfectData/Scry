@@ -328,6 +328,15 @@ it('shades named regions on the chosen map', () => {
   })
 })
 
+it('stands the color slider at the left, with the map kept clear of it', () => {
+  const option = mapOption({ xType: 'category', points: [['Canada', 10]], truncated: false }, 'world', 'light', 'Count')
+
+  expect(option).toMatchObject({
+    visualMap: { orient: 'vertical', left: 0 },
+    series: [{ left: 72, right: 8 }],
+  })
+})
+
 it('draws the already projected US map as it is, and projects the world map itself', () => {
   const series = { xType: 'category' as const, points: [['Alaska', 1]], truncated: false }
   const [usa] = (mapOption(series, 'usa', 'light', 'Count') as { series: { projection?: { project: (p: number[]) => number[] } }[] }).series

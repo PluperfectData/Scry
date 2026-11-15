@@ -21,15 +21,16 @@ jest.mock('../api', () => ({
   deleteDashboard: jest.fn(),
 }))
 
-// The form is its own unit; here it saves "Costs 2026", and when editing makes it the landing page.
+/// The form is its own unit; here it saves "Costs 2026", and when editing makes it the landing page and slows it.
+const mockSlow = { showTitle: true, scroll: true, wrap: 'reverse', pace: 'slow', seconds: 30 }
 jest.mock('../components/DashboardForm', () => ({
-  DashboardForm: ({ offerLanding, onSave }: { offerLanding: boolean; onSave: (name: string, isLanding: boolean) => void }) =>
+  DashboardForm: ({ editing, onSave }: { editing: boolean; onSave: (name: string, isLanding: boolean, presentation: unknown) => void }) =>
     jest
       .requireActual('react')
       .createElement(
         'button',
-        { type: 'button', onClick: () => onSave('Costs 2026', offerLanding) },
-        offerLanding ? 'Save the edit' : 'Save the new dashboard',
+        { type: 'button', onClick: () => onSave('Costs 2026', editing, mockSlow) },
+        editing ? 'Save the edit' : 'Save the new dashboard',
       ),
 }))
 
@@ -38,6 +39,7 @@ const summary = (id: number, name: string, chartCount: number, isLanding = false
   name,
   chartCount,
   isLanding,
+  presentation: null,
   updatedAt: '2026-11-15T12:00:00Z',
 })
 
@@ -47,6 +49,7 @@ const full = (id: number, name: string, isLanding: boolean): Dashboard => ({
   layouts: {},
   widgets: [],
   isLanding,
+  presentation: null,
   createdAt: '2026-11-15T12:00:00Z',
   updatedAt: '2026-11-15T12:00:00Z',
 })
@@ -104,7 +107,7 @@ it('edits a dashboard from its pencil, moving the landing page to it', async () 
   await userEvent.click(await screen.findByRole('button', { name: 'Edit Costs' }))
   await userEvent.click(within(screen.getByRole('dialog', { name: 'Edit dashboard' })).getByRole('button', { name: 'Save the edit' }))
 
-  expect(editDashboard).toHaveBeenCalledWith(2, 'Costs 2026', true)
+  expect(editDashboard).toHaveBeenCalledWith(2, 'Costs 2026', true, mockSlow)
   await screen.findByRole('heading', { name: 'Costs 2026' })
   expect(within(card('Costs 2026')).getByText('1 chart · Landing page')).toBeInTheDocument()
   expect(within(card('Sales')).getByText('3 charts')).toBeInTheDocument()

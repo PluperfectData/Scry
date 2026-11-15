@@ -1,7 +1,12 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { NUMERIC_TYPES, getRows, type Column } from '../api'
+import { seamOf, useAutoScroll } from '../autoScroll'
 import { COUNT_SORT, LIST_CHUNK, type ColumnFormat, type TableSettings, type TableSort } from '../dashboard'
 import { formatter } from '../formats'
+import type { ScrollPlan } from '../presentation'
+
+// Looping, this many of the first rows follow the last, which covers a screenful in any widget.
+const LOOP_ROWS = 100
 
 const COUNTS: ColumnFormat = { kind: 'number', decimals: 0 }
 
@@ -17,11 +22,20 @@ const ARIA_SORT = { asc: 'ascending', desc: 'descending' } as const
 
 /**
  * A source's rows, a page at a time or as one list that loads more as its end comes into view. A header click sorts
- * by that column for as long as the table is shown; the settings keep the default sort.
+ * by that column for as long as the table is shown; the settings keep the default sort. Presented, it is one list
+ * with no sort buttons or scrollbar, scrolling itself by `plan`.
  */
-export function TableView({ table }: { table: TableSettings }) {
-  const paged = table.pageSize !== null
-  const size = table.pageSize ?? LIST_CHUNK
+export function TableView({
+  table,
+  presenting = false,
+  plan = null,
+}: {
+  table: TableSettings
+  presenting?: boolean
+  plan?: ScrollPlan | null
+}) {
+  const paged = !presenting && table.pageSize !== null
+  const size = paged && table.pageSize !== null ? table.pageSize : LIST_CHUNK
   const [sort, setSort] = useState<TableSort | null>(
     table.sort ?? (table.count ? { column: COUNT_SORT, direction: 'desc' } : null),
   )
@@ -31,6 +45,7 @@ export function TableView({ table }: { table: TableSettings }) {
   const [error, setError] = useState<string | null>(null)
   const wrap = useRef<HTMLDivElement>(null)
   const end = useRef<HTMLTableRowElement>(null)
+  const seam = useRef<HTMLTableRowElement>(null)
 
   const sortKey = JSON.stringify(sort)
   const offset = paged ? page * size : (chunks - 1) * size
@@ -60,6 +75,10 @@ export function TableView({ table }: { table: TableSettings }) {
 
   const listed = !paged && loaded?.sortKey === sortKey ? loaded.values.length : 0
   const more = listed > 0 && listed < (loaded?.total ?? 0)
+  const looping = presenting && plan?.wrap === 'loop' && !more && listed > 0
+  const seamAt = useCallback(() => seamOf(wrap.current, seam.current), [])
+  // The list's box exists once rows have loaded, so scrolling starts then.
+  useAutoScroll(wrap, presenting && loaded ? plan : null, 'y', { seam: seamAt, waiting: more })
 
   useEffect(() => {
     if (!more || !end.current) return
@@ -104,7 +123,7 @@ export function TableView({ table }: { table: TableSettings }) {
 
   return (
     <>
-      <div ref={wrap} className="table-wrap">
+      <div ref={wrap} className="table-wrap" data-presenting={presenting ? '' : undefined}>
         <table>
           <thead>
             <tr>
@@ -116,10 +135,14 @@ export function TableView({ table }: { table: TableSettings }) {
                     className={numeric[i] ? 'number' : undefined}
                     aria-sort={direction ? ARIA_SORT[direction] : undefined}
                   >
-                    <button type="button" className="sort" onClick={() => sortBy(keyOf(i))}>
-                      {column.name}
-                      <span aria-hidden="true">{direction === 'asc' ? '▲' : direction === 'desc' ? '▼' : ''}</span>
-                    </button>
+                    {presenting ? (
+                      column.name
+                    ) : (
+                      <button type="button" className="sort" onClick={() => sortBy(keyOf(i))}>
+                        {column.name}
+                        <span aria-hidden="true">{direction === 'asc' ? '▲' : direction === 'desc' ? '▼' : ''}</span>
+                      </button>
+                    )}
                   </th>
                 )
               })}
@@ -135,6 +158,16 @@ export function TableView({ table }: { table: TableSettings }) {
                 ))}
               </tr>
             ))}
+            {looping &&
+              loaded.values.slice(0, LOOP_ROWS).map((row, r) => (
+                <tr key={`again ${r}`} ref={r === 0 ? seam : undefined} aria-hidden="true">
+                  {row.map((cell, i) => (
+                    <td key={i} className={numeric[i] ? 'number' : undefined}>
+                      {cell === null ? '' : (write[i]?.(cell) ?? cell)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
             {more && (
               <tr ref={end}>
                 <td colSpan={loaded.columns.length} className="muted">

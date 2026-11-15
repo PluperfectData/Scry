@@ -1,9 +1,10 @@
 import type { ReactNode } from 'react'
 
-type Kind = 'file' | 'database' | 'broker'
+type Kind = 'file' | 'api' | 'database' | 'broker'
 
 const KINDS: Record<string, Kind> = {
   csv: 'file',
+  push: 'api',
   mysql: 'database',
   postgres: 'database',
   sqlserver: 'database',
@@ -17,6 +18,7 @@ const DRAWINGS: Record<Kind, ReactNode> = {
       <path d="M14 3v5h5M8.5 13h7M8.5 17h7M12 13v4" />
     </>
   ),
+  api: <path d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16" />,
   database: (
     <>
       <ellipse cx="12" cy="6" rx="7" ry="3" />

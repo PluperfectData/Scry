@@ -40,15 +40,20 @@ jest.mock('../components/ChartForm', () => ({
   },
 }))
 
-// The form is its own unit; here it saves a new name and makes the dashboard the landing page.
+/// The form is its own unit; here it saves a new name, makes the dashboard the landing page, and speeds it up.
+const mockFast = { showTitle: true, scroll: true, wrap: 'loop', pace: 'fast', seconds: 8 }
 jest.mock('../components/DashboardForm', () => ({
-  DashboardForm: ({ onSave }: { onSave: (name: string, isLanding: boolean) => void }) =>
-    jest.requireActual('react').createElement('button', { type: 'button', onClick: () => onSave('Sales 2026', true) }, 'Save the dashboard'),
+  DashboardForm: ({ onSave }: { onSave: (name: string, isLanding: boolean, presentation: unknown) => void }) =>
+    jest
+      .requireActual('react')
+      .createElement('button', { type: 'button', onClick: () => onSave('Sales 2026', true, mockFast) }, 'Save the dashboard'),
 }))
 
 const orders: Source = {
   id: 7,
   name: 'orders',
+  kind: 'Upload',
+  pushedBy: null,
   fileName: 'orders.csv',
   connector: null,
   stream: null,
@@ -65,6 +70,7 @@ const sales = (widgets: Widget[], layouts: Dashboard['layouts']): Dashboard => (
   layouts,
   widgets,
   isLanding: false,
+  presentation: null,
   createdAt: '2026-11-13T12:00:00Z',
   updatedAt: '2026-11-13T12:00:00Z',
 })
@@ -151,7 +157,39 @@ it('renames the dashboard from the pencil beside its name, saving it on its own'
   await userEvent.click(await screen.findByRole('button', { name: 'Edit Sales' }))
   await userEvent.click(within(screen.getByRole('dialog', { name: 'Edit dashboard' })).getByRole('button', { name: 'Save the dashboard' }))
 
-  expect(editDashboard).toHaveBeenCalledWith(3, 'Sales 2026', true)
+  expect(editDashboard).toHaveBeenCalledWith(3, 'Sales 2026', true, mockFast)
   expect(await screen.findByRole('heading', { level: 1, name: 'Sales 2026' })).toBeInTheDocument()
   expect(saveDashboard).not.toHaveBeenCalled()
+})
+
+it('is read only in full screen: the name and charts, with nothing to add, rename, or edit', async () => {
+  Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: document.documentElement })
+  try {
+    jest.mocked(getDashboard).mockResolvedValue(sales([byDay], {}))
+    render(<DashboardPage />)
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Sales' })).toBeInTheDocument()
+    expect(screen.getByText('Sum of amount by day')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Add chart' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Edit Sales' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Edit Sum of amount by day' })).not.toBeInTheDocument()
+  } finally {
+    delete (document as { fullscreenElement?: Element | null }).fullscreenElement
+  }
+})
+
+it('shows only the charts in full screen when the dashboard hides its title', async () => {
+  Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: document.documentElement })
+  try {
+    jest.mocked(getDashboard).mockResolvedValue({
+      ...sales([byDay], {}),
+      presentation: { showTitle: false, scroll: true, wrap: 'loop', pace: 'medium', seconds: 15 },
+    })
+    render(<DashboardPage />)
+
+    expect(await screen.findByText('Sum of amount by day')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument()
+  } finally {
+    delete (document as { fullscreenElement?: Element | null }).fullscreenElement
+  }
 })
