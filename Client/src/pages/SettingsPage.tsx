@@ -1,6 +1,7 @@
 import { type FormEvent, useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { listKeys, makeKey, revokeKey, type IngestKey } from '../api'
+import { KeyShownOnce } from '../components/KeyShownOnce'
 import { Slideout } from '../components/Slideout'
 import { Tooltip } from '../components/Tooltip'
 
@@ -8,7 +9,6 @@ import { Tooltip } from '../components/Tooltip'
 function KeyForm({ onMade, onDone }: { onMade: (key: IngestKey) => void; onDone: () => void }) {
   const [name, setName] = useState('')
   const [made, setMade] = useState<string | null>(null)
-  const [copied, setCopied] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -27,34 +27,14 @@ function KeyForm({ onMade, onDone }: { onMade: (key: IngestKey) => void; onDone:
     }
   }
 
-  async function copy() {
-    if (!made) return
-    try {
-      await navigator.clipboard.writeText(made)
-      setCopied(true)
-    } catch {
-      setError('Scry could not copy the key. Select it and copy it yourself.')
-    }
-  }
-
   if (made) {
     return (
-      <div className="form">
-        <label>
-          Your key
-          <input value={made} readOnly onFocus={(e) => e.target.select()} />
-        </label>
-        <p className="muted hint">Scry shows this key only once. Copy it now, and keep it where the script or service that sends rows can read it.</p>
-        {error && <p className="error hint">{error}</p>}
-        <div className="form-actions">
-          <button type="button" onClick={copy}>
-            {copied ? 'Copied' : 'Copy key'}
-          </button>
-          <button type="button" className="quiet" onClick={onDone}>
-            Done
-          </button>
-        </div>
-      </div>
+      <KeyShownOnce
+        label="Your key"
+        value={made}
+        note="Scry shows this key only once. Copy it now, and keep it where the script or service that sends rows can read it."
+        onDone={onDone}
+      />
     )
   }
 
