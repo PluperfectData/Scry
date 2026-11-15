@@ -9,5 +9,5 @@ public sealed class ScrySettings
     public string DataDirectory { get; set; } = "data";
 
     /// <summary>The one origin CORS allows: the client's.</summary>
-    public string ClientOrigin { get; set; } = "http://localhost:5173";
+    public string ClientOrigin { get; set; } = "http://localhost:6160";
 }

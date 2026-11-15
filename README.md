@@ -41,21 +41,26 @@ parent directory.
 | `GET /sources/{id}/measures?columns=&group=&aggregate=` | `[group, value, ...]`: each number column, repeated, aggregated per group, or over every row without `group`, for a radar chart |
 | `GET /sources/{id}/tree?levels=&y=&aggregate=` | `[level, ..., value]`: `y` aggregated per path through 1 to 4 levels, repeated, for treemaps, sunbursts, and trees |
 | `GET /sources/{id}/groups?x=&group=&y=&aggregate=` | `[x, group, y]`: `y` aggregated per pair, the group as text, for stacked bars, heatmaps, and theme rivers |
+| `GET /sources/{id}/pivot?row=&column=&y=&aggregate=` | `[row, column, value, row's place, column's place]`: `y` aggregated per pair, both as text, for a pivot table. The 50 column values largest in the aggregate keep a column each; the rest share one whose value is null, placed last. |
 | `GET /sources/{id}/histogram?column=&bins=` | `[start, end, count]` for each of `bins` equal-width bins, 20 by default and 200 at most, empty ones included |
 | `GET /sources/{id}/boxes?value=&group=` | `[group, min, first quartile, median, third quartile, max]` per group, or one row named `All rows` without `group` |
 | `GET /sources/{id}/points?x=&y=` | `[x, y]`, one per row, for a scatter chart. `x` is a number or a time. |
 | `GET /sources/{id}/candles?x=&open=&high=&low=&close=` | `[x, open, close, low, high]`, one per row, in `x` order |
-| `GET /sources/{id}/rows?columns=` | The chosen columns, repeated, or every column, as text, in source order: at most 1,000 rows |
+| `GET /sources/{id}/rows?columns=&sort=&direction=&count=&offset=&limit=` | `limit` rows, 1 to 1,000, from `offset`, of the chosen columns, repeated, or every column, as text, with the source's `total` row count. Sorted by `sort` in `direction` (`asc` or `desc`) with blanks last, or in source order without `sort`. With `count=true`, rows matching in every shown column become one, with a last column, Count; it sorts by `sort=__scry_count` or a shown column, and by the count, highest first, without `sort`. |
 | `GET`, `POST /dashboards` | Lists, or creates from `{"name": "..."}` |
 | `GET`, `PUT`, `DELETE /dashboards/{id}` | Reads, replaces `name`, `layouts`, and `widgets`, or deletes |
 
 - A source name starts with a lowercase letter and holds lowercase letters, digits, and underscores, 63 at most.
-  A taken name answers 409.
+  A taken name answers 409. The file can be up to 1 GB.
 - `aggregate` is `sum`, `avg`, `min`, `max`, or `count`. `y` must be a number column, and is left out for
   `count`. Open, high, low, and close must be number columns too.
 - Series, points, and candles carry `xType`: `value` for a number column, `time` for a date or time column, sent
   as epoch milliseconds in UTC, and `category` for anything else. JSON and binary columns cannot be an x axis.
   They return at most 10,000 points, with `truncated` set when there were more.
+- Every chart route also takes a join: `join` (another source's id), `joinOn` (a column of this source), `joinTo` (a
+  column of the other), and `joinKind`, which keeps unmatched rows from neither source (`inner`), this one
+  (`left`), the other (`right`), or both (`full`). Joined, columns are named for their source, as `orders.amount`,
+  and source order is this source's, then the other's.
 - Errors are problem details, with a `detail` safe to show.
 - The API applies its EF migrations at startup.
 
@@ -63,7 +68,7 @@ parent directory.
 |---|---|
 | `ConnectionStrings:Scry` | Required: a MySQL connection string |
 | `Scry:DataDirectory` | `data`, beside the API. Uploads and `workspaces/default/data.duckdb` live here. |
-| `Scry:ClientOrigin` | `http://localhost:5173`, the one origin CORS allows |
+| `Scry:ClientOrigin` | `http://localhost:6160`, the one origin CORS allows |
 
 ## Run it
 
@@ -83,7 +88,7 @@ npm --prefix Client install
 npm --prefix Client run dev
 ```
 
-The API listens on `http://localhost:8080` and the client on `http://localhost:5173`. The client reads the
+The API listens on `http://localhost:6161` and the client on `http://localhost:6160`. The client reads the
 API's address from `VITE_API_URL`, set in `Client/.env.development`.
 
 ## Build

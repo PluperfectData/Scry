@@ -28,7 +28,7 @@ const JAN_1 = Date.UTC(2026, 0, 1)
 const JAN_2 = Date.UTC(2026, 0, 2)
 
 it('draws a line on the axis type the API sends, in UTC, with the theme colors', () => {
-  const option = seriesOption('line', { xType: 'time', points: [[JAN_1, 15], [JAN_2, 7]], truncated: false }, 'light')
+  const option = seriesOption('line', { xType: 'time', points: [[JAN_1, 15], [JAN_2, 7]], truncated: false }, 'light', null)
 
   expect(option).toMatchObject({
     useUTC: true,
@@ -42,19 +42,19 @@ it('draws a line on the axis type the API sends, in UTC, with the theme colors',
 it('drops the point markers on a long line', () => {
   const points = Array.from({ length: 61 }, (_, i) => [i, i])
 
-  expect(seriesOption('line', { xType: 'value', points, truncated: false }, 'light')).toMatchObject({
+  expect(seriesOption('line', { xType: 'value', points, truncated: false }, 'light', null)).toMatchObject({
     series: [{ showSymbol: false }],
   })
 })
 
 it('draws bars from the same points as a line', () => {
-  const option = seriesOption('bar', { xType: 'category', points: [['east', 2]], truncated: false }, 'dark')
+  const option = seriesOption('bar', { xType: 'category', points: [['east', 2]], truncated: false }, 'dark', null)
 
   expect(option).toMatchObject({ color: PALETTES.dark.colors, series: [{ type: 'bar', data: [['east', 2]] }] })
 })
 
 it('makes each point a named pie slice', () => {
-  const option = seriesOption('pie', { xType: 'time', points: [[JAN_1, 3], [JAN_2, 1]], truncated: false }, 'light')
+  const option = seriesOption('pie', { xType: 'time', points: [[JAN_1, 3], [JAN_2, 1]], truncated: false }, 'light', null)
 
   expect(option).toMatchObject({
     series: [{ type: 'pie', data: [{ name: '2026-01-01', value: 3 }, { name: '2026-01-02', value: 1 }] }],
@@ -62,7 +62,7 @@ it('makes each point a named pie slice', () => {
 })
 
 it('fits both scatter axes to the data', () => {
-  const option = scatterOption({ xType: 'value', points: [[1.5, 2]], truncated: false }, 'light')
+  const option = scatterOption({ xType: 'value', points: [[1.5, 2]], truncated: false }, 'light', null, false)
 
   expect(option).toMatchObject({
     xAxis: { type: 'value', scale: true },
@@ -71,10 +71,51 @@ it('fits both scatter axes to the data', () => {
   })
 })
 
+it('fits a number x axis and a line to the data, with a zoom slider under the x axis', () => {
+  const option = seriesOption('line', { xType: 'value', points: [[1975, 3], [2020, 5]], truncated: false }, 'light', null)
+
+  expect(option).toMatchObject({
+    xAxis: { type: 'value', scale: true },
+    yAxis: { type: 'value', scale: true },
+    grid: { bottom: 64 },
+    dataZoom: [{ type: 'slider', xAxisIndex: 0 }],
+  })
+})
+
+it('starts bars at zero until a scale is set', () => {
+  const bars = { xType: 'category' as const, points: [['east', 2]], truncated: false }
+
+  expect(seriesOption('bar', bars, 'light', null)).toMatchObject({ yAxis: { scale: false } })
+  expect(stackedOption(grouped, 'light', null)).toMatchObject({ yAxis: { scale: false } })
+  expect(histogramOption({ xType: 'value', points: [[1, 4, 3]], truncated: false }, 'light', null)).toMatchObject({
+    yAxis: { scale: false },
+  })
+})
+
+it('applies a set minimum, maximum, and log scale, leaving an unset bound to fit the data', () => {
+  const scales = { x: { min: 1970, max: 2025, log: false }, y: { min: 1, max: null, log: true } }
+  const option = seriesOption('line', { xType: 'value', points: [[1975, 3]], truncated: false }, 'light', scales) as {
+    xAxis: object
+    yAxis: object
+  }
+
+  expect(option.xAxis).toMatchObject({ type: 'value', min: 1970, max: 2025 })
+  expect(option.yAxis).toMatchObject({ type: 'log', min: 1 })
+  expect(option.yAxis).not.toHaveProperty('max')
+})
+
+it('stands the heatmap color slider at the right of the grid, clear of the x axis labels', () => {
+  expect(heatmapOption(grouped, 'light')).toMatchObject({
+    grid: { right: 72 },
+    visualMap: { orient: 'vertical', right: 0 },
+  })
+})
+
 it('puts candles on a category axis of their x labels, rising and falling in the theme colors', () => {
   const option = candlestickOption(
     { xType: 'time', points: [[JAN_1, 10, 11, 9, 12], [JAN_2, 11, 12, 10, 13]], truncated: false },
     'light',
+    null,
   )
 
   expect(option).toMatchObject({
@@ -90,7 +131,7 @@ it('puts candles on a category axis of their x labels, rising and falling in the
 })
 
 it('fills the area under an area chart', () => {
-  const option = seriesOption('area', { xType: 'value', points: [[1, 2]], truncated: false }, 'light')
+  const option = seriesOption('area', { xType: 'value', points: [[1, 2]], truncated: false }, 'light', null)
 
   expect(option).toMatchObject({ series: [{ type: 'line', areaStyle: { opacity: 0.25 } }] })
 })
@@ -102,7 +143,7 @@ const grouped = {
 }
 
 it('stacks a bar per group, leaving a gap where a group has no value', () => {
-  const option = stackedOption(grouped, 'light')
+  const option = stackedOption(grouped, 'light', null)
 
   expect(option).toMatchObject({
     xAxis: { type: 'category', data: ['2026-01-01', '2026-01-02'] },
@@ -127,6 +168,7 @@ it('labels histogram bars by their range', () => {
   const option = histogramOption(
     { xType: 'value', points: [[1, 4, 3], [4, 7, 3], [7, 10, 4]], truncated: false },
     'light',
+    null,
   )
 
   expect(option).toMatchObject({
@@ -136,7 +178,7 @@ it('labels histogram bars by their range', () => {
 })
 
 it('draws a box per group from its five numbers', () => {
-  const option = boxplotOption({ xType: 'category', points: [['east', 7, 7.75, 8.5, 9.25, 10]], truncated: false }, 'light')
+  const option = boxplotOption({ xType: 'category', points: [['east', 7, 7.75, 8.5, 9.25, 10]], truncated: false }, 'light', null)
 
   expect(option).toMatchObject({
     xAxis: { data: ['east'] },
@@ -249,7 +291,7 @@ it('reorders grouped points into theme river streams on a time axis', () => {
 })
 
 it('draws pictorial bars as repeated blocks on x labels', () => {
-  const option = pictorialOption({ xType: 'category', points: [['east', 2]], truncated: false }, 'light')
+  const option = pictorialOption({ xType: 'category', points: [['east', 2]], truncated: false }, 'light', null)
 
   expect(option).toMatchObject({
     xAxis: { data: ['east'] },
@@ -258,7 +300,7 @@ it('draws pictorial bars as repeated blocks on x labels', () => {
 })
 
 it('pulses each point of a ripple scatter', () => {
-  expect(scatterOption({ xType: 'value', points: [[1, 2]], truncated: false }, 'light', true)).toMatchObject({
+  expect(scatterOption({ xType: 'value', points: [[1, 2]], truncated: false }, 'light', null, true)).toMatchObject({
     series: [{ type: 'effectScatter', data: [[1, 2]] }],
   })
 })
@@ -268,12 +310,30 @@ it('shades named regions on the chosen map', () => {
     { xType: 'category', points: [['United States of America', 30], ['Canada', 10]], truncated: false },
     'world',
     'light',
+    'Sum of sales',
   )
 
   expect(option).toMatchObject({
     visualMap: { min: 10, max: 30 },
-    series: [{ type: 'map', map: 'world', data: [{ name: 'United States of America', value: 30 }, { name: 'Canada', value: 10 }] }],
+    series: [{ type: 'map', name: 'Sum of sales', map: 'world', data: [{ name: 'United States of America', value: 30 }, { name: 'Canada', value: 10 }] }],
   })
+})
+
+it('draws the already projected US map as it is, and projects the world map itself', () => {
+  const series = { xType: 'category' as const, points: [['Alaska', 1]], truncated: false }
+  const [usa] = (mapOption(series, 'usa', 'light', 'Count') as { series: { projection?: { project: (p: number[]) => number[] } }[] }).series
+  const [world] = (mapOption(series, 'world', 'light', 'Count') as { series: { projection?: unknown }[] }).series
+
+  expect(usa.projection?.project([120, 480])).toEqual([120, 480])
+  expect(world.projection).toBeUndefined()
+})
+
+it('pans a region map, a flow map, and a network graph by drag only, leaving the wheel to scroll the page', () => {
+  const empty = { xType: 'category' as const, points: [], truncated: false }
+
+  expect(mapOption(empty, 'world', 'light', 'Count')).toMatchObject({ series: [{ roam: 'move' }] })
+  expect(flowsOption(empty, 'light')).toMatchObject({ geo: { roam: 'move' } })
+  expect(graphOption(empty, 'light')).toMatchObject({ series: [{ roam: 'move' }] })
 })
 
 it('draws a flow per row between its two places on the world map', () => {

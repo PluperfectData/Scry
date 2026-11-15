@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   getBoxes,
   getCandles,
@@ -6,13 +6,12 @@ import {
   getHistogram,
   getLinks,
   getMeasures,
+  getPivot,
   getPoints,
-  getRows,
   getSeries,
   getTotal,
   getTree,
   getValues,
-  type Rows,
   type Series,
 } from '../api'
 import {
@@ -36,17 +35,19 @@ import {
   themeRiverOption,
   treeOption,
 } from '../chartOptions'
-import type { Widget, WidgetSettings } from '../dashboard'
+import { measureName, type ChartKind, type Widget, type WidgetSettings } from '../dashboard'
 import type { DrawnKind } from '../echartsLoader'
 import { loadMap } from '../maps'
 import { useTheme } from '../theme'
 import { Chart } from './Chart'
+import { PivotView } from './PivotView'
 import { TableView } from './TableView'
+import { Tooltip } from './Tooltip'
 
 /** A map's boundaries and its data load together; the data comes back once both have. */
 const withMap = (map: Promise<void>, data: Promise<Series>) => Promise.all([map, data]).then(([, series]) => series)
 
-function load(widget: WidgetSettings): Promise<Series | Rows> {
+function load(widget: Exclude<WidgetSettings, { kind: 'table' }>): Promise<Series> {
   switch (widget.kind) {
     case 'line':
     case 'area':
@@ -54,91 +55,108 @@ function load(widget: WidgetSettings): Promise<Series | Rows> {
     case 'pictorial':
     case 'pie':
     case 'funnel':
-      return getSeries(widget.sourceId, widget.x, widget.y, widget.aggregate)
+      return getSeries(widget, widget.x, widget.y, widget.aggregate)
     case 'map':
-      return withMap(loadMap(widget.map), getSeries(widget.sourceId, widget.x, widget.y, widget.aggregate))
+      return withMap(loadMap(widget.map), getSeries(widget, widget.x, widget.y, widget.aggregate))
     case 'flows': {
       const { fromLon, fromLat, toLon, toLat } = widget
-      return withMap(loadMap('world'), getValues(widget.sourceId, [fromLon, fromLat, toLon, toLat]))
+      return withMap(loadMap('world'), getValues(widget, [fromLon, fromLat, toLon, toLat]))
     }
     case 'parallel':
-      return getValues(widget.sourceId, widget.columns)
+      return getValues(widget, widget.columns)
     case 'gauge':
-      return getTotal(widget.sourceId, widget.y, widget.aggregate)
+      return getTotal(widget, widget.y, widget.aggregate)
     case 'radar': {
       const { columns, group, aggregate } = widget
-      return getMeasures(widget.sourceId, { columns, group, aggregate })
+      return getMeasures(widget, { columns, group, aggregate })
     }
     case 'treemap':
     case 'sunburst':
     case 'tree': {
       const { levels, y, aggregate } = widget
-      return getTree(widget.sourceId, { levels, y, aggregate })
+      return getTree(widget, { levels, y, aggregate })
     }
     case 'sankey':
     case 'graph':
     case 'chord': {
       const { from, to, y, aggregate } = widget
-      return getLinks(widget.sourceId, { from, to, y, aggregate })
+      return getLinks(widget, { from, to, y, aggregate })
     }
     case 'stacked':
     case 'heatmap':
     case 'themeriver': {
       const { x, group, y, aggregate } = widget
-      return getGroups(widget.sourceId, { x, group, y, aggregate })
+      return getGroups(widget, { x, group, y, aggregate })
+    }
+    case 'pivot': {
+      const { row, column, y, aggregate } = widget
+      return getPivot(widget, { row, column, y, aggregate })
     }
     case 'histogram':
-      return getHistogram(widget.sourceId, widget.column, widget.bins)
+      return getHistogram(widget, widget.column, widget.bins)
     case 'boxplot':
-      return getBoxes(widget.sourceId, widget.value, widget.group)
+      return getBoxes(widget, widget.value, widget.group)
     case 'scatter':
     case 'ripple':
-      return getPoints(widget.sourceId, widget.x, widget.y)
+      return getPoints(widget, widget.x, widget.y)
     case 'candlestick': {
       const { x, open, high, low, close } = widget
-      return getCandles(widget.sourceId, { x, open, high, low, close })
+      return getCandles(widget, { x, open, high, low, close })
     }
-    case 'table':
-      return getRows(widget.sourceId, widget.columns)
     default:
       // Widgets are stored JSON, so one can carry a kind this client does not know.
       return Promise.reject(new Error('This chart type is not known here. Remove it and add it again.'))
   }
 }
 
-export function ChartWidget({ widget, onRemove }: { widget: Widget; onRemove: () => void }) {
+/** The charts that zoom from a slider rather than the wheel, and the part of the option each zooms. */
+const ZOOM_ON: Partial<Record<ChartKind, 'series' | 'geo'>> = { map: 'series', graph: 'series', flows: 'geo' }
+
+interface Loaded {
+  settingsKey: string
+  data: Series | null
+  error: string | null
+}
+
+export function ChartWidget({ widget, onEdit, onRemove }: { widget: Widget; onEdit?: () => void; onRemove: () => void }) {
   const { theme } = useTheme()
-  const [data, setData] = useState<Series | Rows | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [loaded, setLoaded] = useState<Loaded | null>(null)
   const { id: _id, title: _title, ...rest } = widget
   const settingsKey = JSON.stringify(rest)
 
   // A widget is a new object after every dashboard save, so loading keys on its settings' JSON instead.
   const settings = useMemo(() => JSON.parse(settingsKey) as WidgetSettings, [settingsKey])
 
+  // Data loaded for the chart's previous settings is dropped, since its new type may not be able to draw it.
+  const current = loaded?.settingsKey === settingsKey ? loaded : null
+  const data = current?.data ?? null
+  const error = current?.error ?? null
+  const setError = useCallback((message: string) => setLoaded({ settingsKey, data: null, error: message }), [settingsKey])
+
   useEffect(() => {
-    let current = true
+    if (settings.kind === 'table') return
+    let live = true
     load(settings)
-      .then((loaded) => {
-        if (current) setData(loaded)
+      .then((result) => {
+        if (live) setLoaded({ settingsKey, data: result, error: null })
       })
       .catch((e: Error) => {
-        if (current) setError(e.message)
+        if (live) setLoaded({ settingsKey, data: null, error: e.message })
       })
     return () => {
-      current = false
+      live = false
     }
-  }, [settings])
+  }, [settings, settingsKey])
 
   const option = useMemo(() => {
-    if (!data || !('points' in data)) return null
+    if (!data) return null
     switch (settings.kind) {
       case 'pictorial':
-        return pictorialOption(data, theme)
+        return pictorialOption(data, theme, settings.scales)
       case 'funnel':
         return funnelOption(data, theme)
       case 'map':
-        return mapOption(data, settings.map, theme)
+        return mapOption(data, settings.map, theme, measureName(settings.aggregate, settings.y))
       case 'flows':
         return flowsOption(data, theme)
       case 'parallel':
@@ -158,24 +176,25 @@ export function ChartWidget({ widget, onRemove }: { widget: Widget; onRemove: ()
       case 'chord':
         return chordOption(data, theme)
       case 'stacked':
-        return stackedOption(data, theme)
+        return stackedOption(data, theme, settings.scales)
       case 'heatmap':
         return heatmapOption(data, theme)
       case 'themeriver':
         return themeRiverOption(data, theme)
       case 'histogram':
-        return histogramOption(data, theme)
+        return histogramOption(data, theme, settings.scales)
       case 'boxplot':
-        return boxplotOption(data, theme)
+        return boxplotOption(data, theme, settings.scales)
       case 'scatter':
       case 'ripple':
-        return scatterOption(data, theme, settings.kind === 'ripple')
+        return scatterOption(data, theme, settings.scales, settings.kind === 'ripple')
       case 'candlestick':
-        return candlestickOption(data, theme)
+        return candlestickOption(data, theme, settings.scales)
       case 'table':
+      case 'pivot':
         return null
       default:
-        return seriesOption(settings.kind, data, theme)
+        return seriesOption(settings.kind, data, theme, settings.scales)
     }
   }, [data, theme, settings])
 
@@ -183,22 +202,42 @@ export function ChartWidget({ widget, onRemove }: { widget: Widget; onRemove: ()
     <section className="widget">
       <header className="widget-header">
         <h2>{widget.title}</h2>
-        <button type="button" className="widget-remove" onClick={onRemove} aria-label={`Remove ${widget.title}`}>
-          ×
-        </button>
+        <div className="widget-actions">
+          {onEdit && (
+            <Tooltip label="Edit chart">
+              <button type="button" className="widget-action" onClick={onEdit} aria-label={`Edit ${widget.title}`}>
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path
+                    d="M4 20h4L19 9l-4-4L4 16v4zM13 7l4 4"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+            </Tooltip>
+          )}
+          <Tooltip label="Remove chart">
+            <button type="button" className="widget-action" onClick={onRemove} aria-label={`Remove ${widget.title}`}>
+              ×
+            </button>
+          </Tooltip>
+        </div>
       </header>
-      {error ? (
+      {settings.kind === 'table' ? (
+        // Keyed on the settings, so an edit starts the table again from its default sort and first page.
+        <TableView key={settingsKey} table={settings} />
+      ) : error ? (
         <p className="error">{error}</p>
       ) : !data ? (
         <p className="muted">Loading…</p>
-      ) : 'values' in data ? (
-        <TableView rows={data} />
+      ) : settings.kind === 'pivot' ? (
+        <PivotView series={data} rowLabel={settings.row} />
       ) : option ? (
-        <Chart kind={settings.kind as DrawnKind} option={option} onError={setError} />
+        <Chart kind={settings.kind as DrawnKind} option={option} onError={setError} zoomOn={ZOOM_ON[settings.kind]} />
       ) : null}
-      {data?.truncated && (
-        <p className="muted">{'values' in data ? 'Showing the first 1,000 rows.' : 'Showing the first 10,000 points.'}</p>
-      )}
+      {data?.truncated && <p className="muted">Showing the first 10,000 points.</p>}
     </section>
   )
 }

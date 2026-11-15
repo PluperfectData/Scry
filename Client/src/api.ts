@@ -1,4 +1,4 @@
-import type { Aggregate, Layouts, Widget } from './dashboard'
+import type { Aggregate, Join, Layouts, TableSort, Widget } from './dashboard'
 
 const baseUrl = import.meta.env.VITE_API_URL
 
@@ -24,14 +24,41 @@ export interface Column {
   type: ColumnType
 }
 
+/** An uploaded file, with its `fileName`, or a database table, with the `connector` that reads it and its `stream` name there. */
 export interface Source {
   id: number
   name: string
-  fileName: string
+  fileName: string | null
+  connector: string | null
+  stream: string | null
   columns: Column[]
   rowCount: number
   syncedAt: string
 }
+
+/** One setting a database's Nexus connector asks for. */
+export interface SettingField {
+  name: string
+  label: string
+  kind: 'Text' | 'Secret' | 'Number' | 'Boolean' | 'Choice' | 'File'
+  required: boolean
+  choices: string[] | null
+}
+
+/** A database Scry reads, with the settings its connector asks for. */
+export interface Database {
+  id: string
+  name: string
+  fields: SettingField[]
+}
+
+/** A table a database offers, by its connector's name for it, such as `public.orders`. */
+export interface DatabaseTable {
+  name: string
+  columns: number
+}
+
+export type Settings = Record<string, string | null>
 
 /**
  * Chart points in x order: `[x, y]`, or `[x, open, close, low, high]` for candles. A time axis carries epoch
@@ -44,10 +71,19 @@ export interface Series {
 }
 
 /** A source's first rows, as text. */
+/** One run of a source's rows as text, and how many rows the source holds. */
 export interface Rows {
   columns: Column[]
   values: (string | null)[][]
-  truncated: boolean
+  total: number
+}
+
+export interface RowsRequest {
+  columns: string[]
+  sort: TableSort | null
+  count: boolean
+  offset: number
+  limit: number
 }
 
 export interface DashboardSummary {
@@ -89,6 +125,19 @@ function json(method: string, body: unknown): RequestInit {
 
 export const listSources = () => request<Source[]>('/sources')
 
+export const listDatabases = () => request<Database[]>('/databases')
+
+/** Connects with the settings and lists the database's tables; nothing is kept. */
+export const listTables = (connector: string, settings: Settings) =>
+  request<DatabaseTable[]>('/databases/tables', json('POST', { connector, settings }))
+
+/** Keeps the connection and adds each table as a source of the given name, copied into Scry. */
+export const addDatabaseSources = (connector: string, settings: Settings, tables: { table: string; name: string }[]) =>
+  request<Source[]>('/databases', json('POST', { connector, settings, tables }))
+
+/** Copies a database table's source again. */
+export const syncSource = (id: number) => request<Source>(`/sources/${id}/sync`, { method: 'POST' })
+
 export function uploadSource(name: string, file: File, delimiter: string): Promise<Source> {
   const form = new FormData()
   form.append('name', name)
@@ -97,88 +146,121 @@ export function uploadSource(name: string, file: File, delimiter: string): Promi
   return request<Source>('/sources', { method: 'POST', body: form })
 }
 
-export function getSeries(sourceId: number, x: string, y: string | null, aggregate: Aggregate): Promise<Series> {
-  const query = new URLSearchParams({ x, aggregate })
-  if (y) query.set('y', y)
-  return request<Series>(`/sources/${sourceId}/series?${query}`)
+/** What a chart reads: its source, and the source joined to it, if any. A chart's own settings serve as one. */
+export interface From {
+  sourceId: number
+  join: Join | null
 }
 
-export function getPoints(sourceId: number, x: string, y: string): Promise<Series> {
-  return request<Series>(`/sources/${sourceId}/points?${new URLSearchParams({ x, y })}`)
+/** Asks for a chart's data from one of the source's endpoints, adding the join when there is one. */
+function read<T>(from: From, endpoint: string, query: URLSearchParams): Promise<T> {
+  if (from.join) {
+    query.set('join', String(from.join.sourceId))
+    query.set('joinOn', from.join.on)
+    query.set('joinTo', from.join.to)
+    query.set('joinKind', from.join.kind)
+  }
+  const search = query.toString()
+  return request<T>(`/sources/${from.sourceId}/${endpoint}${search ? `?${search}` : ''}`)
+}
+
+export function getSeries(from: From, x: string, y: string | null, aggregate: Aggregate): Promise<Series> {
+  const query = new URLSearchParams({ x, aggregate })
+  if (y) query.set('y', y)
+  return read(from, 'series', query)
+}
+
+export function getPoints(from: From, x: string, y: string): Promise<Series> {
+  return read(from, 'points', new URLSearchParams({ x, y }))
 }
 
 export function getCandles(
-  sourceId: number,
+  from: From,
   prices: { x: string; open: string; high: string; low: string; close: string },
 ): Promise<Series> {
-  return request<Series>(`/sources/${sourceId}/candles?${new URLSearchParams(prices)}`)
+  return read(from, 'candles', new URLSearchParams(prices))
 }
 
 export function getGroups(
-  sourceId: number,
+  from: From,
   settings: { x: string; group: string; y: string | null; aggregate: Aggregate },
 ): Promise<Series> {
   const query = new URLSearchParams({ x: settings.x, group: settings.group, aggregate: settings.aggregate })
   if (settings.y) query.set('y', settings.y)
-  return request<Series>(`/sources/${sourceId}/groups?${query}`)
+  return read(from, 'groups', query)
 }
 
-export function getHistogram(sourceId: number, column: string, bins: number): Promise<Series> {
-  return request<Series>(`/sources/${sourceId}/histogram?${new URLSearchParams({ column, bins: String(bins) })}`)
+export function getPivot(
+  from: From,
+  settings: { row: string; column: string; y: string | null; aggregate: Aggregate },
+): Promise<Series> {
+  const query = new URLSearchParams({ row: settings.row, column: settings.column, aggregate: settings.aggregate })
+  if (settings.y) query.set('y', settings.y)
+  return read(from, 'pivot', query)
 }
 
-export function getBoxes(sourceId: number, value: string, group: string | null): Promise<Series> {
+export function getHistogram(from: From, column: string, bins: number): Promise<Series> {
+  return read(from, 'histogram', new URLSearchParams({ column, bins: String(bins) }))
+}
+
+export function getBoxes(from: From, value: string, group: string | null): Promise<Series> {
   const query = new URLSearchParams({ value })
   if (group) query.set('group', group)
-  return request<Series>(`/sources/${sourceId}/boxes?${query}`)
+  return read(from, 'boxes', query)
 }
 
-export function getTotal(sourceId: number, y: string | null, aggregate: Aggregate): Promise<Series> {
+export function getTotal(from: From, y: string | null, aggregate: Aggregate): Promise<Series> {
   const query = new URLSearchParams({ aggregate })
   if (y) query.set('y', y)
-  return request<Series>(`/sources/${sourceId}/total?${query}`)
+  return read(from, 'total', query)
 }
 
 export function getMeasures(
-  sourceId: number,
+  from: From,
   settings: { columns: string[]; group: string | null; aggregate: Aggregate },
 ): Promise<Series> {
   const query = new URLSearchParams({ aggregate: settings.aggregate })
   for (const column of settings.columns) query.append('columns', column)
   if (settings.group) query.set('group', settings.group)
-  return request<Series>(`/sources/${sourceId}/measures?${query}`)
+  return read(from, 'measures', query)
 }
 
 export function getTree(
-  sourceId: number,
+  from: From,
   settings: { levels: string[]; y: string | null; aggregate: Aggregate },
 ): Promise<Series> {
   const query = new URLSearchParams({ aggregate: settings.aggregate })
   for (const level of settings.levels) query.append('levels', level)
   if (settings.y) query.set('y', settings.y)
-  return request<Series>(`/sources/${sourceId}/tree?${query}`)
+  return read(from, 'tree', query)
 }
 
 export function getLinks(
-  sourceId: number,
+  from: From,
   settings: { from: string; to: string; y: string | null; aggregate: Aggregate },
 ): Promise<Series> {
   const query = new URLSearchParams({ from: settings.from, to: settings.to, aggregate: settings.aggregate })
   if (settings.y) query.set('y', settings.y)
-  return request<Series>(`/sources/${sourceId}/links?${query}`)
+  return read(from, 'links', query)
 }
 
-export function getValues(sourceId: number, columns: string[]): Promise<Series> {
+export function getValues(from: From, columns: string[]): Promise<Series> {
   const query = new URLSearchParams()
   for (const column of columns) query.append('columns', column)
-  return request<Series>(`/sources/${sourceId}/values?${query}`)
+  return read(from, 'values', query)
 }
 
-export function getRows(sourceId: number, columns: string[]): Promise<Rows> {
+export function getRows(from: From, { columns, sort, count, offset, limit }: RowsRequest): Promise<Rows> {
   const query = new URLSearchParams()
   for (const column of columns) query.append('columns', column)
-  const search = query.toString()
-  return request<Rows>(`/sources/${sourceId}/rows${search ? `?${search}` : ''}`)
+  if (sort) {
+    query.set('sort', sort.column)
+    query.set('direction', sort.direction)
+  }
+  if (count) query.set('count', 'true')
+  query.set('offset', String(offset))
+  query.set('limit', String(limit))
+  return read(from, 'rows', query)
 }
 
 export const listDashboards = () => request<DashboardSummary[]>('/dashboards')

@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+using System.Globalization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Nexus;
@@ -17,10 +17,14 @@ public sealed class SourceUpload
     public string? Delimiter { get; set; }
 }
 
+/// <summary>A source: an uploaded file, with its <paramref name="FileName"/>, or a database table, with the
+/// <paramref name="Connector"/> that reads it and its <paramref name="Stream"/> name there.</summary>
 public sealed record SourceView(
     int Id,
     string Name,
-    string FileName,
+    string? FileName,
+    string? Connector,
+    string? Stream,
     IReadOnlyList<ColumnInfo> Columns,
     long RowCount,
     DateTime SyncedAt)
@@ -29,34 +33,103 @@ public sealed record SourceView(
         source.Id,
         source.Name,
         source.FileName,
+        source.Connection?.Connector,
+        source.Stream,
         ColumnInfo.Deserialize(source.Columns),
         source.RowCount,
         source.SyncedAt);
 }
 
+/// <summary>
+/// Another source to join to a chart's own, from the query's <c>join</c> (its id), <c>joinOn</c> (the column in the
+/// chart's source), <c>joinTo</c> (the column in the joined one), and <c>joinKind</c>: <c>inner</c>, <c>left</c>,
+/// <c>right</c>, or <c>full</c>.
+/// </summary>
+public sealed class SourceJoin
+{
+    public int? Join { get; set; }
+
+    public string? JoinOn { get; set; }
+
+    public string? JoinTo { get; set; }
+
+    public string? JoinKind { get; set; }
+}
+
 [ApiController]
 [Route("sources")]
-public sealed partial class SourcesController(ScryDbContext db, Workspace workspace) : ControllerBase
+public sealed class SourcesController(
+    ScryDbContext db,
+    Workspace workspace,
+    DatabaseConnectors connectors,
+    ConnectionSecrets secrets) : ControllerBase
 {
     [HttpGet]
     public async Task<IEnumerable<SourceView>> List(CancellationToken ct) =>
-        (await db.Sources.AsNoTracking().OrderBy(source => source.Name).ToListAsync(ct)).Select(SourceView.From);
+        (await db.Sources.AsNoTracking().Include(source => source.Connection).OrderBy(source => source.Name).ToListAsync(ct))
+        .Select(SourceView.From);
 
     [HttpGet("{id:int}")]
     public async Task<ActionResult<SourceView>> Get(int id, CancellationToken ct) =>
-        await db.Sources.FindAsync([id], ct) is { } source ? SourceView.From(source) : NotFound();
+        await db.Sources.Include(source => source.Connection).FirstOrDefaultAsync(source => source.Id == id, ct) is { } source
+            ? SourceView.From(source)
+            : NotFound();
+
+    /// <summary>Copies a database table into DuckDB again. An uploaded file syncs once, when it is uploaded.</summary>
+    [HttpPost("{id:int}/sync")]
+    public async Task<ActionResult<SourceView>> Sync(int id, CancellationToken ct)
+    {
+        if (await db.Sources.Include(s => s.Connection).FirstOrDefaultAsync(s => s.Id == id, ct) is not { } source)
+        {
+            return NotFound();
+        }
+
+        if (source.Connection is not { } connection || source.Stream is not { } stream)
+        {
+            return Problem(
+                "An uploaded file syncs once, when it is uploaded. Upload it again to refresh it.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        if (connectors.Find(connection.Connector) is not { } connector)
+        {
+            return Problem($"'{connection.Connector}' is not a database Scry reads.", statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        SyncResult result;
+        try
+        {
+            result = await workspace.SyncAsync(
+                connector, new ConnectorConfig(secrets.Unprotect(connection.Settings)), stream, source.Name, ct);
+        }
+        catch (ConnectorException ex)
+        {
+            return this.ConnectorProblem(ex);
+        }
+
+        source.Columns = ColumnInfo.Serialize(result.Columns);
+        source.RowCount = result.RowCount;
+        source.SyncedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync(ct);
+        return SourceView.From(source);
+    }
+
+    /// <summary>The largest CSV file a source can be made from: 1 GB.</summary>
+    public const long MaxUploadBytes = 1L << 30;
+
+    // The form around the file also carries its name, its delimiter, and the multipart boundaries.
+    private const long FormOverheadBytes = 1L << 20;
 
     /// <summary>Uploads a CSV file and syncs it through Nexus into the workspace's DuckDB file.</summary>
     [HttpPost]
+    [RequestSizeLimit(MaxUploadBytes + FormOverheadBytes)]
+    [RequestFormLimits(MultipartBodyLengthLimit = MaxUploadBytes)]
     public async Task<ActionResult<SourceView>> Upload([FromForm] SourceUpload upload, CancellationToken ct)
     {
         var name = upload.Name?.Trim() ?? string.Empty;
-        if (!NamePattern().IsMatch(name))
+        if (!Source.IsValidName(name))
         {
-            return Problem(
-                "A source name starts with a lowercase letter and holds only lowercase letters, digits, and "
-                + "underscores, 63 at most.",
-                statusCode: StatusCodes.Status400BadRequest);
+            return Problem(Source.NameRule, statusCode: StatusCodes.Status400BadRequest);
         }
 
         if (upload.File is not { Length: > 0 } file)
@@ -85,11 +158,7 @@ public sealed partial class SourcesController(ScryDbContext db, Workspace worksp
         catch (ConnectorException ex)
         {
             System.IO.File.Delete(storedPath);
-            return Problem(
-                ex.Message,
-                statusCode: ex.Kind == ConnectorErrorKind.Transient
-                    ? StatusCodes.Status503ServiceUnavailable
-                    : StatusCodes.Status400BadRequest);
+            return this.ConnectorProblem(ex);
         }
 
         var created = new Source
@@ -114,13 +183,19 @@ public sealed partial class SourcesController(ScryDbContext db, Workspace worksp
         [FromQuery] string x,
         [FromQuery] string? y,
         [FromQuery] string aggregate,
+        [FromQuery] SourceJoin joined,
         CancellationToken ct) =>
-        Chart(id, (source, columns) => ChartQueries.Series(source.Name, columns, x, y, aggregate), ct);
+        Chart(id, joined, from => ChartQueries.Series(from, x, y, aggregate), ct);
 
     /// <summary>One point per row, for a scatter chart.</summary>
     [HttpGet("{id:int}/points")]
-    public Task<ActionResult<Series>> GetPoints(int id, [FromQuery] string x, [FromQuery] string y, CancellationToken ct) =>
-        Chart(id, (source, columns) => ChartQueries.Points(source.Name, columns, x, y), ct);
+    public Task<ActionResult<Series>> GetPoints(
+        int id,
+        [FromQuery] string x,
+        [FromQuery] string y,
+        [FromQuery] SourceJoin joined,
+        CancellationToken ct) =>
+        Chart(id, joined, from => ChartQueries.Points(from, x, y), ct);
 
     /// <summary>One candle per row, as <c>[x, open, close, low, high]</c>.</summary>
     [HttpGet("{id:int}/candles")]
@@ -131,8 +206,9 @@ public sealed partial class SourcesController(ScryDbContext db, Workspace worksp
         [FromQuery] string high,
         [FromQuery] string low,
         [FromQuery] string close,
+        [FromQuery] SourceJoin joined,
         CancellationToken ct) =>
-        Chart(id, (source, columns) => ChartQueries.Candles(source.Name, columns, x, open, high, low, close), ct);
+        Chart(id, joined, from => ChartQueries.Candles(from, x, open, high, low, close), ct);
 
     /// <summary><paramref name="y"/> aggregated per <paramref name="x"/> and <paramref name="group"/>, as <c>[x, group, y]</c>.</summary>
     [HttpGet("{id:int}/groups")]
@@ -142,8 +218,24 @@ public sealed partial class SourcesController(ScryDbContext db, Workspace worksp
         [FromQuery] string group,
         [FromQuery] string? y,
         [FromQuery] string aggregate,
+        [FromQuery] SourceJoin joined,
         CancellationToken ct) =>
-        Chart(id, (source, columns) => ChartQueries.Groups(source.Name, columns, x, group, y, aggregate), ct);
+        Chart(id, joined, from => ChartQueries.Groups(from, x, group, y, aggregate), ct);
+
+    /// <summary>
+    /// <paramref name="y"/> aggregated per <paramref name="row"/> and <paramref name="column"/>, as
+    /// <c>[row, column, value, row's place, column's place]</c>, for a pivot table.
+    /// </summary>
+    [HttpGet("{id:int}/pivot")]
+    public Task<ActionResult<Series>> GetPivot(
+        int id,
+        [FromQuery] string row,
+        [FromQuery] string column,
+        [FromQuery] string? y,
+        [FromQuery] string aggregate,
+        [FromQuery] SourceJoin joined,
+        CancellationToken ct) =>
+        Chart(id, joined, from => ChartQueries.Pivot(from, row, column, y, aggregate), ct);
 
     /// <summary>Equal-width bins over a number column, as <c>[start, end, count]</c>.</summary>
     [HttpGet("{id:int}/histogram")]
@@ -151,8 +243,9 @@ public sealed partial class SourcesController(ScryDbContext db, Workspace worksp
         int id,
         [FromQuery] string column,
         [FromQuery] int? bins,
+        [FromQuery] SourceJoin joined,
         CancellationToken ct) =>
-        Chart(id, (source, columns) => ChartQueries.Histogram(source.Name, columns, column, bins ?? 20), ct);
+        Chart(id, joined, from => ChartQueries.Histogram(from, column, bins ?? 20), ct);
 
     /// <summary>Box plot statistics per group, as <c>[group, min, q1, median, q3, max]</c>.</summary>
     [HttpGet("{id:int}/boxes")]
@@ -160,13 +253,19 @@ public sealed partial class SourcesController(ScryDbContext db, Workspace worksp
         int id,
         [FromQuery] string value,
         [FromQuery] string? group,
+        [FromQuery] SourceJoin joined,
         CancellationToken ct) =>
-        Chart(id, (source, columns) => ChartQueries.Boxes(source.Name, columns, value, group), ct);
+        Chart(id, joined, from => ChartQueries.Boxes(from, value, group), ct);
 
     /// <summary><paramref name="y"/> aggregated over every row, as one <c>["All rows", value]</c> point.</summary>
     [HttpGet("{id:int}/total")]
-    public Task<ActionResult<Series>> GetTotal(int id, [FromQuery] string? y, [FromQuery] string aggregate, CancellationToken ct) =>
-        Chart(id, (source, columns) => ChartQueries.Total(source.Name, columns, y, aggregate), ct);
+    public Task<ActionResult<Series>> GetTotal(
+        int id,
+        [FromQuery] string? y,
+        [FromQuery] string aggregate,
+        [FromQuery] SourceJoin joined,
+        CancellationToken ct) =>
+        Chart(id, joined, from => ChartQueries.Total(from, y, aggregate), ct);
 
     /// <summary>Several number columns aggregated per group, as <c>[group, value, ...]</c>.</summary>
     [HttpGet("{id:int}/measures")]
@@ -175,8 +274,9 @@ public sealed partial class SourcesController(ScryDbContext db, Workspace worksp
         [FromQuery] string[]? columns,
         [FromQuery] string? group,
         [FromQuery] string aggregate,
+        [FromQuery] SourceJoin joined,
         CancellationToken ct) =>
-        Chart(id, (source, all) => ChartQueries.Measures(source.Name, all, columns ?? [], group, aggregate), ct);
+        Chart(id, joined, from => ChartQueries.Measures(from, columns ?? [], group, aggregate), ct);
 
     /// <summary><paramref name="y"/> aggregated per path through the levels, as <c>[level, ..., value]</c>.</summary>
     [HttpGet("{id:int}/tree")]
@@ -185,63 +285,84 @@ public sealed partial class SourcesController(ScryDbContext db, Workspace worksp
         [FromQuery] string[]? levels,
         [FromQuery] string? y,
         [FromQuery] string aggregate,
+        [FromQuery] SourceJoin joined,
         CancellationToken ct) =>
-        Chart(id, (source, columns) => ChartQueries.Tree(source.Name, columns, levels ?? [], y, aggregate), ct);
+        Chart(id, joined, from => ChartQueries.Tree(from, levels ?? [], y, aggregate), ct);
 
     /// <summary><paramref name="y"/> aggregated per pair of ends, as <c>[from, to, value]</c>.</summary>
     [HttpGet("{id:int}/links")]
     public Task<ActionResult<Series>> GetLinks(
         int id,
-        [FromQuery] string from,
-        [FromQuery] string to,
+        [FromQuery(Name = "from")] string source,
+        [FromQuery(Name = "to")] string target,
         [FromQuery] string? y,
         [FromQuery] string aggregate,
+        [FromQuery] SourceJoin joined,
         CancellationToken ct) =>
-        Chart(id, (source, columns) => ChartQueries.Links(source.Name, columns, from, to, y, aggregate), ct);
+        Chart(id, joined, from => ChartQueries.Links(from, source, target, y, aggregate), ct);
 
     /// <summary>The chosen number columns, one row per source row, as <c>[value, ...]</c>.</summary>
     [HttpGet("{id:int}/values")]
-    public Task<ActionResult<Series>> GetValues(int id, [FromQuery] string[]? columns, CancellationToken ct) =>
-        Chart(id, (source, all) => ChartQueries.Values(source.Name, all, columns ?? []), ct);
+    public Task<ActionResult<Series>> GetValues(
+        int id,
+        [FromQuery] string[]? columns,
+        [FromQuery] SourceJoin joined,
+        CancellationToken ct) =>
+        Chart(id, joined, from => ChartQueries.Values(from, columns ?? []), ct);
 
-    /// <summary>The first rows of the chosen columns, or of every column, as text.</summary>
+    /// <summary>
+    /// <c>limit</c> rows from <c>offset</c> of the chosen columns, or of every column, as text, sorted by <c>sort</c>
+    /// in <c>direction</c> (<c>asc</c> or <c>desc</c>) or in source order, with the source's row count. With <c>count</c>,
+    /// matching rows become one, with a Count column; see <see cref="ChartQueries.Rows"/>.
+    /// </summary>
     [HttpGet("{id:int}/rows")]
-    public async Task<ActionResult<Rows>> GetRows(int id, [FromQuery] string[]? columns, CancellationToken ct)
+    public async Task<ActionResult<Rows>> GetRows(
+        int id,
+        [FromQuery] string[]? columns,
+        [FromQuery] string? sort,
+        [FromQuery] string? direction,
+        [FromQuery] bool count,
+        [FromQuery] int offset,
+        [FromQuery] int limit,
+        [FromQuery] SourceJoin joined,
+        CancellationToken ct)
     {
-        if (await db.Sources.FindAsync([id], ct) is not { } source)
-        {
-            return NotFound();
-        }
-
         RowsQuery query;
         try
         {
-            query = ChartQueries.Rows(source.Name, ColumnInfo.Deserialize(source.Columns), columns ?? []);
+            if (await Read(id, joined, ct) is not { } from)
+            {
+                return NotFound();
+            }
+
+            query = ChartQueries.Rows(from, columns ?? [], sort, direction, count, offset, limit);
         }
         catch (ArgumentException ex)
         {
             return Problem(ex.Message, statusCode: StatusCodes.Status400BadRequest);
         }
 
-        var rows = await workspace.QueryAsync(query.Sql, ChartQueries.MaxRows + 1, ct);
-        var truncated = rows.Count > ChartQueries.MaxRows;
-        return new Rows(query.Columns, truncated ? rows.GetRange(0, ChartQueries.MaxRows) : rows, truncated);
+        var rows = await workspace.QueryAsync(query.Sql, limit, ct);
+        var totals = await workspace.QueryAsync(query.CountSql, 1, ct);
+        var total = totals.Count == 0 ? 0 : Convert.ToInt64(totals[0][0], CultureInfo.InvariantCulture);
+        return new Rows(query.Columns, rows, total);
     }
 
     private async Task<ActionResult<Series>> Chart(
         int id,
-        Func<Source, IReadOnlyList<ColumnInfo>, ChartQuery> build,
+        SourceJoin joined,
+        Func<Relation, ChartQuery> build,
         CancellationToken ct)
     {
-        if (await db.Sources.FindAsync([id], ct) is not { } source)
-        {
-            return NotFound();
-        }
-
         ChartQuery query;
         try
         {
-            query = build(source, ColumnInfo.Deserialize(source.Columns));
+            if (await Read(id, joined, ct) is not { } from)
+            {
+                return NotFound();
+            }
+
+            query = build(from);
         }
         catch (ArgumentException ex)
         {
@@ -253,6 +374,29 @@ public sealed partial class SourcesController(ScryDbContext db, Workspace worksp
         return new Series(query.XType, truncated ? rows.GetRange(0, ChartQueries.MaxPoints) : rows, truncated);
     }
 
-    [GeneratedRegex("^[a-z][a-z0-9_]{0,62}$")]
-    private static partial Regex NamePattern();
+    /// <summary>The source's table, or the source joined to another; null when the source does not exist.</summary>
+    private async Task<Relation?> Read(int id, SourceJoin joined, CancellationToken ct)
+    {
+        if (await db.Sources.FindAsync([id], ct) is not { } source)
+        {
+            return null;
+        }
+
+        var columns = ColumnInfo.Deserialize(source.Columns);
+        if (joined.Join is not { } otherId)
+        {
+            return Relation.Of(source.Name, columns);
+        }
+
+        var other = await db.Sources.FindAsync([otherId], ct)
+            ?? throw new ArgumentException($"There is no source {otherId} to join.");
+        return Relation.Join(
+            source.Name,
+            columns,
+            other.Name,
+            ColumnInfo.Deserialize(other.Columns),
+            joined.JoinOn ?? throw new ArgumentException("Choose the column to match in this source."),
+            joined.JoinTo ?? throw new ArgumentException("Choose the column to match in the joined source."),
+            joined.JoinKind ?? throw new ArgumentException("Choose which rows without a match to keep."));
+    }
 }

@@ -35,6 +35,7 @@ export const CHART_KINDS = [
   'gauge',
   'candlestick',
   'table',
+  'pivot',
 ] as const
 
 export type ChartKind = (typeof CHART_KINDS)[number]
@@ -66,11 +67,15 @@ export const CHART_LABELS: Record<ChartKind, string> = {
   gauge: 'Gauge',
   candlestick: 'Candlestick',
   table: 'Table',
+  pivot: 'Pivot table',
 }
 
 export const MAPS = { world: 'World countries', usa: 'US states' } as const
 
 export type MapName = keyof typeof MAPS
+
+/** Maps whose boundaries come already projected flat, with y running down the screen, rather than in longitude and latitude. */
+export const PROJECTED_MAPS: readonly MapName[] = ['usa']
 
 export const MAX_VALUES = 12
 
@@ -78,6 +83,9 @@ export const DEFAULT_BINS = 20
 export const MAX_BINS = 200
 export const MAX_LEVELS = 4
 export const MIN_RADAR_MEASURES = 3
+
+/** How many column values a pivot table gives a column of their own before the rest share one, as the API counts. */
+export const MAX_PIVOT_COLUMNS = 50
 
 /** One item's place in a react-grid-layout grid, in grid units. */
 export interface GridItem {
@@ -91,10 +99,61 @@ export interface GridItem {
 /** A layout for each breakpoint, so a dashboard keeps its own arrangement at every width. */
 export type Layouts = Partial<Record<Breakpoint, GridItem[]>>
 
+export const JOIN_KINDS = ['inner', 'left', 'right', 'full'] as const
+
+/** Which rows without a match a join keeps: from neither source, the chart's own, the joined one, or both. */
+export type JoinKind = (typeof JOIN_KINDS)[number]
+
+/**
+ * Another source joined to a chart's own, matching rows where `on` in the chart's source equals `to` in the other.
+ * Joined, every column is named for its source, as `orders.amount`.
+ */
+export interface Join {
+  sourceId: number
+  on: string
+  to: string
+  kind: JoinKind
+}
+
+/** One number axis's scale. A null bound lets that end fit the data. */
+export interface AxisScale {
+  min: number | null
+  max: number | null
+  log: boolean
+}
+
+export interface Scales {
+  x: AxisScale
+  y: AxisScale
+}
+
+export const AUTO_SCALE: AxisScale = { min: null, max: null, log: false }
+
+/** The charts drawn on x and y axes, whose scales can be set. */
+export const SCALED_KINDS: readonly ChartKind[] = [
+  'bar',
+  'stacked',
+  'pictorial',
+  'line',
+  'area',
+  'scatter',
+  'ripple',
+  'histogram',
+  'boxplot',
+  'candlestick',
+]
+
+/**
+ * `name` replaces the title generated from a widget's settings, when given. `scales` holds an x and y axis chart's
+ * axis scales, and is null for any other chart.
+ */
 interface WidgetBase {
   id: string
   title: string
+  name: string | null
   sourceId: number
+  join: Join | null
+  scales: Scales | null
 }
 
 /** y aggregated per value of x. */
@@ -202,15 +261,56 @@ export interface CandlestickWidget extends WidgetBase {
   close: string
 }
 
-/** The source's rows; no columns chosen means every column. */
+export type SortDirection = 'asc' | 'desc'
+
+export interface TableSort {
+  column: string
+  direction: SortDirection
+}
+
+export type ColumnFormat =
+  | { kind: 'money'; currency: string }
+  | { kind: 'number' | 'percent'; decimals: number }
+  | { kind: 'date' | 'datetime' | 'time' }
+
+export const PAGE_SIZES = [10, 25, 50, 100] as const
+export const DEFAULT_PAGE_SIZE = 25
+
+/** How many rows a table shown as one scrolling list loads at a time. */
+export const LIST_CHUNK = 100
+
+/** The sort that orders a counted table by its count, as the API names it. */
+export const COUNT_SORT = '__scry_count'
+
+/**
+ * The source's rows; no columns chosen means every column. Pages of `pageSize` rows, or one scrolling list when it is
+ * null. With `count`, rows matching in every shown column become one, with a Count column saying how many there were.
+ */
 export interface TableWidget extends WidgetBase {
   kind: 'table'
   columns: string[]
+  sort: TableSort | null
+  pageSize: number | null
+  formats: Record<string, ColumnFormat>
+  count: boolean
+}
+
+/**
+ * y aggregated per pair of `row` and `column` values, laid out with a row per `row` value and a column per `column`
+ * value. Past the 50 largest, the column values share one column named Other.
+ */
+export interface PivotWidget extends WidgetBase {
+  kind: 'pivot'
+  row: string
+  column: string
+  y: string | null
+  aggregate: Aggregate
 }
 
 export type Widget =
   | SeriesWidget
   | GroupedWidget
+  | PivotWidget
   | ScatterWidget
   | HistogramWidget
   | BoxplotWidget
@@ -228,6 +328,8 @@ type WithoutNames<T> = T extends unknown ? Omit<T, 'id' | 'title'> : never
 
 /** A widget's settings, before it has an id or a title. */
 export type WidgetSettings = WithoutNames<Widget>
+
+export type TableSettings = Extract<WidgetSettings, { kind: 'table' }>
 
 const WIDGET_WIDTH = 6
 const WIDGET_HEIGHT = 7
@@ -267,7 +369,7 @@ export function toLayouts(layouts: Partial<Record<string, readonly GridItem[]>>)
   return next
 }
 
-const AGGREGATE_NAMES: Record<Aggregate, string> = {
+export const AGGREGATE_NAMES: Record<Aggregate, string> = {
   sum: 'Sum',
   avg: 'Average',
   min: 'Minimum',
@@ -281,13 +383,19 @@ export function listOf(names: string[]): string {
   return `${names.slice(0, -1).join(', ')}, and ${names.at(-1)}`
 }
 
-const measure = (aggregate: Aggregate, y: string | null) =>
+/** What an aggregate measures: `Sum of amount`, or `Count`. */
+export const measureName = (aggregate: Aggregate, y: string | null) =>
   aggregate === 'count' ? 'Count' : `${AGGREGATE_NAMES[aggregate]} of ${y}`
 
+/** A widget's own name, or a title generated from what it plots. */
 export function titleFor(settings: WidgetSettings): string {
+  return settings.name ?? generatedTitle(settings)
+}
+
+function generatedTitle(settings: WidgetSettings): string {
   switch (settings.kind) {
     case 'gauge':
-      return settings.aggregate === 'count' ? 'Count of rows' : measure(settings.aggregate, settings.y)
+      return settings.aggregate === 'count' ? 'Count of rows' : measureName(settings.aggregate, settings.y)
     case 'radar': {
       const of = `${AGGREGATE_NAMES[settings.aggregate]} of ${listOf(settings.columns)}`
       return settings.group ? `${of} by ${settings.group}` : of
@@ -295,15 +403,15 @@ export function titleFor(settings: WidgetSettings): string {
     case 'treemap':
     case 'sunburst':
     case 'tree':
-      return `${measure(settings.aggregate, settings.y)} by ${settings.levels.join(', then ')}`
+      return `${measureName(settings.aggregate, settings.y)} by ${settings.levels.join(', then ')}`
     case 'sankey':
     case 'graph':
     case 'chord':
-      return `${measure(settings.aggregate, settings.y)} from ${settings.from} to ${settings.to}`
+      return `${measureName(settings.aggregate, settings.y)} from ${settings.from} to ${settings.to}`
     case 'parallel':
       return listOf(settings.columns)
     case 'map':
-      return `${measure(settings.aggregate, settings.y)} by ${settings.x}`
+      return `${measureName(settings.aggregate, settings.y)} by ${settings.x}`
     case 'flows':
       return `Flows from ${settings.fromLat}, ${settings.fromLon} to ${settings.toLat}, ${settings.toLon}`
     case 'ripple':
@@ -326,6 +434,8 @@ export function titleFor(settings: WidgetSettings): string {
       return settings.aggregate === 'count'
         ? `Count by ${settings.x} and ${settings.group}`
         : `${AGGREGATE_NAMES[settings.aggregate]} of ${settings.y} by ${settings.x} and ${settings.group}`
+    case 'pivot':
+      return `${measureName(settings.aggregate, settings.y)} by ${settings.row} and ${settings.column}`
     case 'histogram':
       return `Distribution of ${settings.column}`
     case 'boxplot':
@@ -335,6 +445,7 @@ export function titleFor(settings: WidgetSettings): string {
     case 'candlestick':
       return `${settings.open}, ${settings.high}, ${settings.low}, and ${settings.close} by ${settings.x}`
     case 'table':
+      if (settings.count) return `Count by ${settings.columns.length > 0 ? listOf(settings.columns) : 'every column'}`
       return settings.columns.length > 0 ? settings.columns.join(', ') : 'All columns'
   }
 }

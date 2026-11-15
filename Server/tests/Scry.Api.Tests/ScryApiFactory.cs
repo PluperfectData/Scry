@@ -19,6 +19,9 @@ public sealed class ScryApiFactory : WebApplicationFactory<Program>
 
     public string DataDirectory { get; } = Path.Combine(Path.GetTempPath(), "scry-tests", Guid.NewGuid().ToString("N"));
 
+    /// <summary>The one database the API can read in tests, in place of Nexus's real ones.</summary>
+    public FakeDatabase Database { get; } = new();
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
@@ -31,6 +34,8 @@ public sealed class ScryApiFactory : WebApplicationFactory<Program>
             services.RemoveAll<IDbContextOptionsConfiguration<ScryDbContext>>();
             _database.Open();
             services.AddDbContext<ScryDbContext>(options => options.UseSqlite(_database));
+            services.RemoveAll<DatabaseConnectors>();
+            services.AddSingleton(new DatabaseConnectors([Database]));
         });
     }
 

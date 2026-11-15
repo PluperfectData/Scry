@@ -12,7 +12,7 @@ export const router = createBrowserRouter([
       { index: true, element: <DashboardsPage /> },
       { path: 'dashboards/:id', element: <DashboardPage /> },
       { path: 'sources', element: <SourcesPage /> },
-      { path: '*', element: <p className="muted">There is no page here.</p> },
+      { path: '*', element: <p className="page muted">There is no page here.</p> },
     ],
   },
 ])

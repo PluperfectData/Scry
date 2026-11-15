@@ -1,5 +1,6 @@
 import type { EChartsCoreOption } from 'echarts/core'
 import type { Series } from './api'
+import { PROJECTED_MAPS, type AxisScale, type MapName, type Scales } from './dashboard'
 import type { Theme } from './theme'
 
 interface Palette {
@@ -55,6 +56,36 @@ function axis(type: string, palette: Palette, extra: object = {}) {
 
 const GRID = { left: 56, right: 16, top: 16, bottom: 32 }
 
+/**
+ * A number axis's scale: a set bound where there is one, log when chosen, and otherwise fitted to the data or, for
+ * bars, from zero.
+ */
+function scaled(scale: AxisScale | undefined, fromZero: boolean) {
+  return {
+    ...(scale?.log && { type: 'log' }),
+    scale: !fromZero,
+    ...(scale && scale.min !== null && { min: scale.min }),
+    ...(scale && scale.max !== null && { max: scale.max }),
+  }
+}
+
+/** A slider under the x axis that narrows the range shown, with the grid raised to make room for it. */
+function zoom(palette: Palette, grid: object = GRID) {
+  return {
+    grid: { ...grid, bottom: 64 },
+    dataZoom: [
+      {
+        type: 'slider',
+        xAxisIndex: 0,
+        height: 16,
+        bottom: 8,
+        borderColor: palette.grid,
+        textStyle: { color: palette.muted },
+      },
+    ],
+  }
+}
+
 /** A label for an x value: a UTC date or date and time for a time axis, the value itself otherwise. */
 export function labelFor(x: number | string | null, xType: Series['xType']): string {
   if (xType !== 'time' || typeof x !== 'number') return String(x)
@@ -85,14 +116,14 @@ export function pivot(series: Series) {
 }
 
 /** Bars of stacked rounded blocks, one bar per `[x, y]` point, on a category axis of x labels. */
-export function pictorialOption(series: Series, theme: Theme): EChartsCoreOption {
+export function pictorialOption(series: Series, theme: Theme, scales: Scales | null): EChartsCoreOption {
   const palette = PALETTES[theme]
   return {
     ...base(palette),
     tooltip: { trigger: 'axis' },
-    grid: GRID,
+    ...zoom(palette),
     xAxis: axis('category', palette, { data: series.points.map(([x]) => labelFor(x, series.xType)), splitLine: { show: false } }),
-    yAxis: axis('value', palette),
+    yAxis: axis('value', palette, scaled(scales?.y, true)),
     series: [
       {
         type: 'pictorialBar',
@@ -107,7 +138,12 @@ export function pictorialOption(series: Series, theme: Theme): EChartsCoreOption
 }
 
 /** A line, area, bar, or pie chart of `[x, y]` points. */
-export function seriesOption(kind: 'line' | 'area' | 'bar' | 'pie', series: Series, theme: Theme): EChartsCoreOption {
+export function seriesOption(
+  kind: 'line' | 'area' | 'bar' | 'pie',
+  series: Series,
+  theme: Theme,
+  scales: Scales | null,
+): EChartsCoreOption {
   const palette = PALETTES[theme]
   if (kind === 'pie') {
     return {
@@ -127,9 +163,12 @@ export function seriesOption(kind: 'line' | 'area' | 'bar' | 'pie', series: Seri
   return {
     ...base(palette),
     tooltip: { trigger: 'axis' },
-    grid: GRID,
-    xAxis: axis(series.xType, palette, { splitLine: { show: false } }),
-    yAxis: axis('value', palette),
+    ...zoom(palette),
+    xAxis: axis(series.xType, palette, {
+      splitLine: { show: false },
+      ...(series.xType === 'value' && scaled(scales?.x, false)),
+    }),
+    yAxis: axis('value', palette, scaled(scales?.y, kind === 'bar')),
     series: [
       kind === 'bar'
         ? { type: 'bar', data: series.points }
@@ -144,16 +183,16 @@ export function seriesOption(kind: 'line' | 'area' | 'bar' | 'pie', series: Seri
 }
 
 /** One bar stack per x, with a segment per group, from `[x, group, y]` points. */
-export function stackedOption(series: Series, theme: Theme): EChartsCoreOption {
+export function stackedOption(series: Series, theme: Theme, scales: Scales | null): EChartsCoreOption {
   const palette = PALETTES[theme]
   const { xs, groups, value } = pivot(series)
   return {
     ...base(palette),
     tooltip: { trigger: 'axis' },
     legend: { type: 'scroll', top: 0, textStyle: { color: palette.muted } },
-    grid: { ...GRID, top: 36 },
+    ...zoom(palette, { ...GRID, top: 36 }),
     xAxis: axis('category', palette, { data: xs, splitLine: { show: false } }),
-    yAxis: axis('value', palette),
+    yAxis: axis('value', palette, scaled(scales?.y, true)),
     series: groups.map((group) => ({
       type: 'bar',
       name: group,
@@ -172,16 +211,18 @@ export function heatmapOption(series: Series, theme: Theme): EChartsCoreOption {
   return {
     ...base(palette),
     tooltip: { trigger: 'item' },
-    grid: { left: 80, right: 16, top: 16, bottom: 72 },
+    // The color slider stands at the right, so its value labels stay clear of the x axis labels.
+    grid: { left: 80, right: 72, top: 16, bottom: 32 },
     xAxis: axis('category', palette, { data: xs, splitLine: { show: false } }),
     yAxis: axis('category', palette, { data: groups, splitLine: { show: false } }),
     visualMap: {
       min: values.length > 0 ? Math.min(...values) : 0,
       max: values.length > 0 ? Math.max(...values) : 0,
       calculable: true,
-      orient: 'horizontal',
-      left: 'center',
-      bottom: 0,
+      orient: 'vertical',
+      right: 0,
+      top: 'middle',
+      itemHeight: 120,
       inRange: { color: palette.heat },
       textStyle: { color: palette.muted },
     },
@@ -190,17 +231,17 @@ export function heatmapOption(series: Series, theme: Theme): EChartsCoreOption {
 }
 
 /** Bars of counts from `[start, end, count]` bins, labeled by their range. */
-export function histogramOption(series: Series, theme: Theme): EChartsCoreOption {
+export function histogramOption(series: Series, theme: Theme, scales: Scales | null): EChartsCoreOption {
   const palette = PALETTES[theme]
   return {
     ...base(palette),
     tooltip: { trigger: 'axis' },
-    grid: GRID,
+    ...zoom(palette),
     xAxis: axis('category', palette, {
       data: series.points.map(([start, end]) => `${short(start)}–${short(end)}`),
       splitLine: { show: false },
     }),
-    yAxis: axis('value', palette),
+    yAxis: axis('value', palette, scaled(scales?.y, true)),
     series: [{ type: 'bar', data: series.points.map((point) => point[2]), barCategoryGap: '4%' }],
   }
 }
@@ -407,7 +448,8 @@ export function graphOption(series: Series, theme: Theme): EChartsCoreOption {
       {
         type: 'graph',
         layout: 'force',
-        roam: true,
+        // As on a map: drag pans, and the chart's slider zooms in place of the wheel.
+        roam: 'move',
         draggable: true,
         force: { repulsion: 120, edgeLength: 80 },
         label: { show: true, position: 'right', color: palette.text },
@@ -479,17 +521,20 @@ export function themeRiverOption(series: Series, theme: Theme): EChartsCoreOptio
   }
 }
 
-/** The shared look of a map's land. */
+/** The shared look of a map's land. Drag pans; the wheel is left to scroll the page, and the chart's slider zooms. */
 function land(palette: Palette) {
   return {
-    roam: true,
+    roam: 'move',
     itemStyle: { areaColor: palette.grid, borderColor: palette.muted, borderWidth: 0.5 },
     emphasis: { itemStyle: { areaColor: palette.colors[3] }, label: { color: palette.text } },
   }
 }
 
-/** Regions shaded by `[name, y]` points, matched on the map's own region names. */
-export function mapOption(series: Series, map: string, theme: Theme): EChartsCoreOption {
+// Any projection stops ECharts flipping y and squeezing x as it would for longitude and latitude.
+const AS_DRAWN = { project: (point: number[]) => point, unproject: (point: number[]) => point }
+
+/** Regions shaded by `[name, y]` points, matched on the map's own region names, and named for what they measure. */
+export function mapOption(series: Series, map: MapName, theme: Theme, name: string): EChartsCoreOption {
   const palette = PALETTES[theme]
   const values = series.points.map((point) => point[1]).filter((v): v is number => typeof v === 'number')
   return {
@@ -508,7 +553,10 @@ export function mapOption(series: Series, map: string, theme: Theme): EChartsCor
     series: [
       {
         type: 'map',
+        // The map's tooltip is headed by this name, and shows the stand-in "series0" without one.
+        name,
         map,
+        ...(PROJECTED_MAPS.includes(map) && { projection: AS_DRAWN }),
         ...land(palette),
         data: series.points.map(([name, value]) => ({ name: String(name), value })),
       },
@@ -534,14 +582,14 @@ export function flowsOption(series: Series, theme: Theme): EChartsCoreOption {
 }
 
 /** A box per `[label, min, q1, median, q3, max]` point. */
-export function boxplotOption(series: Series, theme: Theme): EChartsCoreOption {
+export function boxplotOption(series: Series, theme: Theme, scales: Scales | null): EChartsCoreOption {
   const palette = PALETTES[theme]
   return {
     ...base(palette),
     tooltip: { trigger: 'item' },
-    grid: GRID,
+    ...zoom(palette),
     xAxis: axis('category', palette, { data: series.points.map(([label]) => String(label)), splitLine: { show: false } }),
-    yAxis: axis('value', palette, { scale: true }),
+    yAxis: axis('value', palette, scaled(scales?.y, false)),
     series: [
       {
         type: 'boxplot',
@@ -553,14 +601,14 @@ export function boxplotOption(series: Series, theme: Theme): EChartsCoreOption {
 }
 
 /** One dot per `[x, y]` point, with both axes fitted to the data rather than to zero; a ripple dot pulses. */
-export function scatterOption(series: Series, theme: Theme, ripple = false): EChartsCoreOption {
+export function scatterOption(series: Series, theme: Theme, scales: Scales | null, ripple: boolean): EChartsCoreOption {
   const palette = PALETTES[theme]
   return {
     ...base(palette),
     tooltip: { trigger: 'item' },
-    grid: GRID,
-    xAxis: axis(series.xType, palette, { scale: true }),
-    yAxis: axis('value', palette, { scale: true }),
+    ...zoom(palette),
+    xAxis: axis(series.xType, palette, series.xType === 'value' ? scaled(scales?.x, false) : { scale: true }),
+    yAxis: axis('value', palette, scaled(scales?.y, false)),
     series: [
       ripple
         ? { type: 'effectScatter', data: series.points, symbolSize: 8, rippleEffect: { scale: 3 } }
@@ -570,17 +618,17 @@ export function scatterOption(series: Series, theme: Theme, ripple = false): ECh
 }
 
 /** Candles from `[x, open, close, low, high]` points, on a category axis of their x labels. */
-export function candlestickOption(series: Series, theme: Theme): EChartsCoreOption {
+export function candlestickOption(series: Series, theme: Theme, scales: Scales | null): EChartsCoreOption {
   const palette = PALETTES[theme]
   return {
     ...base(palette),
     tooltip: { trigger: 'axis' },
-    grid: GRID,
+    ...zoom(palette),
     xAxis: axis('category', palette, {
       data: series.points.map(([x]) => labelFor(x, series.xType)),
       splitLine: { show: false },
     }),
-    yAxis: axis('value', palette, { scale: true }),
+    yAxis: axis('value', palette, scaled(scales?.y, false)),
     series: [
       {
         type: 'candlestick',

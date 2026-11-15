@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -12,6 +13,8 @@ namespace Scry.Api.Tests;
 public sealed class ApiTests
 {
     private const string Orders = "day,amount,region\n2026-01-01,10,east\n2026-01-01,5,west\n2026-01-02,7,east\n";
+
+    private const string Regions = "code,name\neast,East coast\nnorth,North\n";
 
     private ScryApiFactory _factory = null!;
     private HttpClient _client = null!;
@@ -113,14 +116,160 @@ public sealed class ApiTests
     {
         var id = await UploadId("orders", Orders);
 
-        var rows = await _client.GetFromJsonAsync<JsonElement>($"/sources/{id}/rows?columns=region&columns=amount");
+        var rows = await _client.GetFromJsonAsync<JsonElement>(
+            $"/sources/{id}/rows?columns=region&columns=amount&offset=0&limit=25");
 
         rows.GetProperty("columns").EnumerateArray().Select(column => column.GetProperty("name").GetString())
             .ShouldBe(["region", "amount"]);
         rows.GetProperty("values").EnumerateArray()
             .Select(row => (row[0].GetString(), row[1].GetString()))
             .ShouldBe([("east", "10"), ("west", "5"), ("east", "7")]);
-        rows.GetProperty("truncated").GetBoolean().ShouldBeFalse();
+        rows.GetProperty("total").GetInt64().ShouldBe(3);
+    }
+
+    [Test]
+    public async Task Rows_sort_by_any_column_and_come_a_page_at_a_time()
+    {
+        var id = await UploadId("orders", Orders);
+
+        var page = await _client.GetFromJsonAsync<JsonElement>(
+            $"/sources/{id}/rows?columns=region&sort=amount&direction=desc&offset=1&limit=1");
+
+        page.GetProperty("values").EnumerateArray().Select(row => row[0].GetString()).ShouldBe(["east"]);
+        page.GetProperty("total").GetInt64().ShouldBe(3);
+    }
+
+    [Test]
+    public async Task Rows_sort_blanks_last_either_way_and_ties_in_source_order()
+    {
+        var id = await UploadId("scores", "name,score\na,3\nb,\nc,1\nd,3\n");
+
+        async Task<string?[]> Names(string direction) =>
+            (await _client.GetFromJsonAsync<JsonElement>(
+                $"/sources/{id}/rows?columns=name&sort=score&direction={direction}&offset=0&limit=25"))
+            .GetProperty("values").EnumerateArray().Select(row => row[0].GetString()).ToArray();
+
+        (await Names("asc")).ShouldBe(["c", "a", "d", "b"]);
+        (await Names("desc")).ShouldBe(["a", "d", "c", "b"]);
+    }
+
+    [Test]
+    public async Task A_counted_table_makes_one_row_per_value_most_frequent_first()
+    {
+        var id = await UploadId("visits", "city,day\nAtlanta,1\nBoston,1\nAtlanta,2\nAtlanta,3\nBoston,2\nChicago,1\n");
+
+        var rows = await _client.GetFromJsonAsync<JsonElement>(
+            $"/sources/{id}/rows?columns=city&count=true&offset=0&limit=25");
+
+        rows.GetProperty("columns").EnumerateArray().Select(column => column.GetProperty("name").GetString())
+            .ShouldBe(["city", "Count"]);
+        rows.GetProperty("values").EnumerateArray()
+            .Select(row => (row[0].GetString(), row[1].GetString()))
+            .ShouldBe([("Atlanta", "3"), ("Boston", "2"), ("Chicago", "1")]);
+        rows.GetProperty("total").GetInt64().ShouldBe(3);
+    }
+
+    [Test]
+    public async Task A_counted_table_sorts_by_its_count_as_a_number_or_by_a_shown_column_a_page_at_a_time()
+    {
+        var csv = "city\n" + string.Concat(Enumerable.Repeat("a\n", 10)) + string.Concat(Enumerable.Repeat("b\n", 9));
+        var id = await UploadId("towns", csv);
+
+        async Task<(string?, string?)[]> Page(string query) =>
+            (await _client.GetFromJsonAsync<JsonElement>($"/sources/{id}/rows?columns=city&count=true&{query}"))
+            .GetProperty("values").EnumerateArray().Select(row => (row[0].GetString(), row[1].GetString())).ToArray();
+
+        (await Page("sort=__scry_count&direction=asc&offset=0&limit=25")).ShouldBe([("b", "9"), ("a", "10")]);
+        (await Page("sort=city&direction=desc&offset=1&limit=1")).ShouldBe([("a", "10")]);
+    }
+
+    [TestCase("inner", "east:East coast", "east:East coast")]
+    [TestCase("left", "east:East coast", "west:", "east:East coast")]
+    [TestCase("right", "east:East coast", "east:East coast", ":North")]
+    [TestCase("full", "east:East coast", "west:", "east:East coast", ":North")]
+    public async Task A_join_keeps_unmatched_rows_from_neither_source_the_first_the_second_or_both(
+        string kind,
+        params string[] expected)
+    {
+        var orders = await UploadId("orders", Orders);
+        var regions = await UploadId("regions", Regions);
+
+        var rows = await _client.GetFromJsonAsync<JsonElement>(
+            $"/sources/{orders}/rows?columns=orders.region&columns=regions.name&offset=0&limit=25"
+            + $"&join={regions}&joinOn=region&joinTo=code&joinKind={kind}");
+
+        rows.GetProperty("values").EnumerateArray().Select(row => $"{row[0].GetString()}:{row[1].GetString()}")
+            .ShouldBe(expected);
+        rows.GetProperty("total").GetInt64().ShouldBe(expected.Length);
+    }
+
+    [Test]
+    public async Task A_joined_chart_reads_columns_from_both_sources()
+    {
+        var orders = await UploadId("orders", Orders);
+        var regions = await UploadId("regions", Regions);
+
+        var series = await _client.GetFromJsonAsync<JsonElement>(
+            $"/sources/{orders}/series?x=regions.name&y=orders.amount&aggregate=sum"
+            + $"&join={regions}&joinOn=region&joinTo=code&joinKind=left");
+
+        series.GetProperty("points").EnumerateArray()
+            .Select(point => (point[0].GetString(), point[1].GetDouble()))
+            .ShouldBe([("East coast", 17.0)]);
+    }
+
+    [TestCase("join={self}&joinOn=region&joinTo=region&joinKind=inner")]
+    [TestCase("join={other}&joinTo=code&joinKind=inner")]
+    [TestCase("join={other}&joinOn=region&joinTo=code")]
+    [TestCase("join={other}&joinOn=region&joinTo=code&joinKind=outer")]
+    [TestCase("join={other}&joinOn=missing&joinTo=code&joinKind=inner")]
+    [TestCase("join=999&joinOn=region&joinTo=code&joinKind=inner")]
+    public async Task A_bad_join_is_rejected(string join)
+    {
+        var orders = await UploadId("orders", Orders);
+        var regions = await UploadId("regions", Regions);
+        var query = join
+            .Replace("{self}", orders.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal)
+            .Replace("{other}", regions.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal);
+
+        using var response = await _client.GetAsync(
+            new Uri($"/sources/{orders}/series?x=day&aggregate=count&{query}", UriKind.Relative));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Test]
+    public async Task A_pivot_aggregates_per_row_and_column_and_places_each_value()
+    {
+        var id = await UploadId("orders", Orders);
+
+        var pivot = await _client.GetFromJsonAsync<JsonElement>(
+            $"/sources/{id}/pivot?row=day&column=region&y=amount&aggregate=sum");
+
+        pivot.GetProperty("points").EnumerateArray()
+            .Select(point => (point[0].GetString(), point[1].GetString(), point[2].GetDouble(), point[3].GetInt64(), point[4].GetInt64()))
+            .ShouldBe(
+            [
+                ("2026-01-01", "east", 10.0, 1L, 1L),
+                ("2026-01-01", "west", 5.0, 1L, 2L),
+                ("2026-01-02", "east", 7.0, 2L, 1L),
+            ]);
+    }
+
+    [Test]
+    public async Task A_pivot_keeps_its_50_largest_columns_and_combines_the_rest_into_one_last()
+    {
+        var csv = "row,key,amount\n" + string.Concat(Enumerable.Range(0, 52).Select(i => $"a,k{i:D2},{i + 1}\n"));
+        var id = await UploadId("wide", csv);
+
+        var points = (await _client.GetFromJsonAsync<JsonElement>(
+                $"/sources/{id}/pivot?row=row&column=key&y=amount&aggregate=sum"))
+            .GetProperty("points").EnumerateArray().ToList();
+
+        points.Count.ShouldBe(51);
+        var other = points.Single(point => point[1].ValueKind == JsonValueKind.Null);
+        other[2].GetDouble().ShouldBe(3);
+        other[4].GetInt64().ShouldBe(51);
     }
 
     [Test]
@@ -245,7 +394,13 @@ public sealed class ApiTests
     [TestCase("series?x=day&y=amount&aggregate=median")]
     [TestCase("points?x=region&y=amount")]
     [TestCase("candles?x=day&open=region&high=amount&low=amount&close=amount")]
-    [TestCase("rows?columns=missing")]
+    [TestCase("rows?columns=missing&offset=0&limit=25")]
+    [TestCase("rows?sort=missing&offset=0&limit=25")]
+    [TestCase("rows?sort=amount&direction=up&offset=0&limit=25")]
+    [TestCase("rows?offset=-1&limit=25")]
+    [TestCase("rows?offset=0&limit=0")]
+    [TestCase("rows?offset=0&limit=1001")]
+    [TestCase("rows?columns=amount&count=true&sort=region&offset=0&limit=25")]
     public async Task A_chart_with_bad_settings_is_rejected(string query)
     {
         var id = await UploadId("orders", Orders);

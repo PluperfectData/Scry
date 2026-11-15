@@ -34,7 +34,7 @@ export function DashboardsPage() {
   }
 
   return (
-    <>
+    <div className="page">
       <h1>Dashboards</h1>
 
       <form className="form" onSubmit={create}>
@@ -63,6 +63,6 @@ export function DashboardsPage() {
           ))}
         </ul>
       )}
-    </>
+    </div>
   )
 }

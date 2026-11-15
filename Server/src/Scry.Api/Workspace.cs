@@ -27,9 +27,9 @@ public sealed class Workspace : IDisposable
     public string Database { get; }
 
     /// <summary>Reads a CSV file through Nexus and replaces <paramref name="table"/> with it.</summary>
-    public async Task<SyncResult> SyncCsvAsync(string table, string fileName, string storedPath, string? delimiter, CancellationToken ct)
+    public Task<SyncResult> SyncCsvAsync(string table, string fileName, string storedPath, string? delimiter, CancellationToken ct)
     {
-        var sourceConfig = new ConnectorConfig(
+        var config = new ConnectorConfig(
             new Dictionary<string, string?>
             {
                 [CsvSource.StreamSetting] = table,
@@ -39,26 +39,48 @@ public sealed class Workspace : IDisposable
             {
                 [CsvSource.FileSetting] = new(fileName, _ => Task.FromResult<Stream>(File.OpenRead(storedPath))),
             });
+        return SyncAsync(new CsvSource(), config, table, table, ct);
+    }
+
+    /// <summary>
+    /// Reads all of <paramref name="stream"/> from <paramref name="source"/> through Nexus and replaces
+    /// <paramref name="table"/> with it.
+    /// </summary>
+    public async Task<SyncResult> SyncAsync(
+        ISourceConnector source,
+        ConnectorConfig config,
+        string stream,
+        string table,
+        CancellationToken ct)
+    {
         var destinationConfig = new ConnectorConfig(
             new Dictionary<string, string?> { [DuckDbDestination.PathSetting] = Database });
 
-        StreamSpec? stream = null;
+        StreamSpec? spec = null;
         long rows = 0;
 
-        async IAsyncEnumerable<SyncMessage> Counted(IAsyncEnumerable<SyncMessage> messages)
+        // The table is named for the Scry source, not for the stream, which may be a database's schema.table.
+        async IAsyncEnumerable<SyncMessage> Renamed(IAsyncEnumerable<SyncMessage> messages)
         {
             await foreach (var message in messages)
             {
-                if (message is SchemaMessage schema)
+                switch (message)
                 {
-                    stream = schema.Stream;
+                    case SchemaMessage schema when schema.Stream.Name == stream:
+                        spec = schema.Stream with { Name = table };
+                        yield return new SchemaMessage(spec);
+                        break;
+                    case RecordBatch batch when batch.Stream == stream:
+                        rows += batch.Rows.Count;
+                        yield return batch with { Stream = table };
+                        break;
+                    case StateCheckpoint checkpoint when checkpoint.Stream == stream:
+                        yield return checkpoint with { Stream = table };
+                        break;
+                    default:
+                        yield return message;
+                        break;
                 }
-                else if (message is RecordBatch batch)
-                {
-                    rows += batch.Rows.Count;
-                }
-
-                yield return message;
             }
         }
 
@@ -66,14 +88,11 @@ public sealed class Workspace : IDisposable
         try
         {
             Directory.CreateDirectory(Root);
-            var read = new CsvSource().ReadAsync(
-                sourceConfig,
-                new ReadRequest([new StreamSelection(table, SyncMode.FullRefresh)]),
-                ct);
+            var read = source.ReadAsync(config, new ReadRequest([new StreamSelection(stream, SyncMode.FullRefresh)]), ct);
             var write = new DuckDbDestination().WriteAsync(
                 destinationConfig,
                 new WriteRequest(new Dictionary<string, WriteMode> { [table] = WriteMode.Overwrite }),
-                Counted(read),
+                Renamed(read),
                 ct);
 
             // The destination commits as it yields checkpoints; only reaching the end matters here.
@@ -86,8 +105,8 @@ public sealed class Workspace : IDisposable
             _lock.Release();
         }
 
-        var spec = stream ?? throw new InvalidOperationException("The CSV source sent no schema.");
-        return new SyncResult(spec.Columns.Select(column => new ColumnInfo(column.Name, column.Type)).ToList(), rows);
+        var written = spec ?? throw new InvalidOperationException($"The source sent no schema for {stream}.");
+        return new SyncResult(written.Columns.Select(column => new ColumnInfo(column.Name, column.Type)).ToList(), rows);
     }
 
     /// <summary>Runs a query built by <see cref="ChartQueries"/> and returns at most <paramref name="limit"/> rows.</summary>

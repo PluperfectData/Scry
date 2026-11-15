@@ -24,5 +24,6 @@ export default {
     '\\.module\\.css$': 'identity-obj-proxy',
     '\\.css$': '<rootDir>/jest/style-stub.cjs',
     '\\.(svg|png|jpe?g|gif|webp|woff2?)$': '<rootDir>/jest/file-stub.cjs',
+    '\\?url$': '<rootDir>/jest/file-stub.cjs',
   },
 }

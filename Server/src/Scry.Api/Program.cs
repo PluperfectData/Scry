@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Scry.Api;
 using Scry.Api.Data;
@@ -14,6 +15,12 @@ if (string.IsNullOrWhiteSpace(connectionString))
 
 builder.Services.AddSingleton(settings);
 builder.Services.AddSingleton<Workspace>();
+builder.Services.AddSingleton(DatabaseConnectors.FromNexus());
+builder.Services.AddSingleton<ConnectionSecrets>();
+// The keys that encrypt stored connections live with the workspace's files, outside the database they protect.
+builder.Services.AddDataProtection()
+    .SetApplicationName("Scry")
+    .PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(builder.Environment.ContentRootPath, settings.DataDirectory, "keys")));
 builder.Services.AddDbContext<ScryDbContext>(options => options.UseMySql(connectionString, ScryDbContext.ServerVersion));
 builder.Services.AddCors(cors => cors.AddDefaultPolicy(policy =>
     policy.WithOrigins(settings.ClientOrigin).AllowAnyHeader().AllowAnyMethod()));

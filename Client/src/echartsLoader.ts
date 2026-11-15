@@ -30,6 +30,7 @@ const PARTS = {
   treemap: () => import('echarts/lib/chart/treemap/install.js'),
   geo: () => import('echarts/lib/component/geo/install.js'),
   grid: () => import('echarts/lib/component/grid/install.js'),
+  zoomSlider: () => import('echarts/lib/component/dataZoom/installDataZoomSlider.js'),
   legend: () => import('echarts/lib/component/legend/install.js'),
   parallelAxes: () => import('echarts/lib/component/parallel/install.js'),
   radarAxes: () => import('echarts/lib/component/radar/install.js'),
@@ -38,23 +39,23 @@ const PARTS = {
   visualMap: () => import('echarts/lib/component/visualMap/install.js'),
 } satisfies Record<string, () => Promise<{ install: Installer }>>
 
-type Part = keyof typeof PARTS
+export type Part = keyof typeof PARTS
 
-/** The parts each chart type draws with. A table draws with none. */
+/** The parts each chart type draws with. Tables and pivot tables draw with none. */
 const NEEDS = {
-  bar: ['bar', 'grid', 'tooltip'],
-  stacked: ['bar', 'grid', 'tooltip', 'legend'],
-  histogram: ['bar', 'grid', 'tooltip'],
-  pictorial: ['pictorialBar', 'grid', 'tooltip'],
-  line: ['line', 'grid', 'tooltip'],
-  area: ['line', 'grid', 'tooltip'],
+  bar: ['bar', 'grid', 'tooltip', 'zoomSlider'],
+  stacked: ['bar', 'grid', 'tooltip', 'legend', 'zoomSlider'],
+  histogram: ['bar', 'grid', 'tooltip', 'zoomSlider'],
+  pictorial: ['pictorialBar', 'grid', 'tooltip', 'zoomSlider'],
+  line: ['line', 'grid', 'tooltip', 'zoomSlider'],
+  area: ['line', 'grid', 'tooltip', 'zoomSlider'],
   themeriver: ['themeRiver', 'singleAxis', 'tooltip', 'legend'],
   pie: ['pie', 'tooltip'],
   funnel: ['funnel', 'tooltip'],
-  scatter: ['scatter', 'grid', 'tooltip'],
-  ripple: ['effectScatter', 'grid', 'tooltip'],
+  scatter: ['scatter', 'grid', 'tooltip', 'zoomSlider'],
+  ripple: ['effectScatter', 'grid', 'tooltip', 'zoomSlider'],
   heatmap: ['heatmap', 'grid', 'tooltip', 'visualMap'],
-  boxplot: ['boxplot', 'grid', 'tooltip'],
+  boxplot: ['boxplot', 'grid', 'tooltip', 'zoomSlider'],
   parallel: ['parallelChart', 'parallelAxes'],
   radar: ['radarChart', 'radarAxes', 'tooltip', 'legend'],
   treemap: ['treemap', 'tooltip'],
@@ -66,8 +67,8 @@ const NEEDS = {
   map: ['map', 'geo', 'tooltip', 'visualMap'],
   flows: ['lines', 'geo'],
   gauge: ['gauge'],
-  candlestick: ['candlestick', 'grid', 'tooltip'],
-} satisfies Record<Exclude<ChartKind, 'table'>, Part[]>
+  candlestick: ['candlestick', 'grid', 'tooltip', 'zoomSlider'],
+} satisfies Record<Exclude<ChartKind, 'table' | 'pivot'>, Part[]>
 
 export type DrawnKind = keyof typeof NEEDS
 
@@ -84,9 +85,14 @@ export function echartsCore(): Promise<ECharts> {
   return core
 }
 
-/** ECharts, with everything one chart type draws with installed. */
-export async function echartsFor(kind: DrawnKind): Promise<ECharts> {
-  const [echarts, parts] = await Promise.all([echartsCore(), Promise.all(NEEDS[kind].map((part) => PARTS[part]()))])
-  echarts.use(parts.map((part) => part.install))
+/** ECharts, with the given parts installed. */
+export async function echartsWith(parts: Part[]): Promise<ECharts> {
+  const [echarts, loaded] = await Promise.all([echartsCore(), Promise.all(parts.map((part) => PARTS[part]()))])
+  echarts.use(loaded.map((part) => part.install))
   return echarts
+}
+
+/** ECharts, with everything one chart type draws with installed. */
+export function echartsFor(kind: DrawnKind): Promise<ECharts> {
+  return echartsWith(NEEDS[kind])
 }

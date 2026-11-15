@@ -1,0 +1,178 @@
+import { type FormEvent, useState } from 'react'
+import { addDatabaseSources, listTables, type Database, type DatabaseTable, type SettingField, type Source } from '../api'
+import { sourceName } from '../sources'
+
+/** One of a connector's settings, as the control its kind calls for. */
+function SettingInput({ field, value, onChange }: { field: SettingField; value: string; onChange: (value: string) => void }) {
+  switch (field.kind) {
+    case 'Boolean':
+      return (
+        <label className="check">
+          <input type="checkbox" checked={value === 'true'} onChange={(e) => onChange(e.target.checked ? 'true' : '')} />
+          {field.label}
+        </label>
+      )
+    case 'Choice':
+      return (
+        <label>
+          {field.label}
+          <select value={value} onChange={(e) => onChange(e.target.value)} required={field.required}>
+            {!field.required && <option value="">Default</option>}
+            {(field.choices ?? []).map((choice) => (
+              <option key={choice}>{choice}</option>
+            ))}
+          </select>
+        </label>
+      )
+    default:
+      return (
+        <label>
+          {field.label}
+          <input
+            type={field.kind === 'Secret' ? 'password' : field.kind === 'Number' ? 'number' : 'text'}
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            required={field.required}
+            autoComplete={field.kind === 'Secret' ? 'new-password' : 'off'}
+          />
+        </label>
+      )
+  }
+}
+
+/** Connects to a database, lists its tables, and adds the ones picked as sources, each under a name it can change. */
+export function DatabaseForm({
+  databases,
+  onAdded,
+  onCancel,
+}: {
+  databases: Database[]
+  onAdded: (sources: Source[]) => void
+  onCancel: () => void
+}) {
+  const [connector, setConnector] = useState(databases[0].id)
+  const [values, setValues] = useState<Record<string, string>>({})
+  const [tables, setTables] = useState<DatabaseTable[] | null>(null)
+  // Each picked table, keyed by its name in the database, to the name of the source it becomes.
+  const [picked, setPicked] = useState<Record<string, string>>({})
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const database = databases.find((d) => d.id === connector) ?? databases[0]
+  const settings = Object.fromEntries(database.fields.map((field) => [field.name, values[field.name] || null]))
+  const count = Object.keys(picked).length
+
+  // New settings may reach a different database, so the tables listed for the old ones go.
+  function change(update: () => void) {
+    update()
+    setTables(null)
+    setPicked({})
+  }
+
+  async function list(event: FormEvent) {
+    event.preventDefault()
+    setBusy(true)
+    setError(null)
+    try {
+      setTables(await listTables(database.id, settings))
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function add() {
+    setBusy(true)
+    setError(null)
+    try {
+      onAdded(await addDatabaseSources(database.id, settings, Object.entries(picked).map(([table, name]) => ({ table, name }))))
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <form className="form" onSubmit={list}>
+      <label>
+        Database
+        <select
+          value={connector}
+          onChange={(e) =>
+            change(() => {
+              setConnector(e.target.value)
+              setValues({})
+            })
+          }
+        >
+          {databases.map((d) => (
+            <option key={d.id} value={d.id}>
+              {d.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      {database.fields.map((field) => (
+        <SettingInput
+          key={field.name}
+          field={field}
+          value={values[field.name] ?? ''}
+          onChange={(value) => change(() => setValues((current) => ({ ...current, [field.name]: value })))}
+        />
+      ))}
+
+      {tables !== null && (
+        <fieldset className="column-formats">
+          <legend>Tables</legend>
+          {tables.length === 0 && <p className="muted hint">This database has no tables to read.</p>}
+          {tables.map((table) => (
+            <div key={table.name} className="format-pick">
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={table.name in picked}
+                  onChange={(e) =>
+                    setPicked(({ [table.name]: _dropped, ...rest }) =>
+                      e.target.checked ? { ...rest, [table.name]: sourceName(table.name) } : rest,
+                    )
+                  }
+                />
+                {table.name}
+              </label>
+              {table.name in picked && (
+                <label>
+                  Source name
+                  <input
+                    value={picked[table.name]}
+                    onChange={(e) => setPicked((current) => ({ ...current, [table.name]: e.target.value }))}
+                    maxLength={63}
+                    aria-label={`Source name for ${table.name}`}
+                  />
+                </label>
+              )}
+            </div>
+          ))}
+        </fieldset>
+      )}
+
+      {error && <p className="error hint">{error}</p>}
+
+      <div className="form-actions">
+        {tables === null ? (
+          <button type="submit" disabled={busy}>
+            {busy ? 'Connecting…' : 'List tables'}
+          </button>
+        ) : (
+          <button type="button" onClick={add} disabled={busy || count === 0}>
+            {busy ? 'Adding…' : `Add ${count} ${count === 1 ? 'source' : 'sources'}`}
+          </button>
+        )}
+        <button type="button" className="quiet" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  )
+}
