@@ -60,6 +60,7 @@ parent directory.
 | `PATCH /dashboards/{id}` | From `{"name": "...", "isLanding": true}`, renames the dashboard and makes it the landing dashboard, clearing any other, or with `false` stops it being one |
 | `GET`, `POST /keys` | Lists push API keys, each with the sources it writes, or makes one from `{"name": "..."}` and answers it with `key`, shown this once |
 | `DELETE /keys/{id}` | Revokes a key. Its sources stay, and no key writes to them. |
+| `GET /ingest` | Push API: names the key the request carries, by its name and prefix |
 | `PUT /ingest/sources/{name}` | Push API: makes a source from `{"columns": [{"name", "type"}], "primaryKey": [...]}`, or adds columns to one |
 | `POST /ingest/sources/{name}/batches` | Push API: from `{"id", "mode", "rows": [[...]]}`, appends the rows or merges them by the key, in one transaction; a batch id already written is skipped |
 | `POST /ingest/sources/{name}/replace` | Push API: starts a replacement, with new columns or the source's own; batches go to it until a commit |

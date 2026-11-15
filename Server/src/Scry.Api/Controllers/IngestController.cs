@@ -31,6 +31,9 @@ public sealed record IngestSourceView(
 /// <summary>The source's row count after a batch, and whether the batch was skipped as one already written.</summary>
 public sealed record IngestBatchView(long RowCount, bool Skipped);
 
+/// <summary>The key a request carries, by the name and prefix the Settings page shows.</summary>
+public sealed record CallerKeyView(string Name, string Prefix);
+
 /// <summary>
 /// The push API. Every route takes a key made on the Settings page as <c>Authorization: Bearer</c>, and a key writes
 /// only to the sources it made.
@@ -53,6 +56,11 @@ public sealed class IngestController(ScryDbContext db, Workspace workspace, Inge
     {
         Converters = { new JsonStringEnumConverter() },
     };
+
+    /// <summary>Names the key the request carries, so a caller can check its key before writing.</summary>
+    [HttpGet("/ingest")]
+    public async Task<ActionResult<CallerKeyView>> Key(CancellationToken ct) =>
+        await keys.FromAsync(Request, ct) is { } key ? new CallerKeyView(key.Name, key.Prefix) : NoKey();
 
     /// <summary>Makes a source, or adds columns to one. Changing a column's type, or the key, takes a replacement.</summary>
     [HttpPut]

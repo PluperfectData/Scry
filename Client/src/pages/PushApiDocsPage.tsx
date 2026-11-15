@@ -54,6 +54,8 @@ export function PushApiDocsPage() {
         <code>Authorization: Bearer &lt;your key&gt;</code>. Scry shows a key once, when it is made. A key writes only to
         the sources it made. Revoking it keeps those sources, and no key writes to them again.
       </p>
+      <p>To check a key, ask Scry for its name and prefix:</p>
+      <Request method="GET" path="/ingest" />
 
       <h2>Make a source</h2>
       <Request

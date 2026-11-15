@@ -61,6 +61,20 @@ public sealed class IngestTests
         stored.Hash.ShouldNotContain(key[5..]);
     }
 
+    [Test]
+    public async Task Names_the_key_a_request_carries()
+    {
+        var made = await MakeKey("Nexus");
+        using var client = Client(made.GetProperty("key").GetString());
+
+        var named = await client.GetFromJsonAsync<JsonElement>("/ingest");
+
+        named.GetProperty("name").GetString().ShouldBe("Nexus");
+        named.GetProperty("prefix").GetString().ShouldBe(made.GetProperty("prefix").GetString());
+        using var unknown = Client("scry_not-a-key-Scry-made");
+        (await unknown.GetAsync("/ingest")).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+    }
+
     [TestCase(null)]
     [TestCase("scry_not-a-key-Scry-made")]
     public async Task A_request_without_a_key_Scry_made_is_refused(string? key)
