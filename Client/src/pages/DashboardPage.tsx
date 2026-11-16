@@ -146,6 +146,7 @@ export function DashboardPage() {
       <PresentationContext.Provider value={readOnly ? presentation : null}>
         <DashboardGrid
           dashboard={dashboard}
+          sources={sources}
           onLayoutsChange={(layouts) => change((current) => ({ ...current, layouts }))}
           onEdit={!readOnly && sources.length > 0 ? setEditing : undefined}
           onRemove={readOnly ? undefined : remove}
@@ -180,11 +181,13 @@ export function DashboardPage() {
 
 function DashboardGrid({
   dashboard,
+  sources,
   onLayoutsChange,
   onEdit,
   onRemove,
 }: {
   dashboard: Dashboard
+  sources: Source[]
   onLayoutsChange: (layouts: Layouts) => void
   onEdit?: (widget: Widget) => void
   /** Removes a chart; without it, the grid is read only, and no chart moves or resizes. */
@@ -192,6 +195,8 @@ function DashboardGrid({
 }) {
   const { width, containerRef, mounted } = useContainerWidth()
   const [dragging, setDragging] = useState(false)
+  const known = new Set(sources.map((source) => source.id))
+  const gone = (widget: Widget) => !known.has(widget.sourceId) || (widget.join !== null && !known.has(widget.join.sourceId))
 
   return (
     <div
@@ -221,6 +226,7 @@ function DashboardGrid({
             <div key={widget.id}>
               <ChartWidget
                 widget={widget}
+                sourceGone={gone(widget)}
                 onEdit={onEdit && (() => onEdit(widget))}
                 onRemove={onRemove && (() => onRemove(widget.id))}
               />

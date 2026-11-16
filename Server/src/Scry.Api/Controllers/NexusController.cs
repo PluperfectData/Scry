@@ -19,6 +19,8 @@ public sealed record NexusLinkView(
 
 public sealed record PairingStart(string? NexusUrl);
 
+public sealed record ConnectRequest(string? Connector);
+
 public sealed record PairingStarted(string ApproveUrl);
 
 /// <summary>
@@ -153,6 +155,48 @@ public sealed class NexusController(ScryDbContext db, NexusApi nexus, NexusPairi
         await db.SaveChangesAsync(ct);
         return NoContent();
     }
+
+    /// <summary>The connectors Nexus reads through, which the Sources page offers beside Scry's own.</summary>
+    [HttpGet("connectors")]
+    public Task<ActionResult<List<NexusConnector>>> Connectors(CancellationToken ct) =>
+        WithLinkAsync(link => nexus.ListConnectorsAsync(link.NexusUrl, AppKey(link), ct), ct);
+
+    /// <summary>Opens Nexus's connect page for a connector, into the link's destination, coming back to the Sources page.</summary>
+    [HttpPost("connect")]
+    public Task<ActionResult<NexusConnectPage>> Connect(ConnectRequest request, CancellationToken ct) =>
+        WithLinkAsync(
+            link => nexus.OpenConnectAsync(
+                link.NexusUrl, AppKey(link), request.Connector ?? string.Empty, link.DestinationId, $"{settings.ClientOrigin.TrimEnd('/')}/sources", ct),
+            ct);
+
+    /// <summary>The syncs that fill the link's destination, each with how its last run went.</summary>
+    [HttpGet("syncs")]
+    public Task<ActionResult<List<NexusSync>>> Syncs(CancellationToken ct) =>
+        WithLinkAsync(async link => (await nexus.ListSyncsAsync(link.NexusUrl, AppKey(link), ct)).Where(s => s.DestinationId == link.DestinationId).ToList(), ct);
+
+    [HttpPost("syncs/{id:int}/run")]
+    public Task<ActionResult<NexusSync>> Run(int id, CancellationToken ct) =>
+        WithLinkAsync(link => nexus.RunSyncAsync(link.NexusUrl, AppKey(link), id, ct), ct);
+
+    // Each call through the link: refused while Scry is unlinked, and Nexus's refusals passed on in its own words.
+    private async Task<ActionResult<T>> WithLinkAsync<T>(Func<NexusLink, Task<T>> call, CancellationToken ct)
+    {
+        if (await db.NexusLinks.AsNoTracking().FirstOrDefaultAsync(ct) is not { } link)
+        {
+            return Problem("Scry is not linked to Nexus. Link it on the Settings page.", statusCode: StatusCodes.Status409Conflict);
+        }
+
+        try
+        {
+            return await call(link);
+        }
+        catch (NexusException ex)
+        {
+            return Problem(ex.Message, statusCode: StatusCodes.Status502BadGateway);
+        }
+    }
+
+    private string AppKey(NexusLink link) => secrets.UnprotectText(link.AppKey);
 
     private RedirectResult BackToSettings(string error) =>
         Redirect($"{settings.ClientOrigin}/settings?error={Uri.EscapeDataString(error)}");

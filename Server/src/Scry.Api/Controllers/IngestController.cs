@@ -103,6 +103,8 @@ public sealed class IngestController(ScryDbContext db, Workspace workspace, Inge
                 Columns = ColumnInfo.Serialize(Infos(schema.Columns)),
                 PrimaryKey = JsonSerializer.Serialize(schema.PrimaryKey),
             };
+            // A table with this name and no source holds no one's rows, so the new source starts without them.
+            await workspace.DropSourceAsync(name, ct);
             await workspace.CreatePushedAsync(name, schema.Columns, ct);
             db.Sources.Add(source);
         }

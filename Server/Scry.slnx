@@ -9,10 +9,6 @@
     <Project Path="../../Nexus/src/Nexus.Abstractions/Nexus.Abstractions.csproj" />
     <Project Path="../../Nexus/src/Nexus.Csv/Nexus.Csv.csproj" />
     <Project Path="../../Nexus/src/Nexus.DuckDb/Nexus.DuckDb.csproj" />
-    <Project Path="../../Nexus/src/Nexus.MySql/Nexus.MySql.csproj" />
-    <Project Path="../../Nexus/src/Nexus.Postgres/Nexus.Postgres.csproj" />
     <Project Path="../../Nexus/src/Nexus.Schwab/Nexus.Schwab.csproj" />
-    <Project Path="../../Nexus/src/Nexus.Sql/Nexus.Sql.csproj" />
-    <Project Path="../../Nexus/src/Nexus.SqlServer/Nexus.SqlServer.csproj" />
   </Folder>
 </Solution>

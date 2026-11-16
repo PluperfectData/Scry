@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Nexus;
@@ -28,6 +29,9 @@ public enum SourceKind
 
     /// <summary>Rows sent through the push API.</summary>
     Push,
+
+    /// <summary>Rows Nexus sends through the push API, with the key Scry's link to Nexus made.</summary>
+    Nexus,
 }
 
 /// <summary>A source: an uploaded file, with its <paramref name="FileName"/>; a connection's stream, with the
@@ -51,10 +55,13 @@ public sealed record SourceView(
     SourceStatus Status,
     string? Error)
 {
-    public static SourceView From(Source source) => new(
+    /// <summary>The source as the API shows it. <paramref name="linkKeyId"/> is the push key Nexus writes with, if Scry is linked.</summary>
+    public static SourceView From(Source source, int? linkKeyId) => new(
         source.Id,
         source.Name,
-        source.Pushed ? SourceKind.Push : source.ConnectionId is null ? SourceKind.Upload : SourceKind.Connection,
+        source.Pushed
+            ? source.IngestKeyId is not null && source.IngestKeyId == linkKeyId ? SourceKind.Nexus : SourceKind.Push
+            : source.ConnectionId is null ? SourceKind.Upload : SourceKind.Connection,
         source.FileName,
         source.Connection?.Connector,
         source.Stream,
@@ -66,6 +73,34 @@ public sealed record SourceView(
         source.SyncedAt,
         source.Status,
         source.Error);
+}
+
+/// <summary>A chart that reads a source: its dashboard, its title, and its kind, such as <c>line</c>.</summary>
+public sealed record ChartUse(int DashboardId, string DashboardName, string? ChartTitle, string? ChartKind)
+{
+    /// <summary>
+    /// The charts in a dashboard's widget JSON that read the source, through their <c>sourceId</c> or their
+    /// <c>join.sourceId</c>, without their dashboard.
+    /// </summary>
+    public static List<ChartUse> Reading(string widgets, int sourceId)
+    {
+        using var document = JsonDocument.Parse(widgets);
+        return [.. document.RootElement.EnumerateArray()
+            .Where(widget => Names(widget, sourceId) || (widget.TryGetProperty("join", out var join) && Names(join, sourceId)))
+            .Select(widget => new ChartUse(0, string.Empty, Text(widget, "name") ?? Text(widget, "title"), Text(widget, "kind")))];
+    }
+
+    private static bool Names(JsonElement element, int sourceId) =>
+        element.ValueKind == JsonValueKind.Object
+        && element.TryGetProperty("sourceId", out var id)
+        && id.ValueKind == JsonValueKind.Number
+        && id.TryGetInt32(out var found)
+        && found == sourceId;
+
+    private static string? Text(JsonElement widget, string property) =>
+        widget.ValueKind == JsonValueKind.Object && widget.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
 }
 
 /// <summary>
@@ -89,15 +124,20 @@ public sealed class SourceJoin
 public sealed class SourcesController(ScryDbContext db, Workspace workspace, SourceSync sync) : ControllerBase
 {
     [HttpGet]
-    public async Task<IEnumerable<SourceView>> List(CancellationToken ct) =>
-        (await db.Sources.AsNoTracking().Include(source => source.Connection).Include(source => source.IngestKey).OrderBy(source => source.Name).ToListAsync(ct))
-        .Select(SourceView.From);
+    public async Task<IEnumerable<SourceView>> List(CancellationToken ct)
+    {
+        var linkKey = await LinkKeyAsync(ct);
+        return (await db.Sources.AsNoTracking().Include(source => source.Connection).Include(source => source.IngestKey).OrderBy(source => source.Name).ToListAsync(ct))
+            .Select(source => SourceView.From(source, linkKey));
+    }
 
     [HttpGet("{id:int}")]
     public async Task<ActionResult<SourceView>> Get(int id, CancellationToken ct) =>
         await db.Sources.Include(source => source.Connection).Include(source => source.IngestKey).FirstOrDefaultAsync(source => source.Id == id, ct) is { } source
-            ? SourceView.From(source)
+            ? SourceView.From(source, await LinkKeyAsync(ct))
             : NotFound();
+
+    private Task<int?> LinkKeyAsync(CancellationToken ct) => db.NexusLinks.Select(link => link.IngestKeyId).FirstOrDefaultAsync(ct);
 
     /// <summary>Copies a connection's stream into DuckDB again. An uploaded file syncs once, when it is uploaded.</summary>
     [HttpPost("{id:int}/sync")]
@@ -131,7 +171,54 @@ public sealed class SourcesController(ScryDbContext db, Workspace workspace, Sou
             return this.ConnectorProblem(ex);
         }
 
-        return SourceView.From(source);
+        return SourceView.From(source, null);
+    }
+
+    /// <summary>Each chart that reads the source, directly or through a join, on every dashboard.</summary>
+    [HttpGet("{id:int}/uses")]
+    public async Task<ActionResult<IEnumerable<ChartUse>>> Uses(int id, CancellationToken ct)
+    {
+        if (!await db.Sources.AnyAsync(source => source.Id == id, ct))
+        {
+            return NotFound();
+        }
+
+        var dashboards = await db.Dashboards.AsNoTracking().OrderBy(d => d.Name).Select(d => new { d.Id, d.Name, d.Widgets }).ToListAsync(ct);
+        return dashboards.SelectMany(d => ChartUse.Reading(d.Widgets, id).Select(chart => chart with { DashboardId = d.Id, DashboardName = d.Name })).ToList();
+    }
+
+    /// <summary>
+    /// Removes the source, its tables, an upload's stored file, and a connection no other source uses. Charts that read
+    /// it stay, and ask for another source.
+    /// </summary>
+    [HttpDelete("{id:int}")]
+    public async Task<IActionResult> Remove(int id, CancellationToken ct)
+    {
+        if (await db.Sources.FirstOrDefaultAsync(source => source.Id == id, ct) is not { } source)
+        {
+            return NotFound();
+        }
+
+        if (source.Status == SourceStatus.Syncing)
+        {
+            return Problem($"{source.Name} is syncing. Wait for it to end, then remove it.", statusCode: StatusCodes.Status409Conflict);
+        }
+
+        db.Sources.Remove(source);
+        await db.SaveChangesAsync(ct);
+        if (source.ConnectionId is { } connectionId && !await db.Sources.AnyAsync(s => s.ConnectionId == connectionId, ct))
+        {
+            await db.Connections.Where(c => c.Id == connectionId).ExecuteDeleteAsync(ct);
+        }
+
+        // The row goes first: a table left by a failure here is replaced by the next source of its name.
+        await workspace.DropSourceAsync(source.Name, CancellationToken.None);
+        if (source.StoredFile is { } stored && System.IO.File.Exists(Path.Combine(workspace.Uploads, stored)))
+        {
+            System.IO.File.Delete(Path.Combine(workspace.Uploads, stored));
+        }
+
+        return NoContent();
     }
 
     /// <summary>The largest CSV file a source can be made from: 1 GB.</summary>
@@ -193,7 +280,7 @@ public sealed class SourcesController(ScryDbContext db, Workspace workspace, Sou
         db.Sources.Add(created);
         await db.SaveChangesAsync(ct);
 
-        return CreatedAtAction(nameof(Get), new { id = created.Id }, SourceView.From(created));
+        return CreatedAtAction(nameof(Get), new { id = created.Id }, SourceView.From(created, null));
     }
 
     /// <summary><paramref name="y"/> aggregated per value of <paramref name="x"/>, for line, bar, and pie charts.</summary>

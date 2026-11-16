@@ -16,7 +16,6 @@ if (string.IsNullOrWhiteSpace(connectionString))
 builder.Services.AddSingleton(settings);
 builder.Services.AddSingleton(builder.Configuration.GetSection(SchwabApp.Section).Get<SchwabApp>() ?? new SchwabApp());
 builder.Services.AddSingleton<Workspace>();
-builder.Services.AddSingleton(DatabaseConnectors.FromNexus());
 builder.Services.AddHttpClient(SchwabConnector.HttpClientName);
 builder.Services.AddSingleton<SchwabConnector>();
 builder.Services.AddSingleton<SourceConnectors>();

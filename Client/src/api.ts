@@ -28,15 +28,14 @@ export interface Column {
   type: ColumnType
 }
 
-/** An uploaded file, with its `fileName`, or a database table, with the `connector` that reads it and its `stream` name there. */
 /** How a source's last sync went. `SignInNeeded` means the service ended the sign-in it syncs with. */
 export type SourceStatus = 'Ready' | 'Syncing' | 'Failed' | 'SignInNeeded'
 
 export interface Source {
   id: number
   name: string
-  /** Where the rows come from: an uploaded file, a connection's stream, or the push API. */
-  kind: 'Upload' | 'Connection' | 'Push'
+  /** Where the rows come from: an uploaded file, a connection's stream, the push API, or Nexus through the push API. */
+  kind: 'Upload' | 'Connection' | 'Push' | 'Nexus'
   fileName: string | null
   connector: string | null
   stream: string | null
@@ -63,7 +62,7 @@ export interface SettingField {
   choices: string[] | null
 }
 
-/** A Nexus connector a source can come from: CSV, a database, or Schwab. */
+/** A connector Scry reads a source through itself: CSV, or Schwab. */
 export interface Connector {
   id: string
   name: string
@@ -73,8 +72,8 @@ export interface Connector {
   needs: string[]
 }
 
-/** A table a database offers, by its connector's name for it, such as `public.orders`. */
-export interface DatabaseTable {
+/** A stream Schwab offers, by name, with its number of columns. */
+export interface StreamSummary {
   name: string
   columns: number
 }
@@ -155,19 +154,22 @@ export const listSources = () => request<Source[]>('/sources')
 
 export const listConnectors = () => request<Connector[]>('/connectors')
 
-/** Connects with the settings and lists the database's tables; nothing is kept. */
-export const listTables = (connector: string, settings: Settings) =>
-  request<DatabaseTable[]>('/databases/tables', json('POST', { connector, settings }))
-
-/** Keeps the connection and adds each table as a source of the given name, copied into Scry. */
-export const addDatabaseSources = (connector: string, settings: Settings, tables: { table: string; name: string }[]) =>
-  request<Source[]>('/databases', json('POST', { connector, settings, tables }))
-
 /** Copies a connection's stream into its source again. */
 export const syncSource = (id: number) => request<Source>(`/sources/${id}/sync`, { method: 'POST' })
 
+/** A chart that reads a source, directly or through a join. */
+export interface ChartUse {
+  dashboardId: number
+  dashboardName: string
+  chartTitle: string | null
+  chartKind: string | null
+}
+
+export const listSourceUses = (id: number) => request<ChartUse[]>(`/sources/${id}/uses`)
+export const removeSource = (id: number) => request<void>(`/sources/${id}`, { method: 'DELETE' })
+
 /** The streams a Schwab connection offers, by name; listing them needs no sign-in. */
-export const listSchwabStreams = () => request<DatabaseTable[]>('/schwab/streams')
+export const listSchwabStreams = () => request<StreamSummary[]>('/schwab/streams')
 
 /** Starts a Schwab sign-in for a new connection, and returns Schwab's sign-in page for the browser to go to. */
 export const startSchwabSignIn = (settings: Settings, streams: { table: string; name: string }[]) =>
@@ -210,6 +212,34 @@ export const startNexusPairing = (nexusUrl: string) => request<{ approveUrl: str
 
 /** Unlinks from Nexus, revoking both keys. The sources Nexus pushed stay. */
 export const unlinkNexus = () => request<void>('/nexus', { method: 'DELETE' })
+
+/** A connector Nexus reads through, such as MySQL. */
+export interface NexusConnector {
+  id: string
+  name: string
+  description: string
+}
+
+/** A sync at Nexus into the link's destination: what it reads, the table it fills, and how its last run went. */
+export interface NexusSync {
+  id: number
+  connectionName: string
+  connectorName: string
+  needsSignIn: boolean
+  stream: string
+  table: string
+  mode: 'FullRefresh' | 'Incremental'
+  status: 'Ready' | 'Queued' | 'Running' | 'Failed'
+  lastRun: { status: 'Running' | 'Succeeded' | 'Failed'; startedAt: string; endedAt: string | null; rows: number; error: string | null } | null
+}
+
+export const listNexusConnectors = () => request<NexusConnector[]>('/nexus/connectors')
+
+/** Opens Nexus's connect page for a connector, which comes back to the Sources page. */
+export const connectThroughNexus = (connector: string) => request<{ url: string }>('/nexus/connect', json('POST', { connector }))
+
+export const listNexusSyncs = () => request<NexusSync[]>('/nexus/syncs')
+export const runNexusSync = (id: number) => request<NexusSync>(`/nexus/syncs/${id}/run`, { method: 'POST' })
 
 /** Starts a sign-in that renews the one a Schwab source's connection holds. */
 export const signInAgain = (id: number) => request<{ url: string }>(`/sources/${id}/sign-in`, { method: 'POST' })

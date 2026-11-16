@@ -6,6 +6,12 @@ using Scry.Api.Storage;
 
 namespace Scry.Api.Controllers;
 
+/// <summary>A stream Schwab offers, by its name, with its number of columns.</summary>
+public sealed record StreamSummary(string Name, int Columns);
+
+/// <summary>A stream to add, by its name as <paramref name="Table"/>, and the name of the source it becomes.</summary>
+public sealed record TableChoice(string Table, string Name);
+
 /// <summary>Schwab's settings for a new connection, and the streams to add as sources under the names given them.</summary>
 public sealed record SchwabSignInRequest(Dictionary<string, string?> Settings, IReadOnlyList<TableChoice> Streams);
 
@@ -24,8 +30,8 @@ public sealed class SchwabController(
 {
     /// <summary>The streams a Schwab connection offers. Listing them needs no sign-in.</summary>
     [HttpGet("streams")]
-    public async Task<IReadOnlyList<DatabaseTable>> Streams(CancellationToken ct) =>
-        (await Catalog(ct)).Select(stream => new DatabaseTable(stream.Name, stream.Columns.Count)).ToList();
+    public async Task<IReadOnlyList<StreamSummary>> Streams(CancellationToken ct) =>
+        (await Catalog(ct)).Select(stream => new StreamSummary(stream.Name, stream.Columns.Count)).ToList();
 
     /// <summary>Checks the picked streams' names and starts a sign-in for a new connection.</summary>
     [HttpPost("sign-in")]

@@ -23,10 +23,12 @@ jest.mock('react-grid-layout', () => ({
   useContainerWidth: () => ({ width: 1200, containerRef: { current: null }, mounted: true }),
 }))
 
-// A chart is a button that opens it for editing, when the page offers that.
+// A chart is a button that opens it for editing, when the page offers that, and says when its source is gone.
 jest.mock('../components/ChartWidget', () => ({
-  ChartWidget: ({ widget, onEdit }: { widget: Widget; onEdit?: () => void }) =>
-    onEdit ? jest.requireActual('react').createElement('button', { type: 'button', onClick: onEdit }, `Edit ${widget.title}`) : widget.title,
+  ChartWidget: ({ widget, sourceGone, onEdit }: { widget: Widget; sourceGone?: boolean; onEdit?: () => void }) => {
+    const label = `${widget.title}${sourceGone ? ', its source gone' : ''}`
+    return onEdit ? jest.requireActual('react').createElement('button', { type: 'button', onClick: onEdit }, `Edit ${label}`) : label
+  },
 }))
 
 // The form saves a bar chart when adding, and switches the chart it edits to its maximum.
@@ -139,6 +141,17 @@ it('reports each save in a banner: Saved for the default time, or an error that 
       id: 'dashboard-save',
     }),
   )
+})
+
+it('tells each chart whether its source, or the source it joins, was removed', async () => {
+  const gone: Widget = { ...byDay, id: 'w2', title: 'Old', sourceId: 99 }
+  const joinsGone: Widget = { ...byDay, id: 'w3', title: 'Joined', join: { sourceId: 99, on: 'day', to: 'day', kind: 'left' } }
+  jest.mocked(getDashboard).mockResolvedValue(sales([byDay, gone, joinsGone], {}))
+  render(<DashboardPage />)
+
+  expect(await screen.findByRole('button', { name: 'Edit Sum of amount by day' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Edit Old, its source gone' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Edit Joined, its source gone' })).toBeInTheDocument()
 })
 
 it('offers no chart to add or edit until there is a source', async () => {

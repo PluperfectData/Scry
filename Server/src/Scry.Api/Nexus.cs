@@ -37,6 +37,31 @@ public sealed record OpenedPairing(string Id, string ApproveUrl, DateTime Expire
 
 public sealed record ClaimedPairing(string AppKey, int DestinationId, string AppName, string WorkspaceName);
 
+/// <summary>A connector Nexus reads through, such as MySQL.</summary>
+public sealed record NexusConnector(string Id, string Name, string Description);
+
+/// <summary>A connect page Nexus opened for the link's destination, at <paramref name="Url"/>.</summary>
+public sealed record NexusConnectPage(string Url, DateTime ExpiresAt);
+
+/// <summary>How a sync's last run went at Nexus.</summary>
+public sealed record NexusRun(string Status, DateTime StartedAt, DateTime? EndedAt, long Rows, string? Error);
+
+/// <summary>
+/// A sync at Nexus: the connection and stream it reads, the table it fills, and how its last run went.
+/// <paramref name="Status"/> is <c>Ready</c>, <c>Queued</c>, <c>Running</c>, or <c>Failed</c>.
+/// </summary>
+public sealed record NexusSync(
+    int Id,
+    string ConnectionName,
+    string ConnectorName,
+    bool NeedsSignIn,
+    int? DestinationId,
+    string Stream,
+    string Table,
+    string Mode,
+    string Status,
+    NexusRun? LastRun);
+
 /// <summary>Every call Scry makes to a Nexus instance.</summary>
 public sealed class NexusApi(IHttpClientFactory http)
 {
@@ -52,6 +77,20 @@ public sealed class NexusApi(IHttpClientFactory http)
 
     public Task RevokeKeyAsync(string nexusUrl, string appKey, CancellationToken ct) =>
         SendAsync<JsonElement?>(nexusUrl, HttpMethod.Delete, "/app/key", appKey, null, ct);
+
+    public Task<List<NexusConnector>> ListConnectorsAsync(string nexusUrl, string appKey, CancellationToken ct) =>
+        SendAsync<List<NexusConnector>>(nexusUrl, HttpMethod.Get, "/connectors", appKey, null, ct);
+
+    /// <summary>Opens a connect page for <paramref name="connector"/> into the destination, returning to <paramref name="returnUrl"/>.</summary>
+    public Task<NexusConnectPage> OpenConnectAsync(string nexusUrl, string appKey, string connector, int destinationId, string returnUrl, CancellationToken ct) =>
+        SendAsync<NexusConnectPage>(nexusUrl, HttpMethod.Post, "/connect-sessions", appKey, new { connector, destinationId, returnUrl }, ct);
+
+    /// <summary>The app's syncs, into any of its destinations.</summary>
+    public Task<List<NexusSync>> ListSyncsAsync(string nexusUrl, string appKey, CancellationToken ct) =>
+        SendAsync<List<NexusSync>>(nexusUrl, HttpMethod.Get, "/syncs", appKey, null, ct);
+
+    public Task<NexusSync> RunSyncAsync(string nexusUrl, string appKey, int id, CancellationToken ct) =>
+        SendAsync<NexusSync>(nexusUrl, HttpMethod.Post, $"/syncs/{id}/run", appKey, null, ct);
 
     private async Task<T> SendAsync<T>(string nexusUrl, HttpMethod method, string path, string? appKey, object? body, CancellationToken ct)
     {

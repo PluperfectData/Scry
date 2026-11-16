@@ -35,6 +35,7 @@ import { FORMAT_LABELS, MAX_DECIMALS, currencies, formatsFor, startFormat, type 
 import { DEFAULT_WINDOW, MAX_SECONDS, MOVING_KINDS, PACES, validSeconds, type ChartPresentation } from '../presentation'
 import { Help } from './Help'
 import { PresentationFields } from './PresentationFields'
+import { Tooltip } from './Tooltip'
 
 // A chart follows its dashboard's full-screen scrolling until its own settings say otherwise.
 const FOLLOW: ChartPresentation = { follow: 'dashboard', wrap: 'loop', pace: 'medium', seconds: PACES.medium, window: DEFAULT_WINDOW }
@@ -600,7 +601,56 @@ export function ChartForm({
     }
   }
 
+  /** What the chart still needs before it can be saved, for the tooltip on Save. */
+  function needs(): string {
+    if (other && !joined) return 'Still needed: the columns the join pairs up, under Join on and Equals.'
+    if (scales === undefined) return "Each scale's minimum must be below its maximum, and a log scale's bounds above zero."
+    if (!ownValid || !windowValid) {
+      return `A screenful takes 1 to ${MAX_SECONDS.toLocaleString()} seconds, and shows 2 to ${MAX_WINDOW.toLocaleString()} x values.`
+    }
+    const measure = (label: string): (readonly [string, string])[] => (aggregate === 'count' ? [] : [['y', label]])
+    const xLabel = X_LABELS[kind] ?? 'X axis'
+    const yLabel = Y_LABELS[kind] ?? 'Y axis'
+    const required: (readonly [string, string])[] = aggregated
+      ? [['x', xLabel], ...measure(yLabel)]
+      : crossed
+        ? [['x', xLabel], ['group', GROUP_LABELS[kind] ?? 'Group by'], ...measure(yLabel)]
+        : kind === 'pivot'
+          ? [['row', 'Rows'], ['column', 'Columns'], ...measure('Value')]
+          : linked
+            ? [['from', 'From'], ['to', 'To'], ...measure('Weight')]
+            : kind === 'flows'
+              ? [...FLOW_ENDS]
+              : kind === 'gauge'
+                ? measure('Value')
+                : tree
+                  ? [['level1', 'Level 1'], ...measure('Size')]
+                  : kind === 'histogram'
+                    ? [['column', 'Column']]
+                    : kind === 'boxplot'
+                      ? [['value', 'Value']]
+                      : scattered
+                        ? [['x', 'X axis'], ['y', 'Y axis']]
+                        : kind === 'candlestick'
+                          ? [['x', 'X axis'], ...PRICES]
+                          : []
+    const missing = required.filter(([name]) => !field(name)).map(([, label]) => label)
+    if (missing.length > 0) return `Still needed: ${listOf(missing)}.`
+    if (kind === 'parallel') return `Still needed: 2 to ${MAX_VALUES} number columns under Axes.`
+    if (kind === 'radar') return `Still needed: at least ${MIN_RADAR_MEASURES} number columns under Spokes.`
+    if (kind === 'histogram') return `Bins takes a whole number from 1 to ${MAX_BINS}.`
+    if (kind === 'gauge') return 'Maximum takes a number, or nothing.'
+    return 'Something in this chart is not set yet.'
+  }
+
   const chosen = settings()
+  const why = chosen ? null : needs()
+  const whyId = useId()
+  const saveLabel = widget
+    ? 'Save changes'
+    : CHART_LABELS[kind].toLowerCase().endsWith('table')
+      ? `Add ${CHART_LABELS[kind].toLowerCase()}`
+      : `Add ${CHART_LABELS[kind].toLowerCase()} chart`
 
   function submit(event: FormEvent) {
     event.preventDefault()
@@ -1124,13 +1174,21 @@ export function ChartForm({
       </label>
 
       <div className="form-actions">
-        <button type="submit" disabled={chosen === null}>
-          {widget
-            ? 'Save changes'
-            : CHART_LABELS[kind].toLowerCase().endsWith('table')
-              ? `Add ${CHART_LABELS[kind].toLowerCase()}`
-              : `Add ${CHART_LABELS[kind].toLowerCase()} chart`}
-        </button>
+        {why === null ? (
+          <button type="submit">{saveLabel}</button>
+        ) : (
+          // Disabled by aria-disabled rather than disabled, so it can still take focus and hover and show why.
+          <Tooltip label={why} pressToggles>
+            <button type="submit" aria-disabled="true" aria-describedby={whyId}>
+              {saveLabel}
+            </button>
+          </Tooltip>
+        )}
+        {why !== null && (
+          <span id={whyId} className="sr-only">
+            {why}
+          </span>
+        )}
         <button type="button" className="quiet" onClick={onCancel}>
           Cancel
         </button>

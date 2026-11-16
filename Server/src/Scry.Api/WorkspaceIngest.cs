@@ -46,6 +46,29 @@ public sealed partial class Workspace
 
     private static string ReplacementOf(string table) => $"_scry_replacement_{table}";
 
+    private static readonly string MakeBatchIds =
+        $"CREATE TABLE IF NOT EXISTS {Quote(BatchIds)} (source_table VARCHAR, batch_id VARCHAR, PRIMARY KEY (source_table, batch_id))";
+
+    /// <summary>Drops a source's table, any replacement under way, and the batch ids written to it.</summary>
+    public Task DropSourceAsync(string table, CancellationToken ct) =>
+        WithConnectionAsync(
+            async connection =>
+            {
+                await ExecuteAsync(connection, MakeBatchIds, ct);
+                using var transaction = connection.BeginTransaction();
+                await ExecuteAsync(connection, $"DROP TABLE IF EXISTS {Quote(table)}", ct);
+                await ExecuteAsync(connection, $"DROP TABLE IF EXISTS {Quote(ReplacementOf(table))}", ct);
+                await using (var forget = connection.CreateCommand())
+                {
+                    forget.CommandText = $"DELETE FROM {Quote(BatchIds)} WHERE source_table = $table";
+                    forget.Parameters.Add(new DuckDBParameter("table", table));
+                    await forget.ExecuteNonQueryAsync(ct);
+                }
+
+                transaction.Commit();
+            },
+            ct);
+
     /// <summary>Makes a pushed source's table, or adds the columns it lacks.</summary>
     public Task CreatePushedAsync(string table, IReadOnlyList<IngestColumn> columns, CancellationToken ct) =>
         WithConnectionAsync(
@@ -90,10 +113,7 @@ public sealed partial class Workspace
         WithConnectionAsync(
             async connection =>
             {
-                await ExecuteAsync(
-                    connection,
-                    $"CREATE TABLE IF NOT EXISTS {Quote(BatchIds)} (source_table VARCHAR, batch_id VARCHAR, PRIMARY KEY (source_table, batch_id))",
-                    ct);
+                await ExecuteAsync(connection, MakeBatchIds, ct);
 
                 using var transaction = connection.BeginTransaction();
                 if (batchId is not null && await SeenAsync(connection, table, batchId, ct))

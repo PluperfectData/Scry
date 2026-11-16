@@ -5,6 +5,7 @@ type Kind = 'file' | 'api' | 'database' | 'broker'
 const KINDS: Record<string, Kind> = {
   csv: 'file',
   push: 'api',
+  nexus: 'api',
   mysql: 'database',
   postgres: 'database',
   sqlserver: 'database',

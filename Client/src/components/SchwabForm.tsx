@@ -1,5 +1,5 @@
 import { type FormEvent, useEffect, useState } from 'react'
-import { listSchwabStreams, startSchwabSignIn, type Connector, type DatabaseTable } from '../api'
+import { listSchwabStreams, startSchwabSignIn, type Connector, type StreamSummary } from '../api'
 import { leaveFor } from '../browser'
 import { SettingInput } from './SettingInput'
 
@@ -17,7 +17,7 @@ const listed = (names: string[]) =>
 /** Takes a Schwab connection's settings and the streams to add as sources, then sends the browser to Schwab's sign-in. */
 export function SchwabForm({ connector, onCancel }: { connector: Connector; onCancel: () => void }) {
   const [values, setValues] = useState<Record<string, string>>({ [START_DATE]: yearAgo() })
-  const [streams, setStreams] = useState<DatabaseTable[] | null>(null)
+  const [streams, setStreams] = useState<StreamSummary[] | null>(null)
   // Each picked stream, keyed by its name at Schwab, to the name of the source it becomes.
   const [picked, setPicked] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)

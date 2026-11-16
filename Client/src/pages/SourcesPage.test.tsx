@@ -1,11 +1,28 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { listConnectors, listSources, signInAgain, syncSource, type Connector, type Source } from '../api'
+import {
+  connectThroughNexus,
+  getNexusLink,
+  listConnectors,
+  listNexusConnectors,
+  listNexusSyncs,
+  listSources,
+  listSourceUses,
+  removeSource,
+  runNexusSync,
+  signInAgain,
+  syncSource,
+  type Connector,
+  type NexusLink,
+  type NexusSync,
+  type Source,
+} from '../api'
 import { leaveFor } from '../browser'
 import type { TableSettings } from '../dashboard'
 import { SourcesPage } from './SourcesPage'
 
 jest.mock('react-router', () => jest.requireActual('../../jest/router').reactRouterMock())
+const { navigate } = jest.requireActual('../../jest/router')
 
 jest.mock('../api', () => ({
   ...jest.requireActual('../api'),
@@ -13,6 +30,13 @@ jest.mock('../api', () => ({
   listConnectors: jest.fn(),
   signInAgain: jest.fn(),
   syncSource: jest.fn(),
+  listSourceUses: jest.fn(),
+  removeSource: jest.fn(),
+  getNexusLink: jest.fn(),
+  listNexusConnectors: jest.fn(),
+  listNexusSyncs: jest.fn(),
+  connectThroughNexus: jest.fn(),
+  runNexusSync: jest.fn(),
 }))
 
 jest.mock('../browser', () => ({ leaveFor: jest.fn() }))
@@ -21,16 +45,7 @@ jest.mock('../components/SchwabForm', () => ({
   SchwabForm: () => jest.requireActual('react').createElement('p', null, 'The Schwab form'),
 }))
 
-// The forms are their own units; here each adds one source when its button is pressed.
-jest.mock('../components/DatabaseForm', () => ({
-  DatabaseForm: ({ database, onAdded }: { database: Connector; onAdded: (sources: Source[]) => void }) =>
-    jest.requireActual('react').createElement(
-      'button',
-      { type: 'button', onClick: () => onAdded([{ ...mockTable, rowCount: 2 }]) },
-      `Add the orders table from ${database.name}`,
-    ),
-}))
-
+// The upload form is its own unit; here it adds one source when its button is pressed.
 jest.mock('../components/UploadForm', () => ({
   UploadForm: ({ onUploaded }: { onUploaded: (source: Source) => void }) =>
     jest.requireActual('react').createElement('button', { type: 'button', onClick: () => onUploaded(mockUpload) }, 'Upload the orders file'),
@@ -63,14 +78,14 @@ const mockUpload: Source = {
 
 const mockTable: Source = {
   id: 9,
-  name: 'public_orders',
+  name: 'schwab_quotes',
   kind: 'Connection',
   pushedBy: null,
   pushKeyPrefix: null,
   origin: null,
   fileName: null,
-  connector: 'mysql',
-  stream: 'public.orders',
+  connector: 'schwab',
+  stream: 'quotes',
   columns: [{ name: 'amount', type: 'Int64' }],
   rowCount: 2,
   syncedAt: '2026-11-15T12:00:00Z',
@@ -78,9 +93,20 @@ const mockTable: Source = {
   error: null,
 }
 
+const unlinked: NexusLink = { linked: false, nexusUrl: null, appName: null, workspaceName: null, pushKeyName: null, pushKeyPrefix: null, linkedAt: null }
+
+const linked: NexusLink = {
+  linked: true,
+  nexusUrl: 'http://localhost:6163',
+  appName: 'Scry at localhost:6161',
+  workspaceName: 'Acme',
+  pushKeyName: 'Nexus at localhost:6163',
+  pushKeyPrefix: 'scry_ab12',
+  linkedAt: '2026-11-15T12:00:00Z',
+}
+
 const connectors: Connector[] = [
   { id: 'csv', name: 'CSV', description: 'Reads a delimited text file.', fields: [], needs: [] },
-  { id: 'mysql', name: 'MySQL', description: 'Reads tables from a MySQL database.', fields: [], needs: [] },
   { id: 'schwab', name: 'Charles Schwab', description: 'Reads a Schwab sign-in.', fields: [], needs: [] },
 ]
 
@@ -88,6 +114,9 @@ beforeEach(() => {
   jest.clearAllMocks()
   jest.mocked(listSources).mockResolvedValue([])
   jest.mocked(listConnectors).mockResolvedValue(connectors)
+  jest.mocked(getNexusLink).mockResolvedValue(unlinked)
+  jest.mocked(listNexusConnectors).mockResolvedValue([])
+  jest.mocked(listNexusSyncs).mockResolvedValue([])
 })
 
 async function pick(name: RegExp) {
@@ -107,25 +136,15 @@ it('uploads a CSV file from the slideout and lists it, closing the slideout', as
   expect(screen.queryByRole('button', { name: 'Upload the orders file' })).not.toBeInTheDocument()
 })
 
-it('adds a database table from the connector picked, saying where it comes from', async () => {
-  render(<SourcesPage />)
-
-  await pick(/^MySQL/)
-  await userEvent.click(screen.getByRole('button', { name: 'Add the orders table from MySQL' }))
-
-  expect(await screen.findByRole('heading', { name: 'public_orders' })).toBeInTheDocument()
-  expect(screen.getByText(/^MySQL table public\.orders: 2 rows/)).toBeInTheDocument()
-})
-
 it('goes back from a form to every connector', async () => {
   render(<SourcesPage />)
 
-  await pick(/^MySQL/)
+  await pick(/^CSV/)
   await userEvent.click(screen.getByRole('button', { name: 'All connectors' }))
 
   const slideout = screen.getByRole('dialog', { name: 'Add a source' })
-  expect(within(slideout).getAllByRole('button', { name: /^(CSV|MySQL)/ })).toHaveLength(2)
-  expect(screen.queryByRole('button', { name: 'Add the orders table from MySQL' })).not.toBeInTheDocument()
+  expect(within(slideout).getAllByRole('button', { name: /^(CSV|Charles Schwab)/ })).toHaveLength(2)
+  expect(screen.queryByRole('button', { name: 'Upload the orders file' })).not.toBeInTheDocument()
 })
 
 it("previews a source's rows in a window over the page", async () => {
@@ -141,17 +160,17 @@ it("previews a source's rows in a window over the page", async () => {
   expect(screen.queryByText('Rows of source 7, 50 a page, all columns')).not.toBeInTheDocument()
 })
 
-it('syncs a database table again, but offers no sync for an uploaded file', async () => {
+it('syncs a Schwab source again, but offers no sync for an uploaded file', async () => {
   jest.mocked(listSources).mockResolvedValue([mockUpload, mockTable])
   jest.mocked(syncSource).mockResolvedValue({ ...mockTable, rowCount: 5 })
   render(<SourcesPage />)
 
   const syncButtons = await screen.findAllByRole('button', { name: /^Sync .* now$/ })
-  expect(syncButtons.map((button) => button.getAttribute('aria-label'))).toEqual(['Sync public_orders now'])
+  expect(syncButtons.map((button) => button.getAttribute('aria-label'))).toEqual(['Sync schwab_quotes now'])
   await userEvent.click(syncButtons[0])
 
   expect(syncSource).toHaveBeenCalledWith(9)
-  expect(await screen.findByText(/^MySQL table public\.orders: 5 rows/)).toBeInTheDocument()
+  expect(await screen.findByText(/^Charles Schwab stream quotes: 5 rows/)).toBeInTheDocument()
 })
 
 const schwabBalances: Source = {
@@ -228,11 +247,169 @@ it('offers the push API beside CSV, pointing to Settings and the reference', asy
 
   await userEvent.click(screen.getByRole('button', { name: 'Add source' }))
   const grid = screen.getByRole('dialog', { name: 'Add a source' })
-  const tiles = await within(grid).findAllByRole('button', { name: /^(CSV|Push API|MySQL|Charles Schwab)/ })
-  expect(tiles.map((tile) => tile.querySelector('.connector-name')?.textContent)).toEqual(['CSV', 'Push API', 'MySQL', 'Charles Schwab'])
+  const tiles = await within(grid).findAllByRole('button', { name: /^(CSV|Push API|Charles Schwab)/ })
+  expect(tiles.map((tile) => tile.querySelector('.connector-name')?.textContent)).toEqual(['CSV', 'Push API', 'Charles Schwab'])
   await userEvent.click(tiles[1])
 
   const panel = screen.getByRole('dialog', { name: 'Push API' })
   expect(within(panel).getByRole('link', { name: 'Make a key on Settings' })).toHaveAttribute('href', '/settings')
   expect(within(panel).getByRole('link', { name: 'Read the push API reference' })).toHaveAttribute('href', '/docs/push-api')
+})
+
+it('removes a source after a confirm that names the charts reading it', async () => {
+  jest.mocked(listSources).mockResolvedValue([mockUpload])
+  jest.mocked(listSourceUses).mockResolvedValue([
+    { dashboardId: 3, dashboardName: 'Sales', chartTitle: 'Revenue', chartKind: 'line' },
+    { dashboardId: 3, dashboardName: 'Sales', chartTitle: null, chartKind: 'bar' },
+  ])
+  jest.mocked(removeSource).mockResolvedValue(undefined)
+  const confirm = jest.spyOn(window, 'confirm').mockReturnValue(true)
+  render(<SourcesPage />)
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Remove q3_orders' }))
+
+  expect(listSourceUses).toHaveBeenCalledWith(7)
+  expect(confirm).toHaveBeenCalledWith(
+    'Remove q3_orders and its rows?\n\nThese charts read it, and will ask for another source:\n• Revenue, on Sales\n• An untitled bar, on Sales',
+  )
+  expect(removeSource).toHaveBeenCalledWith(7)
+  expect(await screen.findByText(/^No sources yet/)).toBeInTheDocument()
+  confirm.mockRestore()
+})
+
+it('keeps a source when the confirm is declined, and warns that its next push makes it again', async () => {
+  const pushed: Source = {
+    ...mockTable,
+    id: 20,
+    name: 'trades',
+    kind: 'Push',
+    connector: null,
+    stream: null,
+    pushedBy: 'Nexus at localhost:6163',
+    pushKeyPrefix: 'scry_ab12',
+    origin: 'Nexus workspace Acme, connection Shop (MySQL), stream shop.orders',
+  }
+  jest.mocked(listSources).mockResolvedValue([pushed])
+  jest.mocked(listSourceUses).mockResolvedValue([])
+  const confirm = jest.spyOn(window, 'confirm').mockReturnValue(false)
+  render(<SourcesPage />)
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Remove trades' }))
+
+  expect(confirm).toHaveBeenCalledWith(
+    'Remove trades and its rows?\n\nThe key Nexus at localhost:6163 can still push to it, from Nexus workspace Acme, connection Shop (MySQL), stream shop.orders, and its next push makes it again. To stop that, remove what pushes it, such as its sync in Nexus.',
+  )
+  expect(removeSource).not.toHaveBeenCalled()
+  expect(screen.getByRole('button', { name: 'trades' })).toBeInTheDocument()
+  confirm.mockRestore()
+})
+
+const shopOrders: Source = {
+  ...mockTable,
+  id: 30,
+  name: 'shop_orders',
+  kind: 'Nexus',
+  connector: null,
+  stream: null,
+  pushedBy: 'Nexus at localhost:6163',
+  pushKeyPrefix: 'scry_ab12',
+  origin: 'Nexus workspace Acme, connection Shop (MySQL), stream shop.orders',
+  rowCount: 1200,
+}
+
+const ordersSync: NexusSync = {
+  id: 11,
+  connectionName: 'Shop',
+  connectorName: 'MySQL',
+  needsSignIn: false,
+  stream: 'shop.orders',
+  table: 'shop_orders',
+  mode: 'FullRefresh',
+  status: 'Ready',
+  lastRun: { status: 'Succeeded', startedAt: '2026-11-15T12:00:00Z', endedAt: '2026-11-15T12:01:00Z', rows: 1200, error: null },
+}
+
+async function openThroughNexus() {
+  await userEvent.click(screen.getByRole('button', { name: 'Add source' }))
+  return within(await screen.findByRole('region', { name: 'Through Nexus' }))
+}
+
+it('offers a Link Nexus tile while Scry is unlinked, which goes to Settings', async () => {
+  render(<SourcesPage />)
+
+  const nexus = await openThroughNexus()
+  await userEvent.click(nexus.getByRole('button', { name: /^Link Nexus/ }))
+
+  expect(navigate).toHaveBeenCalledWith('/settings')
+})
+
+it("offers Nexus's connectors once linked, and opens Nexus's connect page for the one picked", async () => {
+  jest.mocked(getNexusLink).mockResolvedValue(linked)
+  jest.mocked(listNexusConnectors).mockResolvedValue([{ id: 'mysql', name: 'MySQL', description: 'Reads tables from MySQL.' }])
+  jest.mocked(connectThroughNexus).mockResolvedValue({ url: 'http://localhost:6165/connect#nxc_token' })
+  render(<SourcesPage />)
+
+  const nexus = await openThroughNexus()
+  await userEvent.click(await nexus.findByRole('button', { name: /^MySQL/ }))
+
+  expect(connectThroughNexus).toHaveBeenCalledWith('mysql')
+  expect(leaveFor).toHaveBeenCalledWith('http://localhost:6165/connect#nxc_token')
+})
+
+it('says how connecting through Nexus went on coming back, then clears it from the address', async () => {
+  window.history.pushState({}, '', '/sources?connection=4')
+  const { unmount } = render(<SourcesPage />)
+  expect(await screen.findByText('Connected through Nexus. Its tables are syncing in.')).toBeInTheDocument()
+  expect(window.location.search).toBe('')
+  unmount()
+
+  window.history.pushState({}, '', '/sources?error=cancelled')
+  render(<SourcesPage />)
+  expect(await screen.findByText('Connecting through Nexus was cancelled.')).toBeInTheDocument()
+  expect(screen.queryByText('cancelled')).not.toBeInTheDocument()
+})
+
+it("shows a Nexus source's sync, and runs it through Nexus", async () => {
+  jest.mocked(listSources).mockResolvedValue([shopOrders])
+  jest.mocked(getNexusLink).mockResolvedValue(linked)
+  jest.mocked(listNexusSyncs).mockResolvedValue([ordersSync])
+  jest.mocked(runNexusSync).mockResolvedValue({ ...ordersSync, status: 'Queued' })
+  render(<SourcesPage />)
+
+  expect(await screen.findByText(/^Nexus's last sync sent 1,200 rows/)).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: 'Sync shop_orders now through Nexus' }))
+
+  expect(runNexusSync).toHaveBeenCalledWith(11)
+  expect(await screen.findByText('Nexus has a sync of it queued.')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Nexus is syncing shop_orders…' })).toBeDisabled()
+})
+
+it("says when a Nexus source's sync failed or its connection needs a new sign-in", async () => {
+  jest.mocked(listSources).mockResolvedValue([shopOrders, { ...shopOrders, id: 31, name: 'old_orders' }])
+  jest.mocked(getNexusLink).mockResolvedValue(linked)
+  jest.mocked(listNexusSyncs).mockResolvedValue([
+    { ...ordersSync, status: 'Failed', needsSignIn: true, lastRun: { ...ordersSync.lastRun!, status: 'Failed', rows: 0, error: 'Could not reach db.test.' } },
+  ])
+  render(<SourcesPage />)
+
+  expect(await screen.findByText(/^Nexus's last sync failed, .+: Could not reach db\.test\.$/)).toBeInTheDocument()
+  expect(screen.getByText('Its connection in Nexus needs a new sign-in. Sign in again in Nexus.')).toBeInTheDocument()
+  expect(screen.getByText('No Nexus sync writes it now.')).toBeInTheDocument()
+})
+
+it("names the Nexus sync that would bring a removed source back", async () => {
+  jest.mocked(listSources).mockResolvedValue([shopOrders])
+  jest.mocked(getNexusLink).mockResolvedValue(linked)
+  jest.mocked(listNexusSyncs).mockResolvedValue([ordersSync])
+  jest.mocked(listSourceUses).mockResolvedValue([])
+  const confirm = jest.spyOn(window, 'confirm').mockReturnValue(false)
+  render(<SourcesPage />)
+  await screen.findByText(/^Nexus's last sync sent/)
+
+  await userEvent.click(screen.getByRole('button', { name: 'Remove shop_orders' }))
+
+  expect(confirm).toHaveBeenCalledWith(
+    "Remove shop_orders and its rows?\n\nNexus's sync of shop.orders from Shop (MySQL) still writes it, so it comes back on that sync's next run. To stop that, remove the sync in Nexus.",
+  )
+  confirm.mockRestore()
 })

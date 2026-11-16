@@ -104,6 +104,75 @@ public sealed class NexusTests
         refused.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
 
+    [Test]
+    public async Task Lists_Nexus_connectors_and_opens_a_connect_page_into_the_links_destination()
+    {
+        await LinkAsync();
+
+        var connectors = await _client.GetFromJsonAsync<JsonElement>("/nexus/connectors");
+        using var opened = await _client.PostAsJsonAsync("/nexus/connect", new { connector = "mysql" });
+
+        connectors.EnumerateArray().Single().GetProperty("name").GetString().ShouldBe("MySQL");
+        opened.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await opened.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("url").GetString().ShouldBe($"{FakeNexus.Url}/connect#nxc_the-token");
+        var session = _factory.Nexus.Requests.Single(r => r.Line == "POST /connect-sessions");
+        session.Authorization.ShouldBe($"Bearer {FakeNexus.AppKey}");
+        session.Body!.Value.GetProperty("connector").GetString().ShouldBe("mysql");
+        session.Body.Value.GetProperty("destinationId").GetInt32().ShouldBe(7);
+        session.Body.Value.GetProperty("returnUrl").GetString().ShouldBe("http://localhost:6160/sources");
+    }
+
+    [Test]
+    public async Task Lists_the_syncs_into_the_links_destination_and_runs_one()
+    {
+        await LinkAsync();
+
+        var syncs = await _client.GetFromJsonAsync<JsonElement>("/nexus/syncs");
+        using var ran = await _client.PostAsync(new Uri("/nexus/syncs/11/run", UriKind.Relative), null);
+        using var refused = await _client.PostAsync(new Uri("/nexus/syncs/99/run", UriKind.Relative), null);
+
+        syncs.EnumerateArray().Select(s => s.GetProperty("table").GetString()).ShouldBe(["shop_orders"]);
+        syncs[0].GetProperty("connectionName").GetString().ShouldBe("Shop");
+        syncs[0].GetProperty("lastRun").GetProperty("rows").GetInt64().ShouldBe(1200);
+        (await ran.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("status").GetString().ShouldBe("Queued");
+        refused.StatusCode.ShouldBe(HttpStatusCode.BadGateway);
+        (await refused.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("detail").GetString().ShouldBe("Nexus answered 404.");
+    }
+
+    [Test]
+    public async Task Refuses_the_Nexus_routes_while_unlinked()
+    {
+        using var refused = await _client.GetAsync(new Uri("/nexus/connectors", UriKind.Relative));
+
+        refused.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        _factory.Nexus.Requests.ShouldBeEmpty();
+    }
+
+    [Test]
+    public async Task A_source_pushed_with_the_links_key_is_a_Nexus_source()
+    {
+        await LinkAsync();
+        var columns = new object[] { new { name = "id", type = "Int64" } };
+        using var asNexus = _factory.CreateClient();
+        asNexus.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _factory.Nexus.Claimed!.Value.GetProperty("pushKey").GetString());
+        (await asNexus.PutAsJsonAsync("/ingest/sources/shop_orders", new { columns })).StatusCode.ShouldBe(HttpStatusCode.OK);
+        using var made = await _client.PostAsJsonAsync("/keys", new { name = "Script" });
+        using var asScript = _factory.CreateClient();
+        asScript.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", (await made.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("key").GetString());
+        (await asScript.PutAsJsonAsync("/ingest/sources/events", new { columns })).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var sources = await _client.GetFromJsonAsync<JsonElement>("/sources");
+
+        sources.EnumerateArray().Select(s => $"{s.GetProperty("name").GetString()} {s.GetProperty("kind").GetString()}").ShouldBe(["events Push", "shop_orders Nexus"]);
+    }
+
+    private async Task LinkAsync()
+    {
+        await PairAsync();
+        using var back = await _client.GetAsync($"/nexus/callback?pairing={FakeNexus.PairingId}");
+        back.Headers.Location!.OriginalString.ShouldBe($"{Settings}?linked=1");
+    }
+
     private async Task<JsonElement> PairAsync()
     {
         using var started = await _client.PostAsJsonAsync("/nexus/pairing", new { nexusUrl = FakeNexus.Url + "/" });

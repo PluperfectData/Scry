@@ -50,10 +50,12 @@ public sealed class SchwabConnector(IHttpClientFactory http, SchwabApp app)
             ct: ct);
 }
 
-/// <summary>Every connector a connection reads through, by its id.</summary>
-public sealed class SourceConnectors(DatabaseConnectors databases, SchwabConnector schwab)
+/// <summary>
+/// Every connector a connection of Scry's own reads through, by its id: Schwab alone. Databases come through Nexus.
+/// </summary>
+public sealed class SourceConnectors(SchwabConnector schwab)
 {
-    public ISourceConnector? Find(string id) => id == SchwabConnector.Id ? schwab.Source() : databases.Find(id);
+    public ISourceConnector? Find(string id) => id == SchwabConnector.Id ? schwab.Source() : null;
 
     /// <summary>The OAuth app a connector signs in through, or null for one that takes its settings alone.</summary>
     public OAuthClient? ClientFor(string id) => id == SchwabConnector.Id ? schwab.App.Client : null;

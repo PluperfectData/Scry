@@ -15,9 +15,6 @@ public sealed class ScryApiFactory : WebApplicationFactory<Program>
 {
     public string DataDirectory { get; } = Path.Combine(Path.GetTempPath(), "scry-tests", Guid.NewGuid().ToString("N"));
 
-    /// <summary>The one database the API can read in tests, in place of Nexus's real ones.</summary>
-    public FakeDatabase Database { get; } = new();
-
     /// <summary>Schwab's API as the Schwab connector and sign-in reach it in tests.</summary>
     public FakeSchwabApi Schwab { get; } = new();
 
@@ -42,8 +39,6 @@ public sealed class ScryApiFactory : WebApplicationFactory<Program>
             services.RemoveAll<DbContextOptions<ScryDbContext>>();
             services.RemoveAll<IDbContextOptionsConfiguration<ScryDbContext>>();
             services.AddDbContext<ScryDbContext>(options => options.UseSqlite(SqliteConnectionString));
-            services.RemoveAll<DatabaseConnectors>();
-            services.AddSingleton(new DatabaseConnectors([Database]));
             services.AddHttpClient(SchwabConnector.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => Schwab);
             services.AddHttpClient(NexusApi.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => Nexus);
         });

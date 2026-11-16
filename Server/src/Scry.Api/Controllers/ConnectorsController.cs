@@ -21,14 +21,13 @@ public sealed record ConnectorView(
 
 [ApiController]
 [Route("connectors")]
-public sealed class ConnectorsController(DatabaseConnectors databases, SchwabConnector schwab) : ControllerBase
+public sealed class ConnectorsController(SchwabConnector schwab) : ControllerBase
 {
     private static readonly ConnectorView Csv = ConnectorView.From(new CsvSource().Spec);
 
-    /// <summary>Every connector a source can come from: CSV first, then each database, then Schwab.</summary>
+    /// <summary>The connectors Scry reads through itself: CSV, then Schwab. Databases come through Nexus.</summary>
     [HttpGet]
-    public IEnumerable<ConnectorView> List() =>
-        [Csv, .. databases.All.Select(connector => ConnectorView.From(connector.Spec)), Schwab()];
+    public IEnumerable<ConnectorView> List() => [Csv, Schwab()];
 
     // Scry only reads, so Schwab's setting that allows orders is left out.
     private ConnectorView Schwab()

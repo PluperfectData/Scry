@@ -62,7 +62,9 @@ it('joins another source on a column pair, offering both sources’ columns by n
   const { onSave } = renderForm(null, [orders, regions])
 
   await userEvent.selectOptions(screen.getByLabelText('Join'), 'regions')
-  expect(screen.getByRole('button', { name: 'Add bar chart' })).toBeDisabled()
+  const add = screen.getByRole('button', { name: 'Add bar chart' })
+  expect(add).toHaveAttribute('aria-disabled', 'true')
+  expect(add).toHaveAccessibleDescription('Still needed: the columns the join pairs up, under Join on and Equals.')
   await userEvent.selectOptions(screen.getByLabelText('Join on'), 'region')
   await userEvent.selectOptions(screen.getByLabelText('Equals'), 'code')
   const type = screen.getByLabelText('Join type')
@@ -357,8 +359,34 @@ it('will not save a scale whose minimum is not below its maximum', async () => {
   await userEvent.type(screen.getByLabelText('Y min'), '10')
   await userEvent.type(screen.getByLabelText('Y max'), '5')
 
-  expect(screen.getByRole('button', { name: 'Add bar chart' })).toBeDisabled()
+  const add = screen.getByRole('button', { name: 'Add bar chart' })
+  expect(add).toHaveAttribute('aria-disabled', 'true')
+  expect(add).toHaveAccessibleDescription("Each scale's minimum must be below its maximum, and a log scale's bounds above zero.")
   expect(screen.getByText("Each minimum must be below its maximum, and a log scale's bounds above zero.")).toBeInTheDocument()
+})
+
+it('says on Save what a chart still needs, and saves nothing until it has it', async () => {
+  const { onSave } = renderForm()
+  const add = () => screen.getByRole('button', { name: 'Add bar chart' })
+  expect(add()).toHaveAccessibleDescription('Still needed: X axis and Y axis.')
+
+  await userEvent.click(add())
+  expect(onSave).not.toHaveBeenCalled()
+  await userEvent.selectOptions(screen.getByLabelText('X axis'), 'day')
+  expect(add()).toHaveAccessibleDescription('Still needed: Y axis.')
+  await userEvent.selectOptions(screen.getByLabelText('Aggregate'), 'count')
+
+  expect(add()).not.toHaveAttribute('aria-disabled')
+  await userEvent.click(add())
+  expect(onSave).toHaveBeenCalled()
+})
+
+it('says what a chart whose source was removed needs on the source it starts from', () => {
+  renderForm({ id: 'w1', title: 'Sum of amount by day', kind: 'bar', sourceId: 99, join: null, name: null, scales: null, x: 'day', y: 'amount', aggregate: 'sum' })
+
+  const save = screen.getByRole('button', { name: 'Save changes' })
+  expect(save).toHaveAttribute('aria-disabled', 'true')
+  expect(save).toHaveAccessibleDescription('Still needed: X axis and Y axis.')
 })
 
 it('cancels without saving', async () => {

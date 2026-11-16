@@ -265,6 +265,38 @@ public sealed class IngestTests
     }
 
     [Test]
+    public async Task Removing_a_pushed_source_drops_its_table_and_the_same_name_pushed_again_starts_empty()
+    {
+        using var client = Client(await KeyFor("Nexus"));
+        await client.PutAsJsonAsync("/ingest/sources/orders", Orders);
+        await Batch(client, "orders", "b1", "append", [[1, "10.00", "2026-11-01"]]);
+        var id = (await Listed("orders")).GetProperty("id").GetInt32();
+
+        (await _client.DeleteAsync(new Uri($"/sources/{id}", UriKind.Relative))).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        (await client.PutAsJsonAsync("/ingest/sources/orders", Orders)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        var again = await Batch(client, "orders", "b1", "append", [[2, "20.00", "2026-11-02"]]);
+
+        again.GetProperty("skipped").GetBoolean().ShouldBeFalse();
+        again.GetProperty("rowCount").GetInt64().ShouldBe(1);
+    }
+
+    [Test]
+    public async Task A_new_pushed_source_replaces_a_table_left_without_a_source()
+    {
+        using var client = Client(await KeyFor("Nexus"));
+        await client.PutAsJsonAsync("/ingest/sources/orders", Orders);
+        await Batch(client, "orders", null, "append", [[1, "10.00", "2026-11-01"]]);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<ScryDbContext>().Sources.Where(s => s.Name == "orders").ExecuteDeleteAsync();
+        }
+
+        (await client.PutAsJsonAsync("/ingest/sources/orders", Orders)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        (await Rows(await Listed("orders"))).ShouldBeEmpty();
+    }
+
+    [Test]
     public async Task Revoking_a_key_keeps_its_sources_and_stops_its_writes()
     {
         var made = await MakeKey("Nexus");

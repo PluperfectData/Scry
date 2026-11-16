@@ -535,6 +535,94 @@ public sealed class ApiTests
         gone.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
+    [Test]
+    public async Task Removing_an_upload_takes_its_row_its_table_and_its_file()
+    {
+        var id = await UploadId("orders", Orders);
+        var uploads = _factory.Services.GetRequiredService<Workspace>().Uploads;
+        Directory.GetFiles(uploads).Length.ShouldBe(1);
+
+        using var removed = await _client.DeleteAsync(new Uri($"/sources/{id}", UriKind.Relative));
+
+        removed.StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        (await _client.GetFromJsonAsync<JsonElement>("/sources")).GetArrayLength().ShouldBe(0);
+        Directory.GetFiles(uploads).ShouldBeEmpty();
+        (await TablesNamedAsync("orders")).ShouldBe(0);
+        (await _client.DeleteAsync(new Uri($"/sources/{id}", UriKind.Relative))).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        await UploadId("orders", Orders);
+    }
+
+    [Test]
+    public async Task Lists_the_charts_that_read_a_source_directly_or_through_a_join()
+    {
+        var orders = await UploadId("orders", Orders);
+        var regions = await UploadId("regions", Regions);
+        await SaveWidgetsAsync(await CreateDashboard("Sales"), "Sales",
+        [
+            new { id = "a", kind = "bar", title = "Sum of amount by day", name = (string?)null, sourceId = orders, join = (object?)null },
+            new { id = "b", kind = "table", title = "Rows", name = "By region", sourceId = orders, join = (object?)new { sourceId = regions, on = "region", to = "code", kind = "left" } },
+        ]);
+        await SaveWidgetsAsync(await CreateDashboard("Map"), "Map",
+            [new { id = "c", kind = "map", title = "Regions", name = (string?)null, sourceId = regions, join = (object?)null }]);
+
+        var uses = await _client.GetFromJsonAsync<JsonElement>($"/sources/{regions}/uses");
+
+        uses.EnumerateArray()
+            .Select(u => $"{u.GetProperty("dashboardName").GetString()}: {u.GetProperty("chartTitle").GetString()} ({u.GetProperty("chartKind").GetString()})")
+            .ShouldBe(["Map: Regions (map)", "Sales: By region (table)"]);
+        (await _client.GetFromJsonAsync<JsonElement>($"/sources/{orders}/uses")).GetArrayLength().ShouldBe(2);
+        (await _client.GetAsync(new Uri("/sources/999/uses", UriKind.Relative))).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+    }
+
+    [Test]
+    public async Task A_connection_goes_with_its_last_source_and_a_syncing_source_stays()
+    {
+        int quotes, movers, connectionId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ScryDbContext>();
+            var connection = new Connection { Connector = "schwab", Settings = "{}", CreatedAt = DateTime.UtcNow };
+            var first = new Source { Name = "quotes", Connection = connection, Stream = "quotes", Columns = "[]" };
+            var second = new Source { Name = "movers", Connection = connection, Stream = "movers", Columns = "[]", Status = SourceStatus.Syncing };
+            db.Sources.AddRange(first, second);
+            await db.SaveChangesAsync();
+            (quotes, movers, connectionId) = (first.Id, second.Id, connection.Id);
+        }
+
+        using var busy = await _client.DeleteAsync(new Uri($"/sources/{movers}", UriKind.Relative));
+        busy.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        (await _client.DeleteAsync(new Uri($"/sources/{quotes}", UriKind.Relative))).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        (await ConnectionCountAsync(connectionId)).ShouldBe(1);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ScryDbContext>();
+            await db.Sources.Where(s => s.Id == movers).ExecuteUpdateAsync(set => set.SetProperty(s => s.Status, SourceStatus.Ready));
+        }
+
+        (await _client.DeleteAsync(new Uri($"/sources/{movers}", UriKind.Relative))).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        (await ConnectionCountAsync(connectionId)).ShouldBe(0);
+    }
+
+    private async Task SaveWidgetsAsync(int dashboard, string name, object[] widgets)
+    {
+        using var saved = await _client.PutAsJsonAsync($"/dashboards/{dashboard}", new { name, layouts = new { }, widgets });
+        saved.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    private async Task<long> TablesNamedAsync(string name)
+    {
+        var rows = await _factory.Services.GetRequiredService<Workspace>()
+            .QueryAsync($"SELECT count(*) FROM information_schema.tables WHERE table_name = '{name}'", 1, CancellationToken.None);
+        return Convert.ToInt64(rows[0][0], CultureInfo.InvariantCulture);
+    }
+
+    private async Task<int> ConnectionCountAsync(int id)
+    {
+        using var scope = _factory.Services.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<ScryDbContext>().Connections.CountAsync(c => c.Id == id);
+    }
+
     private static long Milliseconds(int year, int month, int day) =>
         new DateTimeOffset(year, month, day, 0, 0, 0, TimeSpan.Zero).ToUnixTimeMilliseconds();
 

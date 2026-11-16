@@ -119,7 +119,18 @@ interface Loaded {
   error: string | null
 }
 
-export function ChartWidget({ widget, onEdit, onRemove }: { widget: Widget; onEdit?: () => void; onRemove?: () => void }) {
+/** A chart on a dashboard. `sourceGone` says its source, or the source it joins, was removed. */
+export function ChartWidget({
+  widget,
+  sourceGone = false,
+  onEdit,
+  onRemove,
+}: {
+  widget: Widget
+  sourceGone?: boolean
+  onEdit?: () => void
+  onRemove?: () => void
+}) {
   const { theme } = useTheme()
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const { id: _id, title: _title, ...rest } = widget
@@ -140,7 +151,7 @@ export function ChartWidget({ widget, onEdit, onRemove }: { widget: Widget; onEd
   )
 
   useEffect(() => {
-    if (settings.kind === 'table') return
+    if (settings.kind === 'table' || sourceGone) return
     let live = true
     load(settings)
       .then((result) => {
@@ -152,7 +163,7 @@ export function ChartWidget({ widget, onEdit, onRemove }: { widget: Widget; onEd
     return () => {
       live = false
     }
-  }, [settings, settingsKey])
+  }, [settings, settingsKey, sourceGone])
 
   const option = useMemo(() => {
     if (!data) return null
@@ -233,7 +244,9 @@ export function ChartWidget({ widget, onEdit, onRemove }: { widget: Widget; onEd
           )}
         </div>
       </header>
-      {settings.kind === 'table' ? (
+      {sourceGone ? (
+        <p className="error">Its source was removed.{onEdit && ' Edit this chart to pick another.'}</p>
+      ) : settings.kind === 'table' ? (
         // Keyed on the settings, so an edit starts the table again from its default sort and first page.
         <TableView key={settingsKey} table={settings} presenting={presenting} plan={plan} />
       ) : error ? (

@@ -7,8 +7,9 @@ using System.Text.Json;
 namespace Scry.Api.Tests;
 
 /// <summary>
-/// Nexus's pairing routes, in small: it opens pairing <c>p-1</c>, claims it only with the verifier whose hash it was
-/// opened with, answers app key <see cref="AppKey"/>, and records every request.
+/// Nexus's routes for an app, in small: it opens pairing <c>p-1</c>, claims it only with the verifier whose hash it was
+/// opened with, answers app key <see cref="AppKey"/>, offers MySQL, holds sync 11 into destination 7 and sync 12 into
+/// another, and records every request.
 /// </summary>
 public sealed class FakeNexus : HttpMessageHandler
 {
@@ -56,10 +57,44 @@ public sealed class FakeNexus : HttpMessageHandler
             case "DELETE /app/key":
                 return new HttpResponseMessage(HttpStatusCode.NoContent);
 
+            case "GET /connectors":
+                return Json(HttpStatusCode.OK, new[] { new { id = "mysql", name = "MySQL", description = "Reads tables from MySQL.", auth = "ConnectionFields", fields = Array.Empty<object>() } });
+
+            case "POST /connect-sessions":
+                return Json(HttpStatusCode.Created, new { url = $"{Url}/connect#nxc_the-token", expiresAt = DateTime.UtcNow.AddMinutes(10) });
+
+            case "GET /syncs":
+                return Json(HttpStatusCode.OK, new[] { Sync(11, 7, "shop_orders", "Ready"), Sync(12, 8, "elsewhere", "Ready") });
+
+            case "POST /syncs/11/run":
+                return Json(HttpStatusCode.Accepted, Sync(11, 7, "shop_orders", "Queued"));
+
+            case "POST /syncs/99/run":
+                return new HttpResponseMessage(HttpStatusCode.NotFound);
+
             default:
                 throw new InvalidOperationException($"No route for {line}.");
         }
     }
+
+    // A sync as Nexus's app routes show one, with fields Scry does not read.
+    private static object Sync(int id, int destinationId, string table, string status) => new
+    {
+        id,
+        connectionId = 4,
+        connectionName = "Shop",
+        connectorName = "MySQL",
+        needsSignIn = false,
+        destinationId,
+        destinationUrl = "http://localhost:6161/ingest",
+        appName = "Scry at localhost:6161",
+        stream = "shop.orders",
+        table,
+        mode = "FullRefresh",
+        cursorField = (string?)null,
+        status,
+        lastRun = new { id = 1, attempt = 1, status = "Succeeded", startedAt = DateTime.UtcNow, endedAt = DateTime.UtcNow, rows = 1200, errorKind = (string?)null, error = (string?)null },
+    };
 
     private static HttpResponseMessage Json(HttpStatusCode status, object body) =>
         new(status) { Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json") };
