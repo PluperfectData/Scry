@@ -20,6 +20,8 @@ public sealed class ScryDbContext(DbContextOptions<ScryDbContext> options) : DbC
 
     public DbSet<IngestKey> IngestKeys => Set<IngestKey>();
 
+    public DbSet<NexusLink> NexusLinks => Set<NexusLink>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<Source>(source =>
@@ -30,11 +32,22 @@ public sealed class ScryDbContext(DbContextOptions<ScryDbContext> options) : DbC
             source.Property(s => s.FileName).HasMaxLength(255);
             source.Property(s => s.StoredFile).HasMaxLength(64);
             source.Property(s => s.Stream).HasMaxLength(255);
+            source.Property(s => s.Origin).HasMaxLength(Source.MaxOriginLength);
             source.Property(s => s.SyncedAt).HasConversion(Utc);
             source.Property(s => s.Status).HasConversion<string>().HasMaxLength(16);
             source.Property(s => s.Error).HasMaxLength(1000);
             source.HasOne(s => s.Connection).WithMany().HasForeignKey(s => s.ConnectionId).OnDelete(DeleteBehavior.Restrict);
             source.HasOne(s => s.IngestKey).WithMany().HasForeignKey(s => s.IngestKeyId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<NexusLink>(link =>
+        {
+            link.ToTable("nexus_link");
+            link.Property(l => l.NexusUrl).HasMaxLength(2000);
+            link.Property(l => l.AppName).HasMaxLength(200);
+            link.Property(l => l.WorkspaceName).HasMaxLength(200);
+            link.Property(l => l.LinkedAt).HasConversion(Utc);
+            link.HasOne(l => l.IngestKey).WithMany().HasForeignKey(l => l.IngestKeyId).OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<IngestKey>(key =>

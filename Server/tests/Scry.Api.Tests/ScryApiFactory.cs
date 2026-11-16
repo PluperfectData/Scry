@@ -21,6 +21,9 @@ public sealed class ScryApiFactory : WebApplicationFactory<Program>
     /// <summary>Schwab's API as the Schwab connector and sign-in reach it in tests.</summary>
     public FakeSchwabApi Schwab { get; } = new();
 
+    /// <summary>A Nexus instance as Scry's link reaches it in tests.</summary>
+    public FakeNexus Nexus { get; } = new();
+
     // Every context opens its own connection, since the background sync worker runs beside requests. Without
     // pooling, no connection holds the file open once its context is done, so the directory can be deleted.
     private string SqliteConnectionString => $"Data Source={Path.Combine(DataDirectory, "scry.db")};Pooling=False";
@@ -42,6 +45,7 @@ public sealed class ScryApiFactory : WebApplicationFactory<Program>
             services.RemoveAll<DatabaseConnectors>();
             services.AddSingleton(new DatabaseConnectors([Database]));
             services.AddHttpClient(SchwabConnector.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => Schwab);
+            services.AddHttpClient(NexusApi.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => Nexus);
         });
     }
 

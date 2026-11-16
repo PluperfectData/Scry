@@ -26,6 +26,8 @@ public sealed partial class Source
 {
     public const int MaxNameLength = 63;
 
+    public const int MaxOriginLength = 500;
+
     public const string NameRule =
         "A source name starts with a lowercase letter and holds only lowercase letters, digits, and underscores, 63 at most.";
 
@@ -59,6 +61,9 @@ public sealed partial class Source
 
     /// <summary>Whether the push API made the source. Revoking its key leaves this true and the key null.</summary>
     public bool Pushed { get; set; }
+
+    /// <summary>Where a pushed source's rows come from, as the last push to say so put it, such as a Nexus connection's stream.</summary>
+    public string? Origin { get; set; }
 
     /// <summary>The columns a pushed source's merges match on, as a JSON array of names; empty when it has none.</summary>
     public string? PrimaryKey { get; set; }

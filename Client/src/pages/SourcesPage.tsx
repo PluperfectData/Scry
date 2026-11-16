@@ -126,7 +126,7 @@ export function SourcesPage() {
   }
 
   const origin = (source: Source) => {
-    if (source.kind === 'Push') return `pushed by ${source.pushedBy ?? 'a revoked key'}`
+    if (source.kind === 'Push') return source.pushedBy ? `pushed with the key ${source.pushedBy}, ${source.pushKeyPrefix}…` : 'pushed by a revoked key'
     if (source.fileName) return source.fileName
     const name = connectors.find((c) => c.id === source.connector)?.name ?? source.connector
     return `${name} ${source.connector === 'schwab' ? 'stream' : 'table'} ${source.stream}`
@@ -190,6 +190,7 @@ export function SourcesPage() {
               <p className="muted">
                 {origin(source)}: {progress(source)}
               </p>
+              {source.origin && <p className="muted">From {source.origin}.</p>}
               {source.error && <p className="error">{source.error}</p>}
               {source.status === 'SignInNeeded' && (
                 <p>

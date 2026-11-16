@@ -11,8 +11,11 @@ namespace Scry.Api.Controllers;
 /// <summary>One column a pushed source declares. <paramref name="Type"/> is a Nexus column type's name, such as <c>Int64</c>.</summary>
 public sealed record IngestColumnRequest(string? Name, string? Type, int? Precision, int? Scale);
 
-/// <summary>A pushed source's columns, in the order its rows hold them, and the columns its merges match on.</summary>
-public sealed record IngestSchemaRequest(IReadOnlyList<IngestColumnRequest>? Columns, IReadOnlyList<string>? PrimaryKey);
+/// <summary>
+/// A pushed source's columns, in the order its rows hold them, and the columns its merges match on.
+/// <paramref name="Origin"/>, optional, says where the rows come from, and the Sources page shows it.
+/// </summary>
+public sealed record IngestSchemaRequest(IReadOnlyList<IngestColumnRequest>? Columns, IReadOnlyList<string>? PrimaryKey, string? Origin = null);
 
 /// <summary>
 /// A batch of rows, each a JSON array in the source's column order. <paramref name="Mode"/> is <c>append</c>, the
@@ -35,8 +38,8 @@ public sealed record IngestBatchView(long RowCount, bool Skipped);
 public sealed record CallerKeyView(string Name, string Prefix);
 
 /// <summary>
-/// The push API. Every route takes a key made on the Settings page as <c>Authorization: Bearer</c>, and a key writes
-/// only to the sources it made.
+/// The push API. Every route takes a key made on the Settings page as <c>Authorization: Bearer</c>. A key writes only
+/// to the sources it made, and to a pushed source whose key was revoked, which it then takes over.
 /// </summary>
 [ApiController]
 [Route("ingest/sources/{name}")]
@@ -56,6 +59,8 @@ public sealed class IngestController(ScryDbContext db, Workspace workspace, Inge
     {
         Converters = { new JsonStringEnumConverter() },
     };
+
+    private static readonly string OriginRule = $"An origin is {Source.MaxOriginLength} characters at most.";
 
     /// <summary>Names the key the request carries, so a caller can check its key before writing.</summary>
     [HttpGet("/ingest")]
@@ -81,6 +86,11 @@ public sealed class IngestController(ScryDbContext db, Workspace workspace, Inge
             return Problem(problem, statusCode: StatusCodes.Status400BadRequest);
         }
 
+        if (!OriginOf(request, out var origin))
+        {
+            return Problem(OriginRule, statusCode: StatusCodes.Status400BadRequest);
+        }
+
         var source = await db.Sources.FirstOrDefaultAsync(s => s.Name == name, ct);
         if (source is null)
         {
@@ -89,6 +99,7 @@ public sealed class IngestController(ScryDbContext db, Workspace workspace, Inge
                 Name = name,
                 Pushed = true,
                 IngestKeyId = key.Id,
+                Origin = origin,
                 Columns = ColumnInfo.Serialize(Infos(schema.Columns)),
                 PrimaryKey = JsonSerializer.Serialize(schema.PrimaryKey),
             };
@@ -97,10 +108,12 @@ public sealed class IngestController(ScryDbContext db, Workspace workspace, Inge
         }
         else
         {
-            if (Refused(source, key) is { } refused)
+            if (Admit(source, key) is { } refused)
             {
                 return refused;
             }
+
+            source.Origin = origin ?? source.Origin;
 
             var existing = ColumnInfo.Deserialize(source.Columns);
             var declared = schema.Columns.ToDictionary(column => column.Name, StringComparer.OrdinalIgnoreCase);
@@ -175,9 +188,9 @@ public sealed class IngestController(ScryDbContext db, Workspace workspace, Inge
         {
             source.RowCount = await workspace.RowCountAsync(name, ct);
             source.SyncedAt = DateTime.UtcNow;
-            await db.SaveChangesAsync(ct);
         }
 
+        await db.SaveChangesAsync(ct);
         return new IngestBatchView(source.RowCount, Skipped: !written);
     }
 
@@ -196,12 +209,18 @@ public sealed class IngestController(ScryDbContext db, Workspace workspace, Inge
             return NoKey();
         }
 
+        if (!OriginOf(request, out var origin))
+        {
+            return Problem(OriginRule, statusCode: StatusCodes.Status400BadRequest);
+        }
+
         var (source, missing) = await SourceAsync(name, key, ct);
         if (missing is not null)
         {
             return missing;
         }
 
+        source.Origin = origin ?? source.Origin;
         PendingSchema replacement;
         if (request?.Columns is null)
         {
@@ -345,15 +364,32 @@ public sealed class IngestController(ScryDbContext db, Workspace workspace, Inge
                 statusCode: StatusCodes.Status404NotFound));
         }
 
-        return (source, Refused(source, key));
+        return (source, Admit(source, key));
     }
 
-    private ObjectResult? Refused(Source source, IngestKey key) =>
-        !source.Pushed
-            ? Problem($"'{source.Name}' was not made through the push API, so no key writes to it.", statusCode: StatusCodes.Status403Forbidden)
-            : source.IngestKeyId != key.Id
-                ? Problem($"This key did not make '{source.Name}', so it cannot write to it.", statusCode: StatusCodes.Status403Forbidden)
-                : null;
+    /// <summary>
+    /// The problem to answer when <paramref name="key"/> may not write to the source, or null when it may. A pushed
+    /// source whose key was revoked becomes this key's, which the caller saves.
+    /// </summary>
+    private ObjectResult? Admit(Source source, IngestKey key)
+    {
+        if (!source.Pushed)
+        {
+            return Problem($"'{source.Name}' was not made through the push API, so no key writes to it.", statusCode: StatusCodes.Status403Forbidden);
+        }
+
+        source.IngestKeyId ??= key.Id;
+        return source.IngestKeyId == key.Id
+            ? null
+            : Problem($"This key did not make '{source.Name}', so it cannot write to it.", statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    /// <summary>The origin a request gives, trimmed, or null when it gives none; false when it is too long.</summary>
+    private static bool OriginOf(IngestSchemaRequest? request, out string? origin)
+    {
+        origin = string.IsNullOrWhiteSpace(request?.Origin) ? null : request.Origin.Trim();
+        return origin is null || origin.Length <= Source.MaxOriginLength;
+    }
 
     private ObjectResult NoKey() =>
         Problem(

@@ -10,4 +10,7 @@ public sealed class ScrySettings
 
     /// <summary>The one origin CORS allows: the client's.</summary>
     public string ClientOrigin { get; set; } = "http://localhost:6160";
+
+    /// <summary>This API's own origin, which Scry gives Nexus for its push API and its pairing callback.</summary>
+    public string ApiOrigin { get; set; } = "http://localhost:6161";
 }

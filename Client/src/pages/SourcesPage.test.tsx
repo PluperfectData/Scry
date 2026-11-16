@@ -49,6 +49,8 @@ const mockUpload: Source = {
   name: 'q3_orders',
   kind: 'Upload',
   pushedBy: null,
+  pushKeyPrefix: null,
+  origin: null,
   fileName: 'Q3 Orders.csv',
   connector: null,
   stream: null,
@@ -64,6 +66,8 @@ const mockTable: Source = {
   name: 'public_orders',
   kind: 'Connection',
   pushedBy: null,
+  pushKeyPrefix: null,
+  origin: null,
   fileName: null,
   connector: 'mysql',
   stream: 'public.orders',
@@ -206,14 +210,15 @@ it('says why a sign-in failed when Schwab sends the browser back, then clears it
   expect(window.location.search).toBe('')
 })
 
-it('says which key pushes a pushed source, and offers it no sync', async () => {
+it('says which key pushes a pushed source and where its rows come from, and offers it no sync', async () => {
   jest.mocked(listSources).mockResolvedValue([
-    { ...mockTable, id: 20, name: 'trades', kind: 'Push', connector: null, stream: null, pushedBy: 'Nexus', rowCount: 3 },
+    { ...mockTable, id: 20, name: 'trades', kind: 'Push', connector: null, stream: null, pushedBy: 'Nexus at localhost:6163', pushKeyPrefix: 'scry_ab12', origin: 'Nexus workspace Acme, connection Shop (MySQL), stream shop.orders', rowCount: 3 },
     { ...mockTable, id: 21, name: 'events', kind: 'Push', connector: null, stream: null, pushedBy: null, syncedAt: null, rowCount: 0 },
   ])
   render(<SourcesPage />)
 
-  expect(await screen.findByText(/^pushed by Nexus: 3 rows/)).toBeInTheDocument()
+  expect(await screen.findByText(/^pushed with the key Nexus at localhost:6163, scry_ab12…: 3 rows/)).toBeInTheDocument()
+  expect(screen.getByText('From Nexus workspace Acme, connection Shop (MySQL), stream shop.orders.')).toBeInTheDocument()
   expect(screen.getByText('pushed by a revoked key: no rows pushed yet')).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: /^Sync .* now$/ })).not.toBeInTheDocument()
 })

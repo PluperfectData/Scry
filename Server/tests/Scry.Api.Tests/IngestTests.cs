@@ -214,6 +214,57 @@ public sealed class IngestTests
     }
 
     [Test]
+    public async Task Keeps_where_a_pushed_sources_rows_come_from_and_the_key_that_pushes_them()
+    {
+        var made = await MakeKey("Nexus at nexus.test");
+        using var client = Client(made.GetProperty("key").GetString());
+        const string Shop = "Nexus workspace Acme, connection Shop (MySQL), stream shop.orders";
+        var columns = new object[] { new { name = "id", type = "Int64" }, new { name = "item", type = "String" } };
+
+        (await client.PutAsJsonAsync("/ingest/sources/orders", new { columns, primaryKey = IdKey, origin = Shop })).StatusCode.ShouldBe(HttpStatusCode.OK);
+        var listed = await Listed("orders");
+        listed.GetProperty("origin").GetString().ShouldBe(Shop);
+        listed.GetProperty("pushedBy").GetString().ShouldBe("Nexus at nexus.test");
+        listed.GetProperty("pushKeyPrefix").GetString().ShouldBe(made.GetProperty("prefix").GetString());
+
+        (await client.PutAsJsonAsync("/ingest/sources/orders", new { columns, primaryKey = IdKey })).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await Listed("orders")).GetProperty("origin").GetString().ShouldBe(Shop);
+        const string Warehouse = "Nexus workspace Acme, connection Warehouse (MySQL), stream wh.orders";
+        (await client.PostAsJsonAsync("/ingest/sources/orders/replace", new { columns, primaryKey = IdKey, origin = Warehouse })).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await Listed("orders")).GetProperty("origin").GetString().ShouldBe(Warehouse);
+
+        using var tooLong = await client.PutAsJsonAsync("/ingest/sources/orders", new { columns, primaryKey = IdKey, origin = new string('x', 501) });
+        tooLong.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await Detail(tooLong)).ShouldBe("An origin is 500 characters at most.");
+    }
+
+    [Test]
+    public async Task A_key_takes_over_a_pushed_source_whose_key_was_revoked()
+    {
+        var first = await MakeKey("Nexus at old.test");
+        using (var old = Client(first.GetProperty("key").GetString()))
+        {
+            await old.PutAsJsonAsync("/ingest/sources/orders", Orders);
+            await Batch(old, "orders", null, "append", [[1, "10.00", "2026-11-01"]]);
+        }
+
+        (await _client.DeleteAsync(new Uri($"/keys/{first.GetProperty("id").GetInt32()}", UriKind.Relative))).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        using var next = Client(await KeyFor("Nexus at new.test"));
+        using var other = Client(await KeyFor("Script"));
+
+        (await next.PostAsJsonAsync("/ingest/sources/orders/replace", Orders)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        await Batch(next, "orders", null, "append", [[2, "20.00", "2026-11-02"]]);
+        (await next.PostAsync(new Uri("/ingest/sources/orders/commit", UriKind.Relative), null)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var listed = await Listed("orders");
+        listed.GetProperty("pushedBy").GetString().ShouldBe("Nexus at new.test");
+        listed.GetProperty("rowCount").GetInt64().ShouldBe(1);
+        using var refused = await other.PutAsJsonAsync("/ingest/sources/orders", Orders);
+        refused.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        (await Detail(refused)).ShouldBe("This key did not make 'orders', so it cannot write to it.");
+    }
+
+    [Test]
     public async Task Revoking_a_key_keeps_its_sources_and_stops_its_writes()
     {
         var made = await MakeKey("Nexus");

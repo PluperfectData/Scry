@@ -60,10 +60,14 @@ parent directory.
 | `PATCH /dashboards/{id}` | From `{"name": "...", "isLanding": true}`, renames the dashboard and makes it the landing dashboard, clearing any other, or with `false` stops it being one |
 | `GET`, `POST /keys` | Lists push API keys, each with the sources it writes, or makes one from `{"name": "..."}` and answers it with `key`, shown this once |
 | `DELETE /keys/{id}` | Revokes a key. Its sources stay, and no key writes to them. |
+| `GET /nexus` | Scry's link to Nexus, or `{"linked": false}` |
+| `POST /nexus/pairing` | From `{"nexusUrl"}`, opens a pairing at that Nexus and answers `{"approveUrl"}`, the page where its admin approves Scry |
+| `GET /nexus/callback?pairing=` | Where Nexus sends the admin back. Makes a push key named for that Nexus, such as "Nexus at localhost:6163", claims the pairing with it for Nexus's app key, keeps the link, and sends the browser to Settings, with `error` when linking failed. Scry pairs as "Scry at" its own host. |
+| `DELETE /nexus` | Unlinks: Nexus revokes Scry's app key, Scry revokes Nexus's push key, and the link goes. The sources Nexus sent stay. |
 | `GET /ingest` | Push API: names the key the request carries, by its name and prefix |
-| `PUT /ingest/sources/{name}` | Push API: makes a source from `{"columns": [{"name", "type"}], "primaryKey": [...]}`, or adds columns to one |
+| `PUT /ingest/sources/{name}` | Push API: makes a source from `{"columns": [{"name", "type"}], "primaryKey": [...], "origin"}`, or adds columns to one. `origin`, optional, says where the rows come from, up to 500 characters, and the Sources page shows it. |
 | `POST /ingest/sources/{name}/batches` | Push API: from `{"id", "mode", "rows": [[...]]}`, appends the rows or merges them by the key, in one transaction; a batch id already written is skipped |
-| `POST /ingest/sources/{name}/replace` | Push API: starts a replacement, with new columns or the source's own; batches go to it until a commit |
+| `POST /ingest/sources/{name}/replace` | Push API: starts a replacement, with new columns or the source's own, and an `origin` as `PUT` takes; batches go to it until a commit |
 | `POST /ingest/sources/{name}/commit` | Push API: swaps a replacement in, and answers the source with its row count |
 
 - A source name starts with a lowercase letter and holds lowercase letters, digits, and underscores, 63 at most.
@@ -79,6 +83,7 @@ parent directory.
   and source order is this source's, then the other's.
 - Errors are problem details, with a `detail` safe to show.
 - The push API's routes take a key as `Authorization: Bearer <key>`, and a key writes only to the sources it made.
+  A pushed source whose key was revoked becomes the next key's to write to it.
   The client's `/docs/push-api` page is the reference for people using it: column types, modes, limits, and answers.
 - The API applies its EF migrations at startup.
 
@@ -86,7 +91,8 @@ parent directory.
 |---|---|
 | `ConnectionStrings:Scry` | Required: a MySQL connection string |
 | `Scry:DataDirectory` | `data`, beside the API. Uploads, `workspaces/default/data.duckdb`, and `keys`, the keys that encrypt stored connections, live here. |
-| `Scry:ClientOrigin` | `http://localhost:6160`, the one origin CORS allows, and where the Schwab callback sends the browser |
+| `Scry:ClientOrigin` | `http://localhost:6160`, the one origin CORS allows, and where the Schwab and Nexus callbacks send the browser |
+| `Scry:ApiOrigin` | `http://localhost:6161`, this API's own address, which Scry gives Nexus for its push API and its pairing callback |
 | `Schwab:AppKey`, `Schwab:AppSecret` | The key and secret of your Schwab app. Without both, the Schwab form says to set them. |
 | `Schwab:CallbackUrl` | `https://127.0.0.1:6162/schwab/callback`, which must match the app's callback on Schwab's developer portal exactly |
 

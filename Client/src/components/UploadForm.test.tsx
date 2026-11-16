@@ -10,6 +10,8 @@ const uploaded: Source = {
   name: 'q3_orders',
   kind: 'Upload',
   pushedBy: null,
+  pushKeyPrefix: null,
+  origin: null,
   fileName: 'Q3 Orders.csv',
   connector: null,
   stream: null,

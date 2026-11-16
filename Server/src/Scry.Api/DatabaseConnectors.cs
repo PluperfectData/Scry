@@ -35,4 +35,8 @@ public sealed class ConnectionSecrets(IDataProtectionProvider provider)
 
     public OAuthTokens? UnprotectTokens(string? stored) =>
         stored is null ? null : JsonSerializer.Deserialize<OAuthTokens>(_protector.Unprotect(stored));
+
+    public string ProtectText(string text) => _protector.Protect(text);
+
+    public string UnprotectText(string stored) => _protector.Unprotect(stored);
 }

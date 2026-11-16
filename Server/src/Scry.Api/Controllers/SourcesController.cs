@@ -32,8 +32,9 @@ public enum SourceKind
 
 /// <summary>A source: an uploaded file, with its <paramref name="FileName"/>; a connection's stream, with the
 /// <paramref name="Connector"/> that reads it and its <paramref name="Stream"/> name there; or rows pushed with the key
-/// named <paramref name="PushedBy"/>, null once that key is revoked. <paramref name="Status"/> and
-/// <paramref name="Error"/> say how its last sync went.</summary>
+/// named <paramref name="PushedBy"/> and starting <paramref name="PushKeyPrefix"/>, both null once that key is revoked,
+/// from the <paramref name="Origin"/> its pusher gave. <paramref name="Status"/> and <paramref name="Error"/> say how
+/// its last sync went.</summary>
 public sealed record SourceView(
     int Id,
     string Name,
@@ -42,6 +43,8 @@ public sealed record SourceView(
     string? Connector,
     string? Stream,
     string? PushedBy,
+    string? PushKeyPrefix,
+    string? Origin,
     IReadOnlyList<ColumnInfo> Columns,
     long RowCount,
     DateTime? SyncedAt,
@@ -56,6 +59,8 @@ public sealed record SourceView(
         source.Connection?.Connector,
         source.Stream,
         source.IngestKey?.Name,
+        source.IngestKey?.Prefix,
+        source.Origin,
         ColumnInfo.Deserialize(source.Columns),
         source.RowCount,
         source.SyncedAt,

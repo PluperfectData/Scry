@@ -54,6 +54,8 @@ const orders: Source = {
   name: 'orders',
   kind: 'Upload',
   pushedBy: null,
+  pushKeyPrefix: null,
+  origin: null,
   fileName: 'orders.csv',
   connector: null,
   stream: null,

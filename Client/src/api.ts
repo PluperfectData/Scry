@@ -40,8 +40,11 @@ export interface Source {
   fileName: string | null
   connector: string | null
   stream: string | null
-  /** The name of the push API key that writes to a pushed source; null once that key is revoked. */
+  /** The name and prefix of the push API key that writes to a pushed source; null once that key is revoked. */
   pushedBy: string | null
+  pushKeyPrefix: string | null
+  /** Where a pushed source's rows come from, as its pusher said, such as a Nexus connection's stream. */
+  origin: string | null
   columns: Column[]
   rowCount: number
   /** When the last sync finished; null until the first one has. */
@@ -187,6 +190,26 @@ export const makeKey = (name: string) =>
 
 /** Revokes a key. The sources it made stay, and no key writes to them. */
 export const revokeKey = (id: number) => request<void>(`/keys/${id}`, { method: 'DELETE' })
+
+/** Scry's link to Nexus, made by pairing, or `linked: false`. */
+export interface NexusLink {
+  linked: boolean
+  nexusUrl: string | null
+  appName: string | null
+  workspaceName: string | null
+  /** The push key Scry made for Nexus, which Nexus sends rows with. */
+  pushKeyName: string | null
+  pushKeyPrefix: string | null
+  linkedAt: string | null
+}
+
+export const getNexusLink = () => request<NexusLink>('/nexus')
+
+/** Opens a pairing at Nexus, and answers the page where its admin approves it. */
+export const startNexusPairing = (nexusUrl: string) => request<{ approveUrl: string }>('/nexus/pairing', json('POST', { nexusUrl }))
+
+/** Unlinks from Nexus, revoking both keys. The sources Nexus pushed stay. */
+export const unlinkNexus = () => request<void>('/nexus', { method: 'DELETE' })
 
 /** Starts a sign-in that renews the one a Schwab source's connection holds. */
 export const signInAgain = (id: number) => request<{ url: string }>(`/sources/${id}/sign-in`, { method: 'POST' })

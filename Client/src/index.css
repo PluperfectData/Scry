@@ -366,6 +366,10 @@ h1 {
   color: var(--error);
 }
 
+.success {
+  color: var(--success);
+}
+
 .form {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));

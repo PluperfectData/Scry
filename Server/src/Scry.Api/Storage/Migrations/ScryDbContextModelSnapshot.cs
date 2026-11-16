@@ -125,6 +125,49 @@ namespace Scry.Api.Storage.Migrations
                     b.ToTable("ingest_keys", (string)null);
                 });
 
+            modelBuilder.Entity("Scry.Api.Storage.NexusLink", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("AppKey")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("AppName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("varchar(200)");
+
+                    b.Property<int>("DestinationId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("IngestKeyId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("LinkedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("NexusUrl")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("varchar(2000)");
+
+                    b.Property<string>("WorkspaceName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("varchar(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IngestKeyId");
+
+                    b.ToTable("nexus_link", (string)null);
+                });
+
             modelBuilder.Entity("Scry.Api.Storage.Source", b =>
                 {
                     b.Property<int>("Id")
@@ -158,6 +201,10 @@ namespace Scry.Api.Storage.Migrations
                         .IsRequired()
                         .HasMaxLength(63)
                         .HasColumnType("varchar(63)");
+
+                    b.Property<string>("Origin")
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
 
                     b.Property<string>("PrimaryKey")
                         .HasColumnType("longtext");
@@ -200,6 +247,16 @@ namespace Scry.Api.Storage.Migrations
                         .IsUnique();
 
                     b.ToTable("sources", (string)null);
+                });
+
+            modelBuilder.Entity("Scry.Api.Storage.NexusLink", b =>
+                {
+                    b.HasOne("Scry.Api.Storage.IngestKey", "IngestKey")
+                        .WithMany()
+                        .HasForeignKey("IngestKeyId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("IngestKey");
                 });
 
             modelBuilder.Entity("Scry.Api.Storage.Source", b =>

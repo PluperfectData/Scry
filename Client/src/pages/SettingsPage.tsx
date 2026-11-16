@@ -2,6 +2,7 @@ import { type FormEvent, useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { listKeys, makeKey, revokeKey, type IngestKey } from '../api'
 import { KeyShownOnce } from '../components/KeyShownOnce'
+import { NexusLinkSection } from '../components/NexusLinkSection'
 import { Slideout } from '../components/Slideout'
 import { Tooltip } from '../components/Tooltip'
 
@@ -81,6 +82,8 @@ export function SettingsPage() {
   return (
     <div className="page">
       <h1>Settings</h1>
+
+      <NexusLinkSection />
 
       <section>
         <div className="card-head">
