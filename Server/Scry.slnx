@@ -6,9 +6,9 @@
     <Project Path="tests/Scry.Api.Tests/Scry.Api.Tests.csproj" />
   </Folder>
   <Folder Name="/shared/">
-    <Project Path="../../Nexus/src/Nexus.Abstractions/Nexus.Abstractions.csproj" />
-    <Project Path="../../Nexus/src/Nexus.Csv/Nexus.Csv.csproj" />
-    <Project Path="../../Nexus/src/Nexus.DuckDb/Nexus.DuckDb.csproj" />
-    <Project Path="../../Nexus/src/Nexus.Schwab/Nexus.Schwab.csproj" />
+    <Project Path="../../Nexus/Server/src/Nexus.Abstractions/Nexus.Abstractions.csproj" />
+    <Project Path="../../Nexus/Server/src/Nexus.Csv/Nexus.Csv.csproj" />
+    <Project Path="../../Nexus/Server/src/Nexus.DuckDb/Nexus.DuckDb.csproj" />
+    <Project Path="../../Nexus/Server/src/Nexus.Schwab/Nexus.Schwab.csproj" />
   </Folder>
 </Solution>

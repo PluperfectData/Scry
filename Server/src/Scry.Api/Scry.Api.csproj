@@ -17,10 +17,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\..\Nexus\src\Nexus.Abstractions\Nexus.Abstractions.csproj" />
-    <ProjectReference Include="..\..\..\..\Nexus\src\Nexus.Csv\Nexus.Csv.csproj" />
-    <ProjectReference Include="..\..\..\..\Nexus\src\Nexus.DuckDb\Nexus.DuckDb.csproj" />
-    <ProjectReference Include="..\..\..\..\Nexus\src\Nexus.Schwab\Nexus.Schwab.csproj" />
+    <ProjectReference Include="..\..\..\..\Nexus\Server\src\Nexus.Abstractions\Nexus.Abstractions.csproj" />
+    <ProjectReference Include="..\..\..\..\Nexus\Server\src\Nexus.Csv\Nexus.Csv.csproj" />
+    <ProjectReference Include="..\..\..\..\Nexus\Server\src\Nexus.DuckDb\Nexus.DuckDb.csproj" />
+    <ProjectReference Include="..\..\..\..\Nexus\Server\src\Nexus.Schwab\Nexus.Schwab.csproj" />
   </ItemGroup>
 
 </Project>
