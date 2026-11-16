@@ -30,6 +30,15 @@ it('closes the menu after navigating', async () => {
   expect(screen.getByRole('navigation', { name: 'Main' })).not.toHaveAttribute('data-open')
 })
 
+it('offers no other page from the installer, and keeps the theme toggle', () => {
+  routerState.pathname = '/install'
+  render(<Layout />)
+
+  expect(screen.queryByRole('navigation', { name: 'Main' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Open menu' })).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Switch to dark theme' })).toBeInTheDocument()
+})
+
 it('starts light, switches to dark from the header, and remembers the choice', async () => {
   localStorage.clear()
   routerState.pathname = '/'

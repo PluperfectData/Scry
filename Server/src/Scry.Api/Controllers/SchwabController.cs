@@ -26,7 +26,7 @@ public sealed class SchwabController(
     SchwabSignIns signIns,
     ConnectionSecrets secrets,
     PendingSyncs queue,
-    ScrySettings settings) : ControllerBase
+    Instance instance) : ControllerBase
 {
     /// <summary>The streams a Schwab connection offers. Listing them needs no sign-in.</summary>
     [HttpGet("streams")]
@@ -162,14 +162,14 @@ public sealed class SchwabController(
             queue.Enqueue(source.Id);
         }
 
-        return Redirect($"{settings.ClientOrigin}/sources");
+        return Redirect($"{instance.Client}/sources");
     }
 
     private async Task<IReadOnlyList<StreamSpec>> Catalog(CancellationToken ct) =>
         (await schwab.Source().DiscoverAsync(new ConnectorConfig(new Dictionary<string, string?>()), ct)).Streams;
 
     private RedirectResult BackToSources(string error) =>
-        Redirect($"{settings.ClientOrigin}/sources?error={Uri.EscapeDataString(error)}");
+        Redirect($"{instance.Client}/sources?error={Uri.EscapeDataString(error)}");
 
     private ObjectResult NotSetUp() =>
         Problem(

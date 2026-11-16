@@ -63,6 +63,8 @@ export function Layout() {
   const onDashboard = /^\/dashboards\/[^/]+$/.test(pathname)
   // A dashboard in full screen shows only its name and charts, so the header and its banners go.
   const presenting = fullscreen && onDashboard
+  // The installer comes before every other page, so the header offers none of them.
+  const installing = pathname === '/install'
 
   // Navigating with the menu open leaves it covering the page it just went to.
   useEffect(() => setMenuOpen(false), [pathname])
@@ -82,38 +84,42 @@ export function Layout() {
                 Scry
               </NavLink>
 
-              <nav className="nav" id="site-nav" aria-label="Main" data-open={menuOpen ? '' : undefined}>
-                {NAV.map((item) => (
-                  <NavLink key={item.to} to={item.to} end className={({ isActive }) => (isActive ? 'is-active' : '')}>
-                    {item.label}
-                  </NavLink>
-                ))}
-              </nav>
+              {!installing && (
+                <nav className="nav" id="site-nav" aria-label="Main" data-open={menuOpen ? '' : undefined}>
+                  {NAV.map((item) => (
+                    <NavLink key={item.to} to={item.to} end className={({ isActive }) => (isActive ? 'is-active' : '')}>
+                      {item.label}
+                    </NavLink>
+                  ))}
+                </nav>
+              )}
 
               <div className="header-actions">
                 {onDashboard && canRequestFullscreen() && <FullscreenButton />}
                 <ThemeToggle />
 
-                <Tooltip label={menuOpen ? 'Close menu' : 'Open menu'}>
-                  <button
-                    type="button"
-                    className="icon-button nav-toggle"
-                    onClick={() => setMenuOpen((open) => !open)}
-                    aria-expanded={menuOpen}
-                    aria-controls="site-nav"
-                  >
-                    <span className="sr-only">{menuOpen ? 'Close menu' : 'Open menu'}</span>
-                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                      <path
-                        d={menuOpen ? 'M5 5l14 14M19 5L5 19' : 'M4 7h16M4 12h16M4 17h16'}
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                      />
-                    </svg>
-                  </button>
-                </Tooltip>
+                {!installing && (
+                  <Tooltip label={menuOpen ? 'Close menu' : 'Open menu'}>
+                    <button
+                      type="button"
+                      className="icon-button nav-toggle"
+                      onClick={() => setMenuOpen((open) => !open)}
+                      aria-expanded={menuOpen}
+                      aria-controls="site-nav"
+                    >
+                      <span className="sr-only">{menuOpen ? 'Close menu' : 'Open menu'}</span>
+                      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path
+                          d={menuOpen ? 'M5 5l14 14M19 5L5 19' : 'M4 7h16M4 12h16M4 17h16'}
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                        />
+                      </svg>
+                    </button>
+                  </Tooltip>
+                )}
               </div>
             </div>
           </header>

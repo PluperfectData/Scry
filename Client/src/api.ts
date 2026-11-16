@@ -391,3 +391,72 @@ export const deleteDashboard = (id: number) => request<void>(`/dashboards/${id}`
  */
 export const editDashboard = (id: number, name: string, isLanding: boolean, presentation: PresentationSettings) =>
   request<Dashboard>(`/dashboards/${id}`, json('PATCH', { name, isLanding, presentation }))
+
+export type InstallStage = 'Database' | 'Address' | 'Done'
+
+/** A MySQL database's place, without its password. */
+export interface DatabasePlace {
+  host: string
+  port: number
+  name: string
+  user: string
+}
+
+export interface DatabaseForm extends DatabasePlace {
+  password: string
+}
+
+export interface Addresses {
+  clientOrigin: string
+  apiOrigin: string
+}
+
+/**
+ * Where the instance stands. `local` says this page is on the machine Scry runs on, which needs no install code;
+ * `allowed` says this page may use the installer, and only then are the database and the addresses shown.
+ */
+export interface InstallView {
+  installed: boolean
+  stage: InstallStage
+  local: boolean
+  allowed: boolean
+  databaseConfigured: boolean
+  database: DatabasePlace | null
+  databaseProblem: string | null
+  clientOrigin: string | null
+  clientOriginConfigured: boolean
+  apiOrigin: string | null
+  apiOriginConfigured: boolean
+}
+
+/** The instance's addresses and database. A value set by Scry's configuration cannot be changed here. */
+export interface InstanceSettings {
+  clientOrigin: string | null
+  clientOriginConfigured: boolean
+  apiOrigin: string | null
+  apiOriginConfigured: boolean
+  database: DatabasePlace | null
+  databaseConfigured: boolean
+}
+
+// A page on another machine than Scry's sends the install code from Scry's log.
+const install = <T>(code: string | null, path: string, method = 'GET', body?: unknown) =>
+  request<T>(path, {
+    method,
+    headers: {
+      ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+      ...(code ? { Authorization: `Bearer scryi_${code}` } : {}),
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+
+export const getInstall = (code: string | null = null) => install<InstallView>(code, '/install')
+export const installDatabase = (code: string | null, database: DatabaseForm) =>
+  install<InstallView>(code, '/install/database', 'POST', database)
+export const installAddresses = (code: string | null, addresses: Addresses) =>
+  install<InstallView>(code, '/install/addresses', 'POST', addresses)
+export const askForInstallCode = () => install<void>(null, '/install/code', 'POST')
+
+export const getInstanceSettings = () => request<InstanceSettings>('/settings')
+export const saveAddresses = (addresses: Addresses) => request<InstanceSettings>('/settings/addresses', json('PUT', addresses))
+export const saveDatabase = (database: DatabaseForm) => request<InstanceSettings>('/settings/database', json('PUT', database))

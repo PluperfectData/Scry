@@ -61,11 +61,33 @@ public sealed class SourceSync(ScryDbContext db, Workspace workspace, SourceConn
 /// <summary>The ids of sources waiting for <see cref="SyncWorker"/>, in the order they were added.</summary>
 public sealed class PendingSyncs
 {
-    private readonly Channel<int> _ids = Channel.CreateUnbounded<int>();
+    private readonly Channel<(int SourceId, int Database)> _ids = Channel.CreateUnbounded<(int, int)>();
+    private int _database;
 
-    public void Enqueue(int sourceId) => _ids.Writer.TryWrite(sourceId);
+    public void Enqueue(int sourceId) => _ids.Writer.TryWrite((sourceId, Volatile.Read(ref _database)));
 
-    public IAsyncEnumerable<int> ReadAllAsync(CancellationToken ct) => _ids.Reader.ReadAllAsync(ct);
+    /// <summary>Drops every source waiting: they belong to the database Scry moves away from.</summary>
+    public void Forget() => Interlocked.Increment(ref _database);
+
+    /// <summary>Queues again every source that was syncing when Scry last stopped.</summary>
+    public async Task RequeueAsync(ScryDbContext db, CancellationToken ct)
+    {
+        foreach (var id in await db.Sources.Where(source => source.Status == SourceStatus.Syncing).OrderBy(source => source.Id).Select(source => source.Id).ToListAsync(ct))
+        {
+            Enqueue(id);
+        }
+    }
+
+    public async IAsyncEnumerable<int> ReadAllAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
+    {
+        await foreach (var (id, database) in _ids.Reader.ReadAllAsync(ct))
+        {
+            if (database == Volatile.Read(ref _database))
+            {
+                yield return id;
+            }
+        }
+    }
 }
 
 /// <summary>Syncs each queued source in turn, in the background, recording how each one went.</summary>

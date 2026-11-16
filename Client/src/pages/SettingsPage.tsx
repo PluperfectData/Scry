@@ -1,6 +1,7 @@
 import { type FormEvent, useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { listKeys, makeKey, revokeKey, type IngestKey } from '../api'
+import { InstanceSection } from '../components/InstanceSection'
 import { KeyShownOnce } from '../components/KeyShownOnce'
 import { NexusLinkSection } from '../components/NexusLinkSection'
 import { Slideout } from '../components/Slideout'
@@ -124,6 +125,8 @@ export function SettingsPage() {
           </ul>
         )}
       </section>
+
+      <InstanceSection />
 
       <Slideout open={making} title="Make a key" onClose={() => setMaking(false)}>
         {making && (

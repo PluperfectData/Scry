@@ -29,7 +29,7 @@ public sealed record PairingStarted(string ApproveUrl);
 /// </summary>
 [ApiController]
 [Route("nexus")]
-public sealed class NexusController(ScryDbContext db, NexusApi nexus, NexusPairings pairings, ConnectionSecrets secrets, ScrySettings settings)
+public sealed class NexusController(ScryDbContext db, NexusApi nexus, NexusPairings pairings, ConnectionSecrets secrets, Instance instance)
     : ControllerBase
 {
     [HttpGet]
@@ -54,7 +54,7 @@ public sealed class NexusController(ScryDbContext db, NexusApi nexus, NexusPairi
         }
 
         var verifier = Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(32));
-        var api = settings.ApiOrigin.TrimEnd('/');
+        var api = instance.Api;
         try
         {
             var opened = await nexus.OpenPairingAsync(
@@ -64,7 +64,7 @@ public sealed class NexusController(ScryDbContext db, NexusApi nexus, NexusPairi
                     appName = $"Scry at {new Uri(api).Authority}",
                     ingestUrl = $"{api}/ingest",
                     callbackUrl = $"{api}/nexus/callback",
-                    connectReturnUrl = $"{settings.ClientOrigin.TrimEnd('/')}/sources",
+                    connectReturnUrl = $"{instance.Client}/sources",
                     verifierHash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(verifier))),
                 },
                 ct);
@@ -124,7 +124,7 @@ public sealed class NexusController(ScryDbContext db, NexusApi nexus, NexusPairi
             LinkedAt = DateTime.UtcNow,
         });
         await db.SaveChangesAsync(ct);
-        return Redirect($"{settings.ClientOrigin}/settings?linked=1");
+        return Redirect($"{instance.Client}/settings?linked=1");
     }
 
     /// <summary>Unlinks: Nexus revokes Scry's app key, Scry revokes Nexus's push key, and the link goes. The sources stay.</summary>
@@ -166,7 +166,7 @@ public sealed class NexusController(ScryDbContext db, NexusApi nexus, NexusPairi
     public Task<ActionResult<NexusConnectPage>> Connect(ConnectRequest request, CancellationToken ct) =>
         WithLinkAsync(
             link => nexus.OpenConnectAsync(
-                link.NexusUrl, AppKey(link), request.Connector ?? string.Empty, link.DestinationId, $"{settings.ClientOrigin.TrimEnd('/')}/sources", ct),
+                link.NexusUrl, AppKey(link), request.Connector ?? string.Empty, link.DestinationId, $"{instance.Client}/sources", ct),
             ct);
 
     /// <summary>The syncs that fill the link's destination, each with how its last run went.</summary>
@@ -199,5 +199,5 @@ public sealed class NexusController(ScryDbContext db, NexusApi nexus, NexusPairi
     private string AppKey(NexusLink link) => secrets.UnprotectText(link.AppKey);
 
     private RedirectResult BackToSettings(string error) =>
-        Redirect($"{settings.ClientOrigin}/settings?error={Uri.EscapeDataString(error)}");
+        Redirect($"{instance.Client}/settings?error={Uri.EscapeDataString(error)}");
 }

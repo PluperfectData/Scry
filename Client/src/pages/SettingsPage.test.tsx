@@ -10,6 +10,14 @@ jest.mock('../api', () => ({
   makeKey: jest.fn(),
   revokeKey: jest.fn(),
   getNexusLink: jest.fn().mockResolvedValue({ linked: false, nexusUrl: null, appName: null, workspaceName: null, pushKeyName: null, pushKeyPrefix: null, linkedAt: null }),
+  getInstanceSettings: jest.fn().mockResolvedValue({
+    clientOrigin: 'http://localhost',
+    clientOriginConfigured: false,
+    apiOrigin: 'http://localhost:6161',
+    apiOriginConfigured: false,
+    database: { host: 'localhost', port: 3306, name: 'scry', user: 'scry' },
+    databaseConfigured: false,
+  }),
 }))
 
 const nexus: IngestKey = { id: 1, name: 'Nexus', prefix: 'scry_abc1234', createdAt: '2026-11-15T12:00:00Z', sources: ['orders', 'trades'] }

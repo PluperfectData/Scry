@@ -358,6 +358,10 @@ h1 {
   padding: 1.5rem var(--gutter);
 }
 
+.page.narrow {
+  max-width: 48rem;
+}
+
 .muted {
   color: var(--muted);
 }
