@@ -345,7 +345,7 @@ it('offers a Link Nexus tile while Scry is unlinked, which goes to Settings', as
 
 it("offers Nexus's connectors once linked, and opens Nexus's connect page for the one picked", async () => {
   jest.mocked(getNexusLink).mockResolvedValue(linked)
-  jest.mocked(listNexusConnectors).mockResolvedValue([{ id: 'mysql', name: 'MySQL', description: 'Reads tables from MySQL.' }])
+  jest.mocked(listNexusConnectors).mockResolvedValue([{ id: 'mysql', name: 'MySQL', description: 'Reads tables from MySQL.', notReady: null }])
   jest.mocked(connectThroughNexus).mockResolvedValue({ url: 'http://localhost:6165/connect#nxc_token' })
   render(<SourcesPage />)
 

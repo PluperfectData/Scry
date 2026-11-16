@@ -25,6 +25,19 @@ it('shows each connector with its description, on the tint of its kind', () => {
   ])
 })
 
+it('says why a connector is not ready yet, and does not pick it', async () => {
+  const onPick = jest.fn()
+  const notReady = 'This workspace has no Charles Schwab app yet. Add it under Sign-in apps on the workspace page in Nexus.'
+  render(<ConnectorGrid connectors={[{ ...connectors[2], notReady }]} onPick={onPick} />)
+
+  const tile = screen.getByRole('button', { name: /Charles Schwab/ })
+  await userEvent.click(tile)
+
+  expect(tile).toBeDisabled()
+  expect(tile).toHaveTextContent(notReady)
+  expect(onPick).not.toHaveBeenCalled()
+})
+
 it('picks the connector whose tile is pressed', async () => {
   const onPick = jest.fn()
   render(<ConnectorGrid connectors={connectors} onPick={onPick} />)

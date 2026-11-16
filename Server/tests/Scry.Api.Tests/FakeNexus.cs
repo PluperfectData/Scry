@@ -8,8 +8,8 @@ namespace Scry.Api.Tests;
 
 /// <summary>
 /// Nexus's routes for an app, in small: it opens pairing <c>p-1</c>, claims it only with the verifier whose hash it was
-/// opened with, answers app key <see cref="AppKey"/>, offers MySQL, holds sync 11 into destination 7 and sync 12 into
-/// another, and records every request.
+/// opened with, answers app key <see cref="AppKey"/>, offers MySQL and Charles Schwab, holds sync 11 into destination 7
+/// and sync 12 into another, and records every request.
 /// </summary>
 public sealed class FakeNexus : HttpMessageHandler
 {
@@ -18,6 +18,9 @@ public sealed class FakeNexus : HttpMessageHandler
     public const string AppKey = "nexus_the-app-key";
 
     public const string PairingId = "p-1";
+
+    /// <summary>Why the link's workspace cannot connect Charles Schwab yet, as Nexus says when it has no Schwab app.</summary>
+    public const string NotReady = "This workspace has no Charles Schwab app yet. Add it under Sign-in apps on the workspace page in Nexus.";
 
     private string? _verifierHash;
 
@@ -58,7 +61,11 @@ public sealed class FakeNexus : HttpMessageHandler
                 return new HttpResponseMessage(HttpStatusCode.NoContent);
 
             case "GET /connectors":
-                return Json(HttpStatusCode.OK, new[] { new { id = "mysql", name = "MySQL", description = "Reads tables from MySQL.", auth = "ConnectionFields", fields = Array.Empty<object>() } });
+                return Json(HttpStatusCode.OK, new object[]
+                {
+                    new { id = "mysql", name = "MySQL", description = "Reads tables from MySQL.", auth = "ConnectionFields", fields = Array.Empty<object>(), notReady = (string?)null },
+                    new { id = "schwab", name = "Charles Schwab", description = "Reads a Schwab sign-in.", auth = "OAuth", fields = Array.Empty<object>(), notReady = NotReady },
+                });
 
             case "POST /connect-sessions":
                 return Json(HttpStatusCode.Created, new { url = $"{Url}/connect#nxc_the-token", expiresAt = DateTime.UtcNow.AddMinutes(10) });

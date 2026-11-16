@@ -112,7 +112,9 @@ public sealed class NexusTests
         var connectors = await _client.GetFromJsonAsync<JsonElement>("/nexus/connectors");
         using var opened = await _client.PostAsJsonAsync("/nexus/connect", new { connector = "mysql" });
 
-        connectors.EnumerateArray().Single().GetProperty("name").GetString().ShouldBe("MySQL");
+        connectors.EnumerateArray().Select(c => c.GetProperty("name").GetString()).ShouldBe(["MySQL", "Charles Schwab"]);
+        connectors[0].GetProperty("notReady").ValueKind.ShouldBe(JsonValueKind.Null);
+        connectors[1].GetProperty("notReady").GetString().ShouldBe(FakeNexus.NotReady);
         opened.StatusCode.ShouldBe(HttpStatusCode.OK);
         (await opened.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("url").GetString().ShouldBe($"{FakeNexus.Url}/connect#nxc_the-token");
         var session = _factory.Nexus.Requests.Single(r => r.Line == "POST /connect-sessions");

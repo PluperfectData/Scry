@@ -38,7 +38,8 @@ public sealed record OpenedPairing(string Id, string ApproveUrl, DateTime Expire
 public sealed record ClaimedPairing(string AppKey, int DestinationId, string AppName, string WorkspaceName);
 
 /// <summary>A connector Nexus reads through, such as MySQL.</summary>
-public sealed record NexusConnector(string Id, string Name, string Description);
+/// <summary>A connector Nexus reads through. <paramref name="NotReady"/> says why the link's workspace cannot connect it yet.</summary>
+public sealed record NexusConnector(string Id, string Name, string Description, string? NotReady = null);
 
 /// <summary>A connect page Nexus opened for the link's destination, at <paramref name="Url"/>.</summary>
 public sealed record NexusConnectPage(string Url, DateTime ExpiresAt);

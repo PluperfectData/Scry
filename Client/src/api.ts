@@ -70,6 +70,8 @@ export interface Connector {
   fields: SettingField[]
   /** The settings this connector requires that Scry lacks, by their configuration names. */
   needs: string[]
+  /** Why it cannot be picked yet, such as a sign-in app the linked Nexus workspace has not set. */
+  notReady?: string | null
 }
 
 /** A stream Schwab offers, by name, with its number of columns. */
@@ -213,11 +215,12 @@ export const startNexusPairing = (nexusUrl: string) => request<{ approveUrl: str
 /** Unlinks from Nexus, revoking both keys. The sources Nexus pushed stay. */
 export const unlinkNexus = () => request<void>('/nexus', { method: 'DELETE' })
 
-/** A connector Nexus reads through, such as MySQL. */
+/** A connector Nexus reads through, such as MySQL, with why the link's workspace cannot connect it yet. */
 export interface NexusConnector {
   id: string
   name: string
   description: string
+  notReady: string | null
 }
 
 /** A sync at Nexus into the link's destination: what it reads, the table it fills, and how its last run went. */

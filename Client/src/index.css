@@ -1015,6 +1015,15 @@ button.quiet {
   color: var(--muted);
 }
 
+.connector-tile:disabled:hover {
+  border-color: var(--border);
+}
+
+.connector-note {
+  font-size: 0.8125rem;
+  color: var(--error);
+}
+
 .modal {
   inset: 0;
   width: min(100% - 2rem, 72rem);

@@ -64,7 +64,7 @@ parent directory.
 | `POST /nexus/pairing` | From `{"nexusUrl"}`, opens a pairing at that Nexus and answers `{"approveUrl"}`, the page where its admin approves Scry |
 | `GET /nexus/callback?pairing=` | Where Nexus sends the admin back. Makes a push key named for that Nexus, such as "Nexus at localhost:6163", claims the pairing with it for Nexus's app key, keeps the link, and sends the browser to Settings, with `error` when linking failed. Scry pairs as "Scry at" its own host. |
 | `DELETE /nexus` | Unlinks: Nexus revokes Scry's app key, Scry revokes Nexus's push key, and the link goes. The sources Nexus sent stay. |
-| `GET /nexus/connectors` | The connectors Nexus reads through, such as MySQL, which the Sources page offers under Through Nexus |
+| `GET /nexus/connectors` | The connectors Nexus reads through, such as MySQL, which the Sources page offers under Through Nexus. One the link's workspace cannot connect yet, such as Schwab without a sign-in app, says why on its tile and cannot be picked. |
 | `POST /nexus/connect` | From `{"connector"}`, opens Nexus's connect page for it, into the link's destination and coming back to the Sources page, and answers `{"url"}`. Nexus adds `connection` to the return address once connected, or `error=cancelled`. |
 | `GET /nexus/syncs` | The syncs that fill the link's destination: the connection and stream each reads, its table, and how its last run went |
 | `POST /nexus/syncs/{id}/run` | Runs one of those syncs now |
