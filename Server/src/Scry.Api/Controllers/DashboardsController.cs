@@ -47,14 +47,17 @@ public sealed record DashboardUpdate(string? Name, JsonElement Layouts, JsonElem
 public sealed record DashboardEdit(string? Name, bool IsLanding, JsonElement? Presentation);
 
 [ApiController]
-[Route("dashboards")]
-public sealed class DashboardsController(ScryDbContext db) : ControllerBase
+[Route("workspaces/{workspaceId:int}/dashboards")]
+[InWorkspace]
+public sealed class DashboardsController(ScryDbContext db, CurrentWorkspace workspace) : ControllerBase
 {
     [HttpGet]
+    [ForViewers]
     public async Task<IEnumerable<DashboardSummary>> List(CancellationToken ct)
     {
         var dashboards = await db.Dashboards
             .AsNoTracking()
+            .Where(dashboard => dashboard.WorkspaceId == workspace.Id)
             .OrderBy(dashboard => dashboard.Name)
             .Select(dashboard => new { dashboard.Id, dashboard.Name, dashboard.Widgets, dashboard.Landing, dashboard.Presentation, dashboard.UpdatedAt })
             .ToListAsync(ct);
@@ -69,8 +72,9 @@ public sealed class DashboardsController(ScryDbContext db) : ControllerBase
     }
 
     [HttpGet("{id:int}")]
+    [ForViewers]
     public async Task<ActionResult<DashboardView>> Get(int id, CancellationToken ct) =>
-        await db.Dashboards.FindAsync([id], ct) is { } dashboard ? DashboardView.From(dashboard) : NotFound();
+        await FindAsync(id, ct) is { } dashboard ? DashboardView.From(dashboard) : NotFound();
 
     [HttpPost]
     public async Task<ActionResult<DashboardView>> Create([FromBody] DashboardCreate body, CancellationToken ct)
@@ -83,6 +87,7 @@ public sealed class DashboardsController(ScryDbContext db) : ControllerBase
         var now = DateTime.UtcNow;
         var dashboard = new Dashboard
         {
+            WorkspaceId = workspace.Id,
             Name = body.Name!.Trim(),
             Layouts = "{}",
             Widgets = "[]",
@@ -92,7 +97,7 @@ public sealed class DashboardsController(ScryDbContext db) : ControllerBase
         db.Dashboards.Add(dashboard);
         await db.SaveChangesAsync(ct);
 
-        return CreatedAtAction(nameof(Get), new { id = dashboard.Id }, DashboardView.From(dashboard));
+        return CreatedAtAction(nameof(Get), new { workspaceId = workspace.Id, id = dashboard.Id }, DashboardView.From(dashboard));
     }
 
     [HttpPut("{id:int}")]
@@ -110,7 +115,7 @@ public sealed class DashboardsController(ScryDbContext db) : ControllerBase
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
-        if (await db.Dashboards.FindAsync([id], ct) is not { } dashboard)
+        if (await FindAsync(id, ct) is not { } dashboard)
         {
             return NotFound();
         }
@@ -141,7 +146,7 @@ public sealed class DashboardsController(ScryDbContext db) : ControllerBase
             return Problem("A dashboard's presentation is an object, or null for the defaults.", statusCode: StatusCodes.Status400BadRequest);
         }
 
-        if (await db.Dashboards.FindAsync([id], ct) is not { } dashboard)
+        if (await FindAsync(id, ct) is not { } dashboard)
         {
             return NotFound();
         }
@@ -151,7 +156,7 @@ public sealed class DashboardsController(ScryDbContext db) : ControllerBase
         if (body.IsLanding)
         {
             await db.Dashboards
-                .Where(d => d.Landing == true && d.Id != id)
+                .Where(d => d.WorkspaceId == workspace.Id && d.Landing == true && d.Id != id)
                 .ExecuteUpdateAsync(set => set.SetProperty(d => d.Landing, (bool?)null), ct);
         }
 
@@ -168,7 +173,7 @@ public sealed class DashboardsController(ScryDbContext db) : ControllerBase
     [HttpDelete("{id:int}")]
     public async Task<IActionResult> Delete(int id, CancellationToken ct)
     {
-        if (await db.Dashboards.FindAsync([id], ct) is not { } dashboard)
+        if (await FindAsync(id, ct) is not { } dashboard)
         {
             return NotFound();
         }
@@ -177,6 +182,9 @@ public sealed class DashboardsController(ScryDbContext db) : ControllerBase
         await db.SaveChangesAsync(ct);
         return NoContent();
     }
+
+    private Task<Dashboard?> FindAsync(int id, CancellationToken ct) =>
+        db.Dashboards.FirstOrDefaultAsync(d => d.Id == id && d.WorkspaceId == workspace.Id, ct);
 
     private static int ChartCount(string widgets)
     {

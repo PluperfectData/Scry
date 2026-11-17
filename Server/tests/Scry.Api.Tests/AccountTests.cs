@@ -9,6 +9,7 @@ using NUnit.Framework;
 using Scry.Api.Auth;
 using Scry.Api.Storage;
 using Shouldly;
+using static Scry.Api.Tests.ScryApiFactory;
 
 namespace Scry.Api.Tests;
 
@@ -32,7 +33,7 @@ public sealed class AccountTests
     {
         using var stranger = _factory.NewBrowser();
 
-        foreach (var path in new[] { "/sources", "/dashboards", "/keys", "/nexus", "/connectors", "/settings", "/users" })
+        foreach (var path in new[] { $"{InDefault}/sources", $"{InDefault}/dashboards", $"{InDefault}/keys", $"{InDefault}/nexus", $"{InDefault}/connectors", "/settings", "/users" })
         {
             (await stranger.GetAsync(path)).StatusCode.ShouldBe(HttpStatusCode.Unauthorized, path);
         }
@@ -46,7 +47,7 @@ public sealed class AccountTests
     public async Task The_push_API_takes_its_key_and_no_session()
     {
         using var owner = _factory.SignedIn();
-        using var made = await owner.PostAsync("/keys", JsonBody(new { name = "Script" }));
+        using var made = await owner.PostAsync($"{InDefault}/keys", JsonBody(new { name = "Script" }));
         var key = (await made.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("key").GetString();
         using var script = _factory.CreateClient();
         script.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", key);
@@ -71,7 +72,7 @@ public sealed class AccountTests
         me.GetProperty("email").GetString().ShouldBe(Rowan);
         me.GetProperty("isAdmin").GetBoolean().ShouldBeTrue();
         me.GetProperty("hasPassword").GetBoolean().ShouldBeTrue();
-        (await browser.GetAsync("/sources")).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await browser.GetAsync($"{InDefault}/sources")).StatusCode.ShouldBe(HttpStatusCode.OK);
     }
 
     [Test]
@@ -158,18 +159,19 @@ public sealed class AccountTests
         (await browser.SendAsync(HttpMethod.Post, "/auth/sign-out")).StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
         (await browser.GetAsync<JsonElement>("/auth/me")).GetProperty("signedIn").GetBoolean().ShouldBeFalse();
-        (await browser.GetAsync("/sources")).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        (await browser.GetAsync($"{InDefault}/sources")).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
     }
 
     [Test]
     public async Task Refuses_an_unsafe_request_without_a_CSRF_token_or_from_another_origin()
     {
         using var browser = await _factory.SignedInAsync(Rowan);
+        await _factory.JoinAsync(Rowan, WorkspaceRole.Editor);
         var dashboard = new { name = "Sales", layouts = new { }, widgets = Array.Empty<object>() };
 
-        (await browser.SendAsync(HttpMethod.Post, "/dashboards", dashboard, csrf: false)).StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        (await browser.SendAsync(HttpMethod.Post, "/dashboards", dashboard, origin: "https://evil.test")).StatusCode.ShouldBe(HttpStatusCode.Forbidden);
-        (await browser.SendAsync(HttpMethod.Post, "/dashboards", dashboard)).StatusCode.ShouldBe(HttpStatusCode.Created);
+        (await browser.SendAsync(HttpMethod.Post, $"{InDefault}/dashboards", dashboard, csrf: false)).StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await browser.SendAsync(HttpMethod.Post, $"{InDefault}/dashboards", dashboard, origin: "https://evil.test")).StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        (await browser.SendAsync(HttpMethod.Post, $"{InDefault}/dashboards", dashboard)).StatusCode.ShouldBe(HttpStatusCode.Created);
     }
 
     [Test]
@@ -254,11 +256,12 @@ public sealed class AccountTests
     public async Task Only_admins_reach_the_users_and_the_instances_settings()
     {
         using var member = await _factory.SignedInAsync(Rowan);
+        await _factory.JoinAsync(Rowan, WorkspaceRole.Viewer);
 
         (await member.GetAsync("/users")).StatusCode.ShouldBe(HttpStatusCode.Forbidden);
         (await member.GetAsync("/settings")).StatusCode.ShouldBe(HttpStatusCode.Forbidden);
         (await member.SendAsync(HttpMethod.Put, "/settings/mail", new { serverToken = "t", from = "scry@acme.test" })).StatusCode.ShouldBe(HttpStatusCode.Forbidden);
-        (await member.GetAsync("/sources")).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await member.GetAsync($"{InDefault}/sources")).StatusCode.ShouldBe(HttpStatusCode.OK);
     }
 
     [Test]

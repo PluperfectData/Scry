@@ -24,12 +24,14 @@ import {
 import { useFullscreen } from '../fullscreen'
 import { DEFAULT_PRESENTATION, PresentationContext, type PresentationSettings } from '../presentation'
 import { useNotices } from '../notices'
+import { useWorkspace } from '../workspace'
 
 const SAVE_DELAY_MS = 600
 const SAVE_NOTICE = 'dashboard-save'
 
 export function DashboardPage() {
   const id = Number(useParams().id)
+  const { base, canEdit } = useWorkspace()
   const { notify } = useNotices()
   const [dashboard, setDashboard] = useState<Dashboard | null>(null)
   const [sources, setSources] = useState<Source[]>([])
@@ -37,8 +39,9 @@ export function DashboardPage() {
   // The chart open in the slideout: 'new' while adding one, null while the slideout is closed.
   const [editing, setEditing] = useState<Widget | 'new' | null>(null)
   const [renaming, setRenaming] = useState(false)
-  // In full screen the dashboard is read only: its name and charts, with nothing to edit, move, or resize.
-  const readOnly = useFullscreen()
+  // In full screen, and for a viewer, the dashboard is read only: its name and charts, with nothing to edit, move, or resize.
+  const fullscreen = useFullscreen()
+  const readOnly = fullscreen || !canEdit
   const changed = useRef(false)
 
   useEffect(() => {
@@ -102,7 +105,7 @@ export function DashboardPage() {
     }))
 
   const presentation = dashboard.presentation ?? DEFAULT_PRESENTATION
-  const titled = !readOnly || presentation.showTitle
+  const titled = !fullscreen || presentation.showTitle
 
   return (
     <>
@@ -135,19 +138,22 @@ export function DashboardPage() {
             </div>
           )}
 
-          {sources.length === 0 && (
-            <p className="muted">
-              <Link to="/sources">Upload a CSV file</Link> to chart it here.
-            </p>
-          )}
+          {sources.length === 0 &&
+            (canEdit ? (
+              <p className="muted">
+                <Link to={`${base}/sources`}>Upload a CSV file</Link> to chart it here.
+              </p>
+            ) : (
+              <p className="muted">This workspace has no sources to chart yet.</p>
+            ))}
         </div>
       )}
 
-      <PresentationContext.Provider value={readOnly ? presentation : null}>
+      <PresentationContext.Provider value={fullscreen ? presentation : null}>
         <DashboardGrid
           dashboard={dashboard}
           sources={sources}
-          onLayoutsChange={(layouts) => change((current) => ({ ...current, layouts }))}
+          onLayoutsChange={(layouts) => canEdit && change((current) => ({ ...current, layouts }))}
           onEdit={!readOnly && sources.length > 0 ? setEditing : undefined}
           onRemove={readOnly ? undefined : remove}
         />

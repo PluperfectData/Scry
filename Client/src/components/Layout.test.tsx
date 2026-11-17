@@ -1,10 +1,11 @@
 import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
-import { type Me, signOut } from '../api'
+import { type Me, signOut, type Workspace } from '../api'
 import { peekNext } from '../next'
 import { SessionContext, SIGNED_OUT } from '../session'
 import { ThemeProvider } from '../ThemeProvider'
+import { WorkspacesContext } from '../workspace'
 import { Layout, RequireSession } from './Layout'
 
 jest.mock('react-router', () => jest.requireActual('../../jest/router').reactRouterMock())
@@ -14,11 +15,37 @@ jest.mock('../api', () => ({ ...jest.requireActual('../api'), signOut: jest.fn()
 
 const member: Me = { signedIn: true, id: 2, email: 'member@acme.test', isAdmin: false, hasPassword: true }
 
-function SignedIn({ children, me = member, setMe = jest.fn() }: { children: ReactNode; me?: Me | null; setMe?: (me: Me) => void }) {
-  return <SessionContext.Provider value={{ me, setMe }}>{children}</SessionContext.Provider>
+const workspace = (id: number, name: string, role: Workspace['role']): Workspace => ({ id, name, role, createdAt: '2026-11-16T00:00:00Z' })
+
+const theirs = [workspace(1, 'Default', 'Editor'), workspace(2, 'Finance', 'Viewer')]
+
+function SignedIn({
+  children,
+  me = member,
+  setMe = jest.fn(),
+  workspaces = theirs,
+}: {
+  children: ReactNode
+  me?: Me | null
+  setMe?: (me: Me) => void
+  workspaces?: Workspace[]
+}) {
+  return (
+    <SessionContext.Provider value={{ me, setMe }}>
+      <WorkspacesContext.Provider value={{ workspaces, error: null, refresh: jest.fn() }}>{children}</WorkspacesContext.Provider>
+    </SessionContext.Provider>
+  )
 }
 
-beforeEach(() => jest.clearAllMocks())
+const links = () =>
+  within(screen.getByRole('navigation', { name: 'Main' }))
+    .getAllByRole('link')
+    .map((link) => `${link.textContent} ${link.getAttribute('href')}`)
+
+beforeEach(() => {
+  jest.clearAllMocks()
+  localStorage.clear()
+})
 
 it('opens and closes the menu from the button, which says what pressing it will do', async () => {
   routerState.pathname = '/'
@@ -37,7 +64,7 @@ it('closes the menu after navigating', async () => {
   const { rerender } = render(<SignedIn><Layout /></SignedIn>)
   await userEvent.click(screen.getByRole('button', { name: 'Open menu' }))
 
-  routerState.pathname = '/sources'
+  routerState.pathname = '/workspaces/1/sources'
   rerender(<SignedIn><Layout /></SignedIn>)
 
   expect(screen.getByRole('button', { name: 'Open menu' })).toHaveAttribute('aria-expanded', 'false')
@@ -85,7 +112,7 @@ describe('full screen', () => {
   })
 
   it('offers full screen beside the theme toggle on a dashboard, and asks the browser for it', async () => {
-    routerState.pathname = '/dashboards/3'
+    routerState.pathname = '/workspaces/1/dashboards/3'
     render(<SignedIn><Layout /></SignedIn>)
 
     await userEvent.click(screen.getByRole('button', { name: 'Full screen' }))
@@ -94,14 +121,14 @@ describe('full screen', () => {
   })
 
   it('offers no full screen away from a dashboard', () => {
-    routerState.pathname = '/sources'
+    routerState.pathname = '/workspaces/1/sources'
     render(<SignedIn><Layout /></SignedIn>)
 
     expect(screen.queryByRole('button', { name: 'Full screen' })).not.toBeInTheDocument()
   })
 
   it('hides the header on a dashboard once the window is in full screen', () => {
-    routerState.pathname = '/dashboards/3'
+    routerState.pathname = '/workspaces/1/dashboards/3'
     render(<SignedIn><Layout /></SignedIn>)
     expect(screen.getByRole('banner')).toBeInTheDocument()
 
@@ -128,7 +155,7 @@ it('offers no pages and no account to someone signed out', () => {
   expect(screen.getByRole('button', { name: 'Switch to dark theme' })).toBeInTheDocument()
 })
 
-it('names the user on the account button, and offers Users to an admin alone', async () => {
+it("names the user on the account button, and offers Users, Workspaces, and Scry's Settings to an admin alone", async () => {
   routerState.pathname = '/'
   const { unmount } = render(
     <SignedIn>
@@ -139,6 +166,7 @@ it('names the user on the account button, and offers Users to an admin alone', a
   const menu = screen.getByRole('menu', { name: 'Account' })
   expect(within(menu).getByRole('menuitem', { name: 'Account' })).toHaveAttribute('href', '/account')
   expect(within(menu).queryByRole('menuitem', { name: 'Users' })).not.toBeInTheDocument()
+  expect(within(menu).queryByRole('menuitem', { name: 'Settings' })).not.toBeInTheDocument()
   unmount()
 
   render(
@@ -147,7 +175,10 @@ it('names the user on the account button, and offers Users to an admin alone', a
     </SignedIn>,
   )
   await userEvent.click(screen.getByRole('button', { name: 'Account menu for member@acme.test, Admin' }))
-  expect(within(screen.getByRole('menu', { name: 'Account' })).getByRole('menuitem', { name: 'Users' })).toHaveAttribute('href', '/users')
+  const admins = screen.getByRole('menu', { name: 'Account' })
+  expect(within(admins).getByRole('menuitem', { name: 'Users' })).toHaveAttribute('href', '/users')
+  expect(within(admins).getByRole('menuitem', { name: 'Workspaces' })).toHaveAttribute('href', '/workspaces')
+  expect(within(admins).getByRole('menuitem', { name: 'Settings' })).toHaveAttribute('href', '/settings')
 })
 
 it('signs out from the account menu and goes to sign in', async () => {
@@ -188,4 +219,59 @@ it('waits to learn who is signed in before showing a page', () => {
 
   expect(screen.getByText('Loading…')).toBeInTheDocument()
   expect(navigate).not.toHaveBeenCalled()
+})
+
+describe('workspaces', () => {
+  it("links an editor to the workspace's dashboards, sources, and settings, then the docs", () => {
+    routerState.pathname = '/workspaces/1/dashboards'
+    render(<SignedIn><Layout /></SignedIn>)
+
+    expect(links()).toEqual([
+      'Dashboards /workspaces/1/dashboards',
+      'Sources /workspaces/1/sources',
+      'Settings /workspaces/1/settings',
+      'Docs /docs',
+    ])
+    expect(screen.getByRole('button', { name: 'Workspace: Default' })).toBeInTheDocument()
+  })
+
+  it("links a viewer to the workspace's dashboards and the docs alone", () => {
+    routerState.pathname = '/workspaces/2/dashboards/7'
+    render(<SignedIn><Layout /></SignedIn>)
+
+    expect(links()).toEqual(['Dashboards /workspaces/2/dashboards', 'Docs /docs'])
+    expect(screen.getByRole('button', { name: 'Workspace: Finance' })).toBeInTheDocument()
+  })
+
+  it('links to the workspace last opened from a page outside any, such as the docs', () => {
+    localStorage.setItem('scry-workspace', '2')
+    routerState.pathname = '/docs'
+    render(<SignedIn><Layout /></SignedIn>)
+
+    expect(links()).toEqual(['Dashboards /workspaces/2/dashboards', 'Docs /docs'])
+  })
+
+  it('switches workspaces from the menu, which offers an admin a way to manage them', async () => {
+    routerState.pathname = '/workspaces/1/dashboards'
+    const { unmount } = render(<SignedIn><Layout /></SignedIn>)
+    await userEvent.click(screen.getByRole('button', { name: 'Workspace: Default' }))
+    const menu = screen.getByRole('menu', { name: 'Workspaces' })
+
+    expect(within(menu).getByRole('menuitem', { name: 'Default' })).toHaveAttribute('aria-current', 'page')
+    expect(within(menu).getByRole('menuitem', { name: 'Finance · Viewer' })).toHaveAttribute('href', '/workspaces/2')
+    expect(within(menu).queryByRole('menuitem', { name: 'Manage workspaces' })).not.toBeInTheDocument()
+    unmount()
+
+    render(<SignedIn me={{ ...member, isAdmin: true }}><Layout /></SignedIn>)
+    await userEvent.click(screen.getByRole('button', { name: 'Workspace: Default' }))
+    expect(within(screen.getByRole('menu', { name: 'Workspaces' })).getByRole('menuitem', { name: 'Manage workspaces' })).toHaveAttribute('href', '/workspaces')
+  })
+
+  it('offers no workspace menu, and only the docs, to someone in no workspace', () => {
+    routerState.pathname = '/'
+    render(<SignedIn workspaces={[]}><Layout /></SignedIn>)
+
+    expect(links()).toEqual(['Docs /docs'])
+    expect(screen.queryByRole('button', { name: /^Workspace:/ })).not.toBeInTheDocument()
+  })
 })

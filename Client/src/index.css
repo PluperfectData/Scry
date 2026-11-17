@@ -131,6 +131,15 @@ h1 {
   padding: 0.75rem var(--gutter);
 }
 
+/* The brand and the workspace switcher hold the row's left, and the switcher's name gives up room first. */
+.header-start {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+  margin-right: auto;
+}
+
 .brand {
   display: inline-flex;
   align-items: center;
@@ -139,7 +148,63 @@ h1 {
   font-size: 1.2rem;
   color: var(--header-text);
   text-decoration: none;
-  margin-right: auto;
+}
+
+.workspace-switch {
+  position: relative;
+  min-width: 0;
+}
+
+.workspace-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  max-width: min(12rem, 100%);
+  min-height: 2.5rem;
+  padding: 0.25rem 0.5rem 0.25rem 0.75rem;
+  border: 1px solid var(--header-control);
+  border-radius: 0.4rem;
+  background: none;
+  color: var(--header-text);
+  font: inherit;
+}
+
+.workspace-button svg {
+  flex: none;
+  width: 1rem;
+  height: 1rem;
+}
+
+.workspace-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-menu {
+  left: 0;
+  right: auto;
+}
+
+.workspace-menu a[aria-current] {
+  font-weight: 600;
+}
+
+.account-menu .menu-foot {
+  margin-top: 0.25rem;
+  border-top: 1px solid var(--border);
+}
+
+/* On a phone the brand keeps its mark, and its name stays for screen readers. */
+@media (max-width: 30rem) {
+  .brand-name {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
 }
 
 .brand-mark {
@@ -188,8 +253,8 @@ h1 {
   display: none;
 }
 
-/* The row of four links, the brand, and the header's buttons runs out of room near 34rem. */
-@media (max-width: 40rem) {
+/* The row of four links, the brand, a 12rem workspace name, and a dashboard's header buttons needs about 49rem. */
+@media (max-width: 50rem) {
   .nav-toggle {
     display: inline-flex;
   }

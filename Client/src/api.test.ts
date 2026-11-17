@@ -1,4 +1,4 @@
-import { ApiError, getPivot, getRows, getSeries, mailLink, uploadSource } from './api'
+import { ApiError, enterWorkspace, getPivot, getRows, getSeries, listWorkspaces, mailLink, uploadSource } from './api'
 
 // The session's client, reduced to a fetch at the API's address.
 jest.mock('@pluperfect/jwt', () => ({
@@ -13,6 +13,7 @@ const fetchMock = jest.fn()
 beforeEach(() => {
   fetchMock.mockReset()
   global.fetch = fetchMock
+  enterWorkspace(3)
 })
 
 // jsdom has no Response, so this is one in shape: JSON, or no body at all.
@@ -34,7 +35,7 @@ it('uploads the file, its name, and its delimiter as a form', async () => {
 
   expect(source).toEqual({ id: 1, name: 'orders' })
   const [url, init] = fetchMock.mock.calls[0]
-  expect(url).toBe('http://localhost:6161/sources')
+  expect(url).toBe('http://localhost:6161/workspaces/3/sources')
   expect(init.method).toBe('POST')
   expect(init.body.get('name')).toBe('orders')
   expect(init.body.get('file')).toBeInstanceOf(File)
@@ -46,7 +47,7 @@ it('leaves y out of a count series', async () => {
 
   await getSeries({ sourceId: 3, join: null }, 'region', null, 'count')
 
-  expect(fetchMock.mock.calls[0][0]).toBe('http://localhost:6161/sources/3/series?x=region&aggregate=count')
+  expect(fetchMock.mock.calls[0][0]).toBe('http://localhost:6161/workspaces/3/sources/3/series?x=region&aggregate=count')
 })
 
 it('asks for one run of rows in a sort, or in source order without one', async () => {
@@ -56,9 +57,9 @@ it('asks for one run of rows in a sort, or in source order without one', async (
   await getRows({ sourceId: 3, join: null }, { columns: [], sort: null, count: false, offset: 0, limit: 100 })
 
   expect(fetchMock.mock.calls[0][0]).toBe(
-    'http://localhost:6161/sources/3/rows?columns=day&columns=amount&sort=amount&direction=desc&offset=50&limit=25',
+    'http://localhost:6161/workspaces/3/sources/3/rows?columns=day&columns=amount&sort=amount&direction=desc&offset=50&limit=25',
   )
-  expect(fetchMock.mock.calls[1][0]).toBe('http://localhost:6161/sources/3/rows?offset=0&limit=100')
+  expect(fetchMock.mock.calls[1][0]).toBe('http://localhost:6161/workspaces/3/sources/3/rows?offset=0&limit=100')
 })
 
 it('asks for a counted table', async () => {
@@ -66,7 +67,7 @@ it('asks for a counted table', async () => {
 
   await getRows({ sourceId: 3, join: null }, { columns: ['city'], sort: null, count: true, offset: 0, limit: 25 })
 
-  expect(fetchMock.mock.calls[0][0]).toBe('http://localhost:6161/sources/3/rows?columns=city&count=true&offset=0&limit=25')
+  expect(fetchMock.mock.calls[0][0]).toBe('http://localhost:6161/workspaces/3/sources/3/rows?columns=city&count=true&offset=0&limit=25')
 })
 
 it('adds the joined source to any chart request, and asks for a pivot by row and column', async () => {
@@ -76,9 +77,20 @@ it('adds the joined source to any chart request, and asks for a pivot by row and
   await getPivot(from, { row: 'orders.day', column: 'regions.name', y: 'orders.amount', aggregate: 'sum' })
 
   expect(fetchMock.mock.calls[0][0]).toBe(
-    'http://localhost:6161/sources/3/pivot?row=orders.day&column=regions.name&aggregate=sum&y=orders.amount'
+    'http://localhost:6161/workspaces/3/sources/3/pivot?row=orders.day&column=regions.name&aggregate=sum&y=orders.amount'
       + '&join=4&joinOn=region&joinTo=code&joinKind=left',
   )
+})
+
+it('asks for the workspace a page is in, and for the list of them at their own address', async () => {
+  fetchMock.mockResolvedValue(reply(200, []))
+
+  await listWorkspaces()
+  enterWorkspace(5)
+  await getSeries({ sourceId: 3, join: null }, 'region', null, 'count')
+
+  expect(fetchMock.mock.calls[0][0]).toBe('http://localhost:6161/workspaces')
+  expect(fetchMock.mock.calls[1][0]).toBe('http://localhost:6161/workspaces/5/sources/3/series?x=region&aggregate=count')
 })
 
 it('takes an answer with no body, as the mailed link answers', async () => {

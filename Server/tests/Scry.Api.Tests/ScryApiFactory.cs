@@ -18,7 +18,8 @@ namespace Scry.Api.Tests;
 /// <summary>
 /// Hosts the real API over a SQLite file in a temporary data directory. An installed factory starts as the installer
 /// leaves an instance: a stored database, client address, and API address, and an owner who is an admin and signs in
-/// with <see cref="OwnerPassword"/>. It runs as Development, so cookies go over plain http, and mail lands as files in
+/// with <see cref="OwnerPassword"/>. It also has the workspace an instance's data moves into, Default, whose routes
+/// start <see cref="InDefault"/>. It runs as Development, so cookies go over plain http, and mail lands as files in
 /// <see cref="MailDirectory"/> unless the factory sends it to <see cref="Postmark"/>.
 /// </summary>
 public sealed class ScryApiFactory : WebApplicationFactory<Program>
@@ -33,6 +34,9 @@ public sealed class ScryApiFactory : WebApplicationFactory<Program>
 
     /// <summary>A request carrying this header reaches the API as one from this machine.</summary>
     public const string LocalHeader = "X-Test-Local";
+
+    /// <summary>Where the Default workspace's routes start. It is the first workspace a new database holds.</summary>
+    public const string InDefault = "/workspaces/1";
 
     public static readonly DatabaseSettings StoredDatabase = new("db.scry.test", 3306, "scry", "scry", "stored-password");
 
@@ -64,6 +68,7 @@ public sealed class ScryApiFactory : WebApplicationFactory<Program>
             var owner = new User { Email = OwnerEmail, IsAdmin = true, LinkStamp = SignInLinks.NewStamp(), CreatedAt = DateTime.UtcNow };
             owner.PasswordHash = Passwords.Hash(owner, OwnerPassword);
             db.Users.Add(owner);
+            db.Workspaces.Add(new Workspace { Name = "Default", Folder = "default", CreatedAt = DateTime.UtcNow });
             db.SaveChanges();
         }
     }
@@ -123,6 +128,15 @@ public sealed class ScryApiFactory : WebApplicationFactory<Program>
         db.Users.Add(user);
         await db.SaveChangesAsync();
         return user;
+    }
+
+    /// <summary>Puts a user in a workspace with a role: in Default, unless another workspace is named.</summary>
+    public async Task JoinAsync(string email, WorkspaceRole role, int workspaceId = 1)
+    {
+        await using var db = NewContext();
+        var user = await db.Users.SingleAsync(u => u.Email == email);
+        db.WorkspaceMembers.Add(new WorkspaceMember { WorkspaceId = workspaceId, UserId = user.Id, Role = role });
+        await db.SaveChangesAsync();
     }
 
     /// <summary>The API's stored settings, from the same file and keys, usable before the API starts.</summary>

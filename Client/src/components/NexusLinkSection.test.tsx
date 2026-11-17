@@ -47,7 +47,7 @@ it('shows the link and its outcome after Nexus sends the admin back, and unlinks
   jest.spyOn(window, 'confirm').mockReturnValue(true)
   render(<NexusLinkSection />)
 
-  expect(screen.getByText('Scry is linked to Nexus.')).toBeInTheDocument()
+  expect(screen.getByText('This workspace is linked to Nexus.')).toBeInTheDocument()
   expect(await screen.findByText(/as Scry at localhost:6161, in the Acme workspace/)).toBeInTheDocument()
   expect(screen.getByText(/Nexus sends rows with the push key Nexus at localhost:6163/)).toHaveTextContent('scry_ab12…')
   expect(window.location.search).toBe('')

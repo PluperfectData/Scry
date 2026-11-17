@@ -28,6 +28,7 @@ import { TableView } from '../components/TableView'
 import { Tooltip } from '../components/Tooltip'
 import { UploadForm } from '../components/UploadForm'
 import type { TableSettings } from '../dashboard'
+import { useWorkspace } from '../workspace'
 
 const PREVIEW_ROWS = 50
 
@@ -144,6 +145,7 @@ const previewOf = (source: Source): TableSettings => ({
 
 export function SourcesPage() {
   const navigate = useNavigate()
+  const { base } = useWorkspace()
   const [arrival] = useState(() => arrivalOf(window.location.search))
   const [sources, setSources] = useState<Source[] | null>(null)
   const [error, setError] = useState<string | null>(arrival.error)
@@ -405,7 +407,7 @@ export function SourcesPage() {
               <section aria-labelledby="through-nexus">
                 <h3 id="through-nexus">Through Nexus</h3>
                 {!link.linked ? (
-                  <ConnectorGrid connectors={[LINK_NEXUS]} onPick={() => navigate('/settings')} />
+                  <ConnectorGrid connectors={[LINK_NEXUS]} onPick={() => navigate(`${base}/settings`)} />
                 ) : nexusConnectors.length > 0 ? (
                   <ConnectorGrid connectors={nexusConnectors.map(asConnector)} onPick={connect} />
                 ) : (
@@ -428,7 +430,7 @@ export function SourcesPage() {
                   Make it a key on Settings, then send rows as the reference shows.
                 </p>
                 <p>
-                  <Link to="/settings">Make a key on Settings</Link>
+                  <Link to={`${base}/settings`}>Make a key on Settings</Link>
                 </p>
                 <p>
                   <Link to="/docs/push-api">Read the push API reference</Link>

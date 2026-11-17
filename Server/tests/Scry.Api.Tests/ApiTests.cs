@@ -9,6 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 using NUnit.Framework;
 using Scry.Api.Storage;
 using Shouldly;
+using static Scry.Api.Tests.ScryApiFactory;
 
 namespace Scry.Api.Tests;
 
@@ -64,7 +65,7 @@ public sealed class ApiTests
     {
         var id = await UploadId("orders", Orders);
 
-        var series = await _client.GetFromJsonAsync<JsonElement>($"/sources/{id}/series?x=day&y=amount&aggregate=sum");
+        var series = await _client.GetFromJsonAsync<JsonElement>($"{InDefault}/sources/{id}/series?x=day&y=amount&aggregate=sum");
 
         series.GetProperty("xType").GetString().ShouldBe("time");
         series.GetProperty("truncated").GetBoolean().ShouldBeFalse();
@@ -78,7 +79,7 @@ public sealed class ApiTests
     {
         var id = await UploadId("orders", Orders);
 
-        var series = await _client.GetFromJsonAsync<JsonElement>($"/sources/{id}/series?x=region&aggregate=count");
+        var series = await _client.GetFromJsonAsync<JsonElement>($"{InDefault}/sources/{id}/series?x=region&aggregate=count");
 
         series.GetProperty("xType").GetString().ShouldBe("category");
         series.GetProperty("points").EnumerateArray()
@@ -91,7 +92,7 @@ public sealed class ApiTests
     {
         var id = await UploadId("trades", "price,qty\n2.5,4\n1.5,2\n1.5,3\n");
 
-        var points = await _client.GetFromJsonAsync<JsonElement>($"/sources/{id}/points?x=price&y=qty");
+        var points = await _client.GetFromJsonAsync<JsonElement>($"{InDefault}/sources/{id}/points?x=price&y=qty");
 
         points.GetProperty("xType").GetString().ShouldBe("value");
         points.GetProperty("points").EnumerateArray()
@@ -106,7 +107,7 @@ public sealed class ApiTests
         var id = await UploadId("prices", "day,open,high,low,close\n2026-01-02,11,13,10,12\n2026-01-01,10,12,9,11\n");
 
         var candles = await _client.GetFromJsonAsync<JsonElement>(
-            $"/sources/{id}/candles?x=day&open=open&high=high&low=low&close=close");
+            $"{InDefault}/sources/{id}/candles?x=day&open=open&high=high&low=low&close=close");
 
         candles.GetProperty("xType").GetString().ShouldBe("time");
         candles.GetProperty("points").EnumerateArray()
@@ -120,7 +121,7 @@ public sealed class ApiTests
         var id = await UploadId("orders", Orders);
 
         var rows = await _client.GetFromJsonAsync<JsonElement>(
-            $"/sources/{id}/rows?columns=region&columns=amount&offset=0&limit=25");
+            $"{InDefault}/sources/{id}/rows?columns=region&columns=amount&offset=0&limit=25");
 
         rows.GetProperty("columns").EnumerateArray().Select(column => column.GetProperty("name").GetString())
             .ShouldBe(["region", "amount"]);
@@ -136,7 +137,7 @@ public sealed class ApiTests
         var id = await UploadId("orders", Orders);
 
         var page = await _client.GetFromJsonAsync<JsonElement>(
-            $"/sources/{id}/rows?columns=region&sort=amount&direction=desc&offset=1&limit=1");
+            $"{InDefault}/sources/{id}/rows?columns=region&sort=amount&direction=desc&offset=1&limit=1");
 
         page.GetProperty("values").EnumerateArray().Select(row => row[0].GetString()).ShouldBe(["east"]);
         page.GetProperty("total").GetInt64().ShouldBe(3);
@@ -149,7 +150,7 @@ public sealed class ApiTests
 
         async Task<string?[]> Names(string direction) =>
             (await _client.GetFromJsonAsync<JsonElement>(
-                $"/sources/{id}/rows?columns=name&sort=score&direction={direction}&offset=0&limit=25"))
+                $"{InDefault}/sources/{id}/rows?columns=name&sort=score&direction={direction}&offset=0&limit=25"))
             .GetProperty("values").EnumerateArray().Select(row => row[0].GetString()).ToArray();
 
         (await Names("asc")).ShouldBe(["c", "a", "d", "b"]);
@@ -162,7 +163,7 @@ public sealed class ApiTests
         var id = await UploadId("visits", "city,day\nAtlanta,1\nBoston,1\nAtlanta,2\nAtlanta,3\nBoston,2\nChicago,1\n");
 
         var rows = await _client.GetFromJsonAsync<JsonElement>(
-            $"/sources/{id}/rows?columns=city&count=true&offset=0&limit=25");
+            $"{InDefault}/sources/{id}/rows?columns=city&count=true&offset=0&limit=25");
 
         rows.GetProperty("columns").EnumerateArray().Select(column => column.GetProperty("name").GetString())
             .ShouldBe(["city", "Count"]);
@@ -179,7 +180,7 @@ public sealed class ApiTests
         var id = await UploadId("towns", csv);
 
         async Task<(string?, string?)[]> Page(string query) =>
-            (await _client.GetFromJsonAsync<JsonElement>($"/sources/{id}/rows?columns=city&count=true&{query}"))
+            (await _client.GetFromJsonAsync<JsonElement>($"{InDefault}/sources/{id}/rows?columns=city&count=true&{query}"))
             .GetProperty("values").EnumerateArray().Select(row => (row[0].GetString(), row[1].GetString())).ToArray();
 
         (await Page("sort=__scry_count&direction=asc&offset=0&limit=25")).ShouldBe([("b", "9"), ("a", "10")]);
@@ -198,7 +199,7 @@ public sealed class ApiTests
         var regions = await UploadId("regions", Regions);
 
         var rows = await _client.GetFromJsonAsync<JsonElement>(
-            $"/sources/{orders}/rows?columns=orders.region&columns=regions.name&offset=0&limit=25"
+            $"{InDefault}/sources/{orders}/rows?columns=orders.region&columns=regions.name&offset=0&limit=25"
             + $"&join={regions}&joinOn=region&joinTo=code&joinKind={kind}");
 
         rows.GetProperty("values").EnumerateArray().Select(row => $"{row[0].GetString()}:{row[1].GetString()}")
@@ -213,7 +214,7 @@ public sealed class ApiTests
         var regions = await UploadId("regions", Regions);
 
         var series = await _client.GetFromJsonAsync<JsonElement>(
-            $"/sources/{orders}/series?x=regions.name&y=orders.amount&aggregate=sum"
+            $"{InDefault}/sources/{orders}/series?x=regions.name&y=orders.amount&aggregate=sum"
             + $"&join={regions}&joinOn=region&joinTo=code&joinKind=left");
 
         series.GetProperty("points").EnumerateArray()
@@ -236,7 +237,7 @@ public sealed class ApiTests
             .Replace("{other}", regions.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal);
 
         using var response = await _client.GetAsync(
-            new Uri($"/sources/{orders}/series?x=day&aggregate=count&{query}", UriKind.Relative));
+            new Uri($"{InDefault}/sources/{orders}/series?x=day&aggregate=count&{query}", UriKind.Relative));
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
@@ -247,7 +248,7 @@ public sealed class ApiTests
         var id = await UploadId("orders", Orders);
 
         var pivot = await _client.GetFromJsonAsync<JsonElement>(
-            $"/sources/{id}/pivot?row=day&column=region&y=amount&aggregate=sum");
+            $"{InDefault}/sources/{id}/pivot?row=day&column=region&y=amount&aggregate=sum");
 
         pivot.GetProperty("points").EnumerateArray()
             .Select(point => (point[0].GetString(), point[1].GetString(), point[2].GetDouble(), point[3].GetInt64(), point[4].GetInt64()))
@@ -266,7 +267,7 @@ public sealed class ApiTests
         var id = await UploadId("wide", csv);
 
         var points = (await _client.GetFromJsonAsync<JsonElement>(
-                $"/sources/{id}/pivot?row=row&column=key&y=amount&aggregate=sum"))
+                $"{InDefault}/sources/{id}/pivot?row=row&column=key&y=amount&aggregate=sum"))
             .GetProperty("points").EnumerateArray().ToList();
 
         points.Count.ShouldBe(51);
@@ -281,7 +282,7 @@ public sealed class ApiTests
         var id = await UploadId("orders", Orders);
 
         var groups = await _client.GetFromJsonAsync<JsonElement>(
-            $"/sources/{id}/groups?x=day&group=region&y=amount&aggregate=sum");
+            $"{InDefault}/sources/{id}/groups?x=day&group=region&y=amount&aggregate=sum");
 
         groups.GetProperty("points").EnumerateArray()
             .Select(point => (point[0].GetInt64(), point[1].GetString(), point[2].GetDouble()))
@@ -298,7 +299,7 @@ public sealed class ApiTests
     {
         var id = await UploadId("values", "v\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n");
 
-        var histogram = await _client.GetFromJsonAsync<JsonElement>($"/sources/{id}/histogram?column=v&bins=3");
+        var histogram = await _client.GetFromJsonAsync<JsonElement>($"{InDefault}/sources/{id}/histogram?column=v&bins=3");
 
         histogram.GetProperty("points").EnumerateArray()
             .Select(point => (point[0].GetDouble(), point[1].GetDouble(), point[2].GetDouble()))
@@ -310,8 +311,8 @@ public sealed class ApiTests
     {
         var id = await UploadId("orders", Orders);
 
-        var boxes = await _client.GetFromJsonAsync<JsonElement>($"/sources/{id}/boxes?value=amount&group=region");
-        var all = await _client.GetFromJsonAsync<JsonElement>($"/sources/{id}/boxes?value=amount");
+        var boxes = await _client.GetFromJsonAsync<JsonElement>($"{InDefault}/sources/{id}/boxes?value=amount&group=region");
+        var all = await _client.GetFromJsonAsync<JsonElement>($"{InDefault}/sources/{id}/boxes?value=amount");
 
         boxes.GetProperty("points").EnumerateArray()
             .Select(point => string.Join(" ", point.EnumerateArray().Select(value => value.ToString())))
@@ -325,7 +326,7 @@ public sealed class ApiTests
     {
         var id = await UploadId("orders", Orders);
 
-        var total = await _client.GetFromJsonAsync<JsonElement>($"/sources/{id}/total?y=amount&aggregate=sum");
+        var total = await _client.GetFromJsonAsync<JsonElement>($"{InDefault}/sources/{id}/total?y=amount&aggregate=sum");
 
         total.GetProperty("points")[0].ToString().ShouldBe("[\"All rows\",22]");
     }
@@ -336,7 +337,7 @@ public sealed class ApiTests
         var id = await UploadId("scores", "region,a,b,c\neast,1,2,3\neast,3,4,5\nwest,10,20,30\n");
 
         var measures = await _client.GetFromJsonAsync<JsonElement>(
-            $"/sources/{id}/measures?columns=c&columns=a&columns=b&group=region&aggregate=avg");
+            $"{InDefault}/sources/{id}/measures?columns=c&columns=a&columns=b&group=region&aggregate=avg");
 
         measures.GetProperty("points").EnumerateArray()
             .Select(point => string.Join(" ", point.EnumerateArray().Select(value => value.ToString())))
@@ -349,7 +350,7 @@ public sealed class ApiTests
         var id = await UploadId("sales", "region,city,amount\neast,boston,10\neast,boston,5\neast,nyc,7\nwest,la,4\n");
 
         var tree = await _client.GetFromJsonAsync<JsonElement>(
-            $"/sources/{id}/tree?levels=region&levels=city&y=amount&aggregate=sum");
+            $"{InDefault}/sources/{id}/tree?levels=region&levels=city&y=amount&aggregate=sum");
 
         tree.GetProperty("points").EnumerateArray()
             .Select(point => string.Join(" ", point.EnumerateArray().Select(value => value.ToString())))
@@ -362,7 +363,7 @@ public sealed class ApiTests
         var id = await UploadId("flows", "origin,target,amount\na,b,5\na,b,3\nb,c,2\nc,c,9\n");
 
         var links = await _client.GetFromJsonAsync<JsonElement>(
-            $"/sources/{id}/links?from=origin&to=target&y=amount&aggregate=sum");
+            $"{InDefault}/sources/{id}/links?from=origin&to=target&y=amount&aggregate=sum");
 
         links.GetProperty("points").EnumerateArray()
             .Select(point => string.Join(" ", point.EnumerateArray().Select(value => value.ToString())))
@@ -374,7 +375,7 @@ public sealed class ApiTests
     {
         var id = await UploadId("readings", "x,y,z\n1,2,3\n4,,6\n7,8,9\n");
 
-        var values = await _client.GetFromJsonAsync<JsonElement>($"/sources/{id}/values?columns=y&columns=x");
+        var values = await _client.GetFromJsonAsync<JsonElement>($"{InDefault}/sources/{id}/values?columns=y&columns=x");
 
         values.GetProperty("points").EnumerateArray()
             .Select(point => string.Join(" ", point.EnumerateArray().Select(value => value.ToString())))
@@ -408,7 +409,7 @@ public sealed class ApiTests
     {
         var id = await UploadId("orders", Orders);
 
-        using var response = await _client.GetAsync(new Uri($"/sources/{id}/{query}", UriKind.Relative));
+        using var response = await _client.GetAsync(new Uri($"{InDefault}/sources/{id}/{query}", UriKind.Relative));
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
@@ -430,14 +431,14 @@ public sealed class ApiTests
     {
         var sales = await CreateDashboard("Sales");
         await CreateDashboard("Costs");
-        using var updated = await _client.PutAsJsonAsync($"/dashboards/{sales}", new
+        using var updated = await _client.PutAsJsonAsync($"{InDefault}/dashboards/{sales}", new
         {
             name = "Sales",
             layouts = new { },
             widgets = new object[] { new { id = "a" }, new { id = "b" } },
         });
 
-        var list = await _client.GetFromJsonAsync<JsonElement>("/dashboards");
+        var list = await _client.GetFromJsonAsync<JsonElement>($"{InDefault}/dashboards");
 
         list.EnumerateArray().Select(d => (d.GetProperty("name").GetString(), d.GetProperty("chartCount").GetInt32()))
             .ShouldBe([("Costs", 0), ("Sales", 2)]);
@@ -449,16 +450,16 @@ public sealed class ApiTests
         var sales = await CreateDashboard("Sales");
         var costs = await CreateDashboard("Costs");
 
-        using var first = await _client.PatchAsJsonAsync($"/dashboards/{sales}", new { name = "Sales 2026", isLanding = true });
-        using var second = await _client.PatchAsJsonAsync($"/dashboards/{costs}", new { name = "Costs", isLanding = true });
-        var list = await _client.GetFromJsonAsync<JsonElement>("/dashboards");
+        using var first = await _client.PatchAsJsonAsync($"{InDefault}/dashboards/{sales}", new { name = "Sales 2026", isLanding = true });
+        using var second = await _client.PatchAsJsonAsync($"{InDefault}/dashboards/{costs}", new { name = "Costs", isLanding = true });
+        var list = await _client.GetFromJsonAsync<JsonElement>($"{InDefault}/dashboards");
 
         (await first.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("name").GetString().ShouldBe("Sales 2026");
         list.EnumerateArray().Select(d => (d.GetProperty("name").GetString(), d.GetProperty("isLanding").GetBoolean()))
             .ShouldBe([("Costs", true), ("Sales 2026", false)]);
 
-        using var cleared = await _client.PatchAsJsonAsync($"/dashboards/{costs}", new { name = "Costs", isLanding = false });
-        (await _client.GetFromJsonAsync<JsonElement>("/dashboards")).EnumerateArray()
+        using var cleared = await _client.PatchAsJsonAsync($"{InDefault}/dashboards/{costs}", new { name = "Costs", isLanding = false });
+        (await _client.GetFromJsonAsync<JsonElement>($"{InDefault}/dashboards")).EnumerateArray()
             .ShouldAllBe(d => !d.GetProperty("isLanding").GetBoolean());
     }
 
@@ -482,19 +483,19 @@ public sealed class ApiTests
     {
         var sales = await CreateDashboard("Sales");
 
-        using var edited = await _client.PatchAsJsonAsync($"/dashboards/{sales}", new
+        using var edited = await _client.PatchAsJsonAsync($"{InDefault}/dashboards/{sales}", new
         {
             name = "Sales",
             isLanding = false,
             presentation = new { scroll = true, wrap = "reverse", pace = "custom", seconds = 12 },
         });
-        using var refused = await _client.PatchAsJsonAsync($"/dashboards/{sales}", new { name = "Sales", isLanding = false, presentation = "fast" });
+        using var refused = await _client.PatchAsJsonAsync($"{InDefault}/dashboards/{sales}", new { name = "Sales", isLanding = false, presentation = "fast" });
 
         edited.StatusCode.ShouldBe(HttpStatusCode.OK);
         refused.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        var dashboard = await _client.GetFromJsonAsync<JsonElement>($"/dashboards/{sales}");
+        var dashboard = await _client.GetFromJsonAsync<JsonElement>($"{InDefault}/dashboards/{sales}");
         dashboard.GetProperty("presentation").GetProperty("seconds").GetInt32().ShouldBe(12);
-        var listed = (await _client.GetFromJsonAsync<JsonElement>("/dashboards")).EnumerateArray().Single();
+        var listed = (await _client.GetFromJsonAsync<JsonElement>($"{InDefault}/dashboards")).EnumerateArray().Single();
         listed.GetProperty("presentation").GetProperty("wrap").GetString().ShouldBe("reverse");
     }
 
@@ -503,8 +504,8 @@ public sealed class ApiTests
     {
         var sales = await CreateDashboard("Sales");
 
-        using var blank = await _client.PatchAsJsonAsync($"/dashboards/{sales}", new { name = " ", isLanding = false });
-        using var missing = await _client.PatchAsJsonAsync("/dashboards/999", new { name = "Gone", isLanding = false });
+        using var blank = await _client.PatchAsJsonAsync($"{InDefault}/dashboards/{sales}", new { name = " ", isLanding = false });
+        using var missing = await _client.PatchAsJsonAsync($"{InDefault}/dashboards/999", new { name = "Gone", isLanding = false });
 
         blank.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         missing.StatusCode.ShouldBe(HttpStatusCode.NotFound);
@@ -513,11 +514,11 @@ public sealed class ApiTests
     [Test]
     public async Task A_dashboard_keeps_its_layouts_and_widgets()
     {
-        using var created = await _client.PostAsJsonAsync("/dashboards", new { name = "Sales" });
+        using var created = await _client.PostAsJsonAsync($"{InDefault}/dashboards", new { name = "Sales" });
         created.StatusCode.ShouldBe(HttpStatusCode.Created);
         var id = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt32();
 
-        using var updated = await _client.PutAsJsonAsync($"/dashboards/{id}", new
+        using var updated = await _client.PutAsJsonAsync($"{InDefault}/dashboards/{id}", new
         {
             name = "Sales",
             layouts = new { lg = new[] { new { i = "a", x = 0, y = 0, w = 6, h = 4 } } },
@@ -525,12 +526,12 @@ public sealed class ApiTests
         });
         updated.StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        var dashboard = await _client.GetFromJsonAsync<JsonElement>($"/dashboards/{id}");
+        var dashboard = await _client.GetFromJsonAsync<JsonElement>($"{InDefault}/dashboards/{id}");
         dashboard.GetProperty("layouts").GetProperty("lg")[0].GetProperty("w").GetInt32().ShouldBe(6);
         dashboard.GetProperty("widgets")[0].GetProperty("x").GetString().ShouldBe("day");
 
-        using var deleted = await _client.DeleteAsync(new Uri($"/dashboards/{id}", UriKind.Relative));
-        using var gone = await _client.GetAsync(new Uri($"/dashboards/{id}", UriKind.Relative));
+        using var deleted = await _client.DeleteAsync(new Uri($"{InDefault}/dashboards/{id}", UriKind.Relative));
+        using var gone = await _client.GetAsync(new Uri($"{InDefault}/dashboards/{id}", UriKind.Relative));
         deleted.StatusCode.ShouldBe(HttpStatusCode.NoContent);
         gone.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
@@ -539,16 +540,16 @@ public sealed class ApiTests
     public async Task Removing_an_upload_takes_its_row_its_table_and_its_file()
     {
         var id = await UploadId("orders", Orders);
-        var uploads = _factory.Services.GetRequiredService<Workspace>().Uploads;
+        var uploads = _factory.Services.GetRequiredService<WorkspaceStore>().For("default").Uploads;
         Directory.GetFiles(uploads).Length.ShouldBe(1);
 
-        using var removed = await _client.DeleteAsync(new Uri($"/sources/{id}", UriKind.Relative));
+        using var removed = await _client.DeleteAsync(new Uri($"{InDefault}/sources/{id}", UriKind.Relative));
 
         removed.StatusCode.ShouldBe(HttpStatusCode.NoContent);
-        (await _client.GetFromJsonAsync<JsonElement>("/sources")).GetArrayLength().ShouldBe(0);
+        (await _client.GetFromJsonAsync<JsonElement>($"{InDefault}/sources")).GetArrayLength().ShouldBe(0);
         Directory.GetFiles(uploads).ShouldBeEmpty();
         (await TablesNamedAsync("orders")).ShouldBe(0);
-        (await _client.DeleteAsync(new Uri($"/sources/{id}", UriKind.Relative))).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        (await _client.DeleteAsync(new Uri($"{InDefault}/sources/{id}", UriKind.Relative))).StatusCode.ShouldBe(HttpStatusCode.NotFound);
         await UploadId("orders", Orders);
     }
 
@@ -565,13 +566,13 @@ public sealed class ApiTests
         await SaveWidgetsAsync(await CreateDashboard("Map"), "Map",
             [new { id = "c", kind = "map", title = "Regions", name = (string?)null, sourceId = regions, join = (object?)null }]);
 
-        var uses = await _client.GetFromJsonAsync<JsonElement>($"/sources/{regions}/uses");
+        var uses = await _client.GetFromJsonAsync<JsonElement>($"{InDefault}/sources/{regions}/uses");
 
         uses.EnumerateArray()
             .Select(u => $"{u.GetProperty("dashboardName").GetString()}: {u.GetProperty("chartTitle").GetString()} ({u.GetProperty("chartKind").GetString()})")
             .ShouldBe(["Map: Regions (map)", "Sales: By region (table)"]);
-        (await _client.GetFromJsonAsync<JsonElement>($"/sources/{orders}/uses")).GetArrayLength().ShouldBe(2);
-        (await _client.GetAsync(new Uri("/sources/999/uses", UriKind.Relative))).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        (await _client.GetFromJsonAsync<JsonElement>($"{InDefault}/sources/{orders}/uses")).GetArrayLength().ShouldBe(2);
+        (await _client.GetAsync(new Uri($"{InDefault}/sources/999/uses", UriKind.Relative))).StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
     [Test]
@@ -581,17 +582,17 @@ public sealed class ApiTests
         using (var scope = _factory.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<ScryDbContext>();
-            var connection = new Connection { Connector = "schwab", Settings = "{}", CreatedAt = DateTime.UtcNow };
-            var first = new Source { Name = "quotes", Connection = connection, Stream = "quotes", Columns = "[]" };
-            var second = new Source { Name = "movers", Connection = connection, Stream = "movers", Columns = "[]", Status = SourceStatus.Syncing };
+            var connection = new Connection { WorkspaceId = 1, Connector = "schwab", Settings = "{}", CreatedAt = DateTime.UtcNow };
+            var first = new Source { WorkspaceId = 1, Name = "quotes", Connection = connection, Stream = "quotes", Columns = "[]" };
+            var second = new Source { WorkspaceId = 1, Name = "movers", Connection = connection, Stream = "movers", Columns = "[]", Status = SourceStatus.Syncing };
             db.Sources.AddRange(first, second);
             await db.SaveChangesAsync();
             (quotes, movers, connectionId) = (first.Id, second.Id, connection.Id);
         }
 
-        using var busy = await _client.DeleteAsync(new Uri($"/sources/{movers}", UriKind.Relative));
+        using var busy = await _client.DeleteAsync(new Uri($"{InDefault}/sources/{movers}", UriKind.Relative));
         busy.StatusCode.ShouldBe(HttpStatusCode.Conflict);
-        (await _client.DeleteAsync(new Uri($"/sources/{quotes}", UriKind.Relative))).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        (await _client.DeleteAsync(new Uri($"{InDefault}/sources/{quotes}", UriKind.Relative))).StatusCode.ShouldBe(HttpStatusCode.NoContent);
         (await ConnectionCountAsync(connectionId)).ShouldBe(1);
 
         using (var scope = _factory.Services.CreateScope())
@@ -600,19 +601,19 @@ public sealed class ApiTests
             await db.Sources.Where(s => s.Id == movers).ExecuteUpdateAsync(set => set.SetProperty(s => s.Status, SourceStatus.Ready));
         }
 
-        (await _client.DeleteAsync(new Uri($"/sources/{movers}", UriKind.Relative))).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        (await _client.DeleteAsync(new Uri($"{InDefault}/sources/{movers}", UriKind.Relative))).StatusCode.ShouldBe(HttpStatusCode.NoContent);
         (await ConnectionCountAsync(connectionId)).ShouldBe(0);
     }
 
     private async Task SaveWidgetsAsync(int dashboard, string name, object[] widgets)
     {
-        using var saved = await _client.PutAsJsonAsync($"/dashboards/{dashboard}", new { name, layouts = new { }, widgets });
+        using var saved = await _client.PutAsJsonAsync($"{InDefault}/dashboards/{dashboard}", new { name, layouts = new { }, widgets });
         saved.StatusCode.ShouldBe(HttpStatusCode.OK);
     }
 
     private async Task<long> TablesNamedAsync(string name)
     {
-        var rows = await _factory.Services.GetRequiredService<Workspace>()
+        var rows = await _factory.Services.GetRequiredService<WorkspaceStore>().For("default")
             .QueryAsync($"SELECT count(*) FROM information_schema.tables WHERE table_name = '{name}'", 1, CancellationToken.None);
         return Convert.ToInt64(rows[0][0], CultureInfo.InvariantCulture);
     }
@@ -633,12 +634,12 @@ public sealed class ApiTests
         var file = new ByteArrayContent(Encoding.UTF8.GetBytes(csv));
         file.Headers.ContentType = new MediaTypeHeaderValue("text/csv");
         content.Add(file, "file", "orders.csv");
-        return await _client.PostAsync(new Uri("/sources", UriKind.Relative), content);
+        return await _client.PostAsync(new Uri($"{InDefault}/sources", UriKind.Relative), content);
     }
 
     private async Task<int> CreateDashboard(string name)
     {
-        using var created = await _client.PostAsJsonAsync("/dashboards", new { name });
+        using var created = await _client.PostAsJsonAsync($"{InDefault}/dashboards", new { name });
         return (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt32();
     }
 

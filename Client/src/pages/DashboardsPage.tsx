@@ -6,14 +6,19 @@ import { PencilIcon } from '../components/PencilIcon'
 import { Slideout } from '../components/Slideout'
 import { Tooltip } from '../components/Tooltip'
 import type { PresentationSettings } from '../presentation'
+import { useWorkspace } from '../workspace'
 
 const charts = (count: number) => (count === 0 ? 'No charts' : count === 1 ? '1 chart' : `${count} charts`)
 
 const byName = (a: DashboardSummary, b: DashboardSummary) => a.name.localeCompare(b.name)
 
-/** Every dashboard. As the index, it opens the landing dashboard in its place when there is one. */
+/**
+ * The workspace's dashboards. As the workspace's index, it opens the landing dashboard in its place when there is one.
+ * A viewer opens them, and adds, edits, and deletes none.
+ */
 export function DashboardsPage({ openLanding = false }: { openLanding?: boolean }) {
   const navigate = useNavigate()
+  const { base, canEdit } = useWorkspace()
   const [dashboards, setDashboards] = useState<DashboardSummary[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
@@ -23,15 +28,15 @@ export function DashboardsPage({ openLanding = false }: { openLanding?: boolean 
     listDashboards()
       .then((list) => {
         const landing = openLanding ? list.find((dashboard) => dashboard.isLanding) : undefined
-        if (landing) navigate(`/dashboards/${landing.id}`, { replace: true })
+        if (landing) navigate(`${base}/dashboards/${landing.id}`, { replace: true })
         else setDashboards(list)
       })
       .catch((e: Error) => setError(e.message))
-  }, [navigate, openLanding])
+  }, [navigate, openLanding, base])
 
   async function create(name: string) {
     const created = await createDashboard(name)
-    navigate(`/dashboards/${created.id}`)
+    navigate(`${base}/dashboards/${created.id}`)
   }
 
   async function edit(name: string, isLanding: boolean, presentation: PresentationSettings) {
@@ -64,7 +69,7 @@ export function DashboardsPage({ openLanding = false }: { openLanding?: boolean 
     <div className="page">
       <div className="title-row">
         <h1>Dashboards</h1>
-        <div className="title-actions">
+        {canEdit && <div className="title-actions">
           <Tooltip label="Add dashboard">
             <button type="button" className="icon-button emblem" onClick={() => setAdding(true)}>
               <span className="sr-only">Add dashboard</span>
@@ -73,7 +78,7 @@ export function DashboardsPage({ openLanding = false }: { openLanding?: boolean 
               </svg>
             </button>
           </Tooltip>
-        </div>
+        </div>}
       </div>
 
       {error && <p className="error">{error}</p>}
@@ -81,16 +86,16 @@ export function DashboardsPage({ openLanding = false }: { openLanding?: boolean 
       {dashboards === null ? (
         !error && <p className="muted">Loading…</p>
       ) : dashboards.length === 0 ? (
-        <p className="muted">No dashboards yet. Add one to start charting.</p>
+        <p className="muted">{canEdit ? 'No dashboards yet. Add one to start charting.' : 'No dashboards yet.'}</p>
       ) : (
         <ul className="list cards">
           {dashboards.map((dashboard) => (
             <li key={dashboard.id}>
               <div className="card-head">
                 <h2>
-                  <Link to={`/dashboards/${dashboard.id}`}>{dashboard.name}</Link>
+                  <Link to={`${base}/dashboards/${dashboard.id}`}>{dashboard.name}</Link>
                 </h2>
-                <div className="card-actions">
+                {canEdit && <div className="card-actions">
                   <Tooltip label="Edit dashboard">
                     <button
                       type="button"
@@ -111,7 +116,7 @@ export function DashboardsPage({ openLanding = false }: { openLanding?: boolean 
                       ×
                     </button>
                   </Tooltip>
-                </div>
+                </div>}
               </div>
               <p className="muted">
                 {charts(dashboard.chartCount)}

@@ -12,16 +12,18 @@ public sealed record MadeKeyView(int Id, string Name, string Prefix, DateTime Cr
 
 public sealed record KeyRequest(string? Name);
 
+/// <summary>A workspace's push API keys, for its editors. Each key writes only to sources in its workspace.</summary>
 [ApiController]
-[Route("keys")]
-public sealed class KeysController(ScryDbContext db) : ControllerBase
+[Route("workspaces/{workspaceId:int}/keys")]
+[InWorkspace]
+public sealed class KeysController(ScryDbContext db, CurrentWorkspace workspace) : ControllerBase
 {
     [HttpGet]
     public async Task<IEnumerable<IngestKeyView>> List(CancellationToken ct)
     {
-        var keys = await db.IngestKeys.AsNoTracking().OrderBy(key => key.Name).ToListAsync(ct);
+        var keys = await db.IngestKeys.AsNoTracking().Where(key => key.WorkspaceId == workspace.Id).OrderBy(key => key.Name).ToListAsync(ct);
         var sources = (await db.Sources.AsNoTracking()
-                .Where(source => source.IngestKeyId != null)
+                .Where(source => source.WorkspaceId == workspace.Id && source.IngestKeyId != null)
                 .Select(source => new { source.IngestKeyId, source.Name })
                 .ToListAsync(ct))
             .ToLookup(source => source.IngestKeyId, source => source.Name);
@@ -41,7 +43,7 @@ public sealed class KeysController(ScryDbContext db) : ControllerBase
         }
 
         var (secret, hash, prefix) = IngestKeys.Make();
-        var key = new IngestKey { Name = name, Hash = hash, Prefix = prefix, CreatedAt = DateTime.UtcNow };
+        var key = new IngestKey { WorkspaceId = workspace.Id, Name = name, Hash = hash, Prefix = prefix, CreatedAt = DateTime.UtcNow };
         db.IngestKeys.Add(key);
         await db.SaveChangesAsync(ct);
         return new MadeKeyView(key.Id, key.Name, key.Prefix, key.CreatedAt, secret);
@@ -51,7 +53,7 @@ public sealed class KeysController(ScryDbContext db) : ControllerBase
     [HttpDelete("{id:int}")]
     public async Task<IActionResult> Revoke(int id, CancellationToken ct)
     {
-        if (await db.IngestKeys.FindAsync([id], ct) is not { } key)
+        if (await db.IngestKeys.FirstOrDefaultAsync(k => k.Id == id && k.WorkspaceId == workspace.Id, ct) is not { } key)
         {
             return NotFound();
         }

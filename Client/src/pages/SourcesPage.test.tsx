@@ -24,6 +24,8 @@ import { SourcesPage } from './SourcesPage'
 jest.mock('react-router', () => jest.requireActual('../../jest/router').reactRouterMock())
 const { navigate } = jest.requireActual('../../jest/router')
 
+jest.mock('../workspace', () => jest.requireActual('../../jest/workspace').workspaceMock())
+
 jest.mock('../api', () => ({
   ...jest.requireActual('../api'),
   listSources: jest.fn(),
@@ -252,7 +254,7 @@ it('offers the push API beside CSV, pointing to Settings and the reference', asy
   await userEvent.click(tiles[1])
 
   const panel = screen.getByRole('dialog', { name: 'Push API' })
-  expect(within(panel).getByRole('link', { name: 'Make a key on Settings' })).toHaveAttribute('href', '/settings')
+  expect(within(panel).getByRole('link', { name: 'Make a key on Settings' })).toHaveAttribute('href', '/workspaces/1/settings')
   expect(within(panel).getByRole('link', { name: 'Read the push API reference' })).toHaveAttribute('href', '/docs/push-api')
 })
 
@@ -340,7 +342,7 @@ it('offers a Link Nexus tile while Scry is unlinked, which goes to Settings', as
   const nexus = await openThroughNexus()
   await userEvent.click(nexus.getByRole('button', { name: /^Link Nexus/ }))
 
-  expect(navigate).toHaveBeenCalledWith('/settings')
+  expect(navigate).toHaveBeenCalledWith('/workspaces/1/settings')
 })
 
 it("offers Nexus's connectors once linked, and opens Nexus's connect page for the one picked", async () => {

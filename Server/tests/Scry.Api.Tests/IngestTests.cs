@@ -8,6 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 using NUnit.Framework;
 using Scry.Api.Storage;
 using Shouldly;
+using static Scry.Api.Tests.ScryApiFactory;
 
 namespace Scry.Api.Tests;
 
@@ -52,7 +53,7 @@ public sealed class IngestTests
         var key = made.GetProperty("key").GetString()!;
         key.ShouldStartWith("scry_");
         made.GetProperty("prefix").GetString().ShouldBe(key[..12]);
-        var listed = (await _client.GetFromJsonAsync<JsonElement>("/keys")).EnumerateArray().Single();
+        var listed = (await _client.GetFromJsonAsync<JsonElement>($"{InDefault}/keys")).EnumerateArray().Single();
         listed.TryGetProperty("key", out _).ShouldBeFalse();
 
         using var scope = _factory.Services.CreateScope();
@@ -84,7 +85,7 @@ public sealed class IngestTests
         using var response = await client.PutAsJsonAsync("/ingest/sources/orders", Orders);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
-        (await Detail(response)).ShouldBe("Send a push API key as 'Authorization: Bearer <key>'. Make one on Scry's Settings page.");
+        (await Detail(response)).ShouldBe("Send a push API key as 'Authorization: Bearer <key>'. Make one on a workspace's Settings page in Scry.");
     }
 
     [Test]
@@ -183,7 +184,7 @@ public sealed class IngestTests
         {
             form.Add(new StringContent("customers"), "name");
             form.Add(new ByteArrayContent(Encoding.UTF8.GetBytes("name\nAda\n")), "file", "customers.csv");
-            (await _client.PostAsync(new Uri("/sources", UriKind.Relative), form)).StatusCode.ShouldBe(HttpStatusCode.Created);
+            (await _client.PostAsync(new Uri($"{InDefault}/sources", UriKind.Relative), form)).StatusCode.ShouldBe(HttpStatusCode.Created);
         }
 
         using var other = await script.PostAsJsonAsync("/ingest/sources/orders/batches", new { rows = new[] { new object[] { 1, "1.00", "2026-11-01" } } });
@@ -248,7 +249,7 @@ public sealed class IngestTests
             await Batch(old, "orders", null, "append", [[1, "10.00", "2026-11-01"]]);
         }
 
-        (await _client.DeleteAsync(new Uri($"/keys/{first.GetProperty("id").GetInt32()}", UriKind.Relative))).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        (await _client.DeleteAsync(new Uri($"{InDefault}/keys/{first.GetProperty("id").GetInt32()}", UriKind.Relative))).StatusCode.ShouldBe(HttpStatusCode.NoContent);
         using var next = Client(await KeyFor("Nexus at new.test"));
         using var other = Client(await KeyFor("Script"));
 
@@ -272,7 +273,7 @@ public sealed class IngestTests
         await Batch(client, "orders", "b1", "append", [[1, "10.00", "2026-11-01"]]);
         var id = (await Listed("orders")).GetProperty("id").GetInt32();
 
-        (await _client.DeleteAsync(new Uri($"/sources/{id}", UriKind.Relative))).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        (await _client.DeleteAsync(new Uri($"{InDefault}/sources/{id}", UriKind.Relative))).StatusCode.ShouldBe(HttpStatusCode.NoContent);
         (await client.PutAsJsonAsync("/ingest/sources/orders", Orders)).StatusCode.ShouldBe(HttpStatusCode.OK);
         var again = await Batch(client, "orders", "b1", "append", [[2, "20.00", "2026-11-02"]]);
 
@@ -303,7 +304,7 @@ public sealed class IngestTests
         using var client = Client(made.GetProperty("key").GetString());
         await client.PutAsJsonAsync("/ingest/sources/orders", Orders);
 
-        using var revoked = await _client.DeleteAsync(new Uri($"/keys/{made.GetProperty("id").GetInt32()}", UriKind.Relative));
+        using var revoked = await _client.DeleteAsync(new Uri($"{InDefault}/keys/{made.GetProperty("id").GetInt32()}", UriKind.Relative));
         using var refused = await client.PostAsJsonAsync("/ingest/sources/orders/batches", new { rows = Array.Empty<object>() });
 
         revoked.StatusCode.ShouldBe(HttpStatusCode.NoContent);
@@ -321,7 +322,7 @@ public sealed class IngestTests
         await Batch(client, "orders", null, "append", [[1, "10.00", "2026-11-01"], [2, "5.00", "2026-11-01"], [3, "7.00", "2026-11-02"]]);
         var id = (await Listed("orders")).GetProperty("id").GetInt32();
 
-        var series = await _client.GetFromJsonAsync<JsonElement>($"/sources/{id}/series?x=day&y=amount&aggregate=sum");
+        var series = await _client.GetFromJsonAsync<JsonElement>($"{InDefault}/sources/{id}/series?x=day&y=amount&aggregate=sum");
 
         series.GetProperty("points").EnumerateArray().Select(point => point[1].GetDecimal()).ShouldBe([15m, 7m]);
     }
@@ -342,7 +343,7 @@ public sealed class IngestTests
 
     private async Task<JsonElement> MakeKey(string name)
     {
-        using var response = await _client.PostAsJsonAsync("/keys", new { name });
+        using var response = await _client.PostAsJsonAsync($"{InDefault}/keys", new { name });
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         return await response.Content.ReadFromJsonAsync<JsonElement>();
     }
@@ -357,12 +358,12 @@ public sealed class IngestTests
     }
 
     private async Task<JsonElement> Listed(string name) =>
-        (await _client.GetFromJsonAsync<JsonElement>("/sources")).EnumerateArray().Single(s => s.GetProperty("name").GetString() == name);
+        (await _client.GetFromJsonAsync<JsonElement>($"{InDefault}/sources")).EnumerateArray().Single(s => s.GetProperty("name").GetString() == name);
 
     // Each row's first two values, joined by a space.
     private async Task<List<string>> Rows(JsonElement source)
     {
-        var rows = await _client.GetFromJsonAsync<JsonElement>($"/sources/{source.GetProperty("id").GetInt32()}/rows?offset=0&limit=25");
+        var rows = await _client.GetFromJsonAsync<JsonElement>($"{InDefault}/sources/{source.GetProperty("id").GetInt32()}/rows?offset=0&limit=25");
         return [.. rows.GetProperty("values").EnumerateArray().Select(row => $"{row[0].GetString()} {row[1].GetString()}")];
     }
 }

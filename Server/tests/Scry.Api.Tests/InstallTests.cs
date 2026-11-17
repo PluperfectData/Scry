@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using NUnit.Framework;
 using Shouldly;
+using static Scry.Api.Tests.ScryApiFactory;
 
 namespace Scry.Api.Tests;
 
@@ -23,7 +24,7 @@ public sealed partial class InstallTests
         using var factory = new ScryApiFactory(installed: false);
         using var client = factory.CreateClient();
 
-        using var sources = await client.GetAsync(new Uri("/sources", UriKind.Relative));
+        using var sources = await client.GetAsync(new Uri($"{InDefault}/sources", UriKind.Relative));
         var view = await GetAsync(client);
 
         sources.StatusCode.ShouldBe(HttpStatusCode.ServiceUnavailable);
@@ -146,8 +147,8 @@ public sealed partial class InstallTests
         var stored = factory.NewInstanceFile();
         (stored.ClientOrigin, stored.ApiOrigin).ShouldBe((ScryApiFactory.ClientOrigin, ScryApiFactory.ApiOrigin));
 
-        using var fromClient = await GetWithOriginAsync(client, "/sources", ScryApiFactory.ClientOrigin);
-        using var fromElsewhere = await GetWithOriginAsync(client, "/sources", "https://elsewhere.example");
+        using var fromClient = await GetWithOriginAsync(client, "/workspaces", ScryApiFactory.ClientOrigin);
+        using var fromElsewhere = await GetWithOriginAsync(client, "/workspaces", "https://elsewhere.example");
         fromClient.StatusCode.ShouldBe(HttpStatusCode.OK);
         fromClient.Headers.GetValues("Access-Control-Allow-Origin").ShouldBe([ScryApiFactory.ClientOrigin]);
         fromClient.Headers.GetValues("Access-Control-Allow-Credentials").ShouldBe(["true"]);
@@ -218,7 +219,7 @@ public sealed partial class InstallTests
         factory.Database.Refusal = "Unable to connect to any of the specified MySQL hosts.";
         using var client = factory.CreateClient();
 
-        using var sources = await client.GetAsync(new Uri("/sources", UriKind.Relative));
+        using var sources = await client.GetAsync(new Uri($"{InDefault}/sources", UriKind.Relative));
         var view = await GetAsync(client, local: true);
         factory.Database.Refusal = null;
         using var reopened = await PostAsync(client, "/install/database", new { host = "db.scry.test", port = 3306, name = "scry", user = "scry", password = "stored-password" }, local: true);

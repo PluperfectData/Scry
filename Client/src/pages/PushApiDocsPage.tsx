@@ -1,5 +1,6 @@
 import { Link } from 'react-router'
 import { apiUrl } from '../api'
+import { currentOf, useWorkspaces, workspacePath } from '../workspace'
 
 const TYPES: [string, string][] = [
   ['String', 'Text, as a JSON string.'],
@@ -37,6 +38,8 @@ function Request({ method, path, body }: { method: string; path: string; body?: 
 
 /** The push API's reference: keys, routes, column types, and answers. */
 export function PushApiDocsPage() {
+  const current = currentOf(useWorkspaces().workspaces, null)
+
   return (
     <div className="page docs">
       <p>
@@ -50,9 +53,10 @@ export function PushApiDocsPage() {
 
       <h2>Keys</h2>
       <p>
-        Make a key on the <Link to="/settings">Settings</Link> page and send it with every request as{' '}
-        <code>Authorization: Bearer &lt;your key&gt;</code>. Scry shows a key once, when it is made. A key writes only to
-        the sources it made. Revoking it keeps those sources, and no key writes to them again.
+        Make a key on a workspace&apos;s{' '}
+        {current ? <Link to={`${workspacePath(current.id)}/settings`}>Settings</Link> : 'Settings'} page and send it with
+        every request as <code>Authorization: Bearer &lt;your key&gt;</code>. Scry shows a key once, when it is made. A key
+        writes into its own workspace, and only to the sources it made. Revoking it keeps those sources, and no key writes to them again.
       </p>
       <p>To check a key, ask Scry for its name and prefix:</p>
       <Request method="GET" path="/ingest" />

@@ -7,7 +7,17 @@ using Pluperfect.Mail;
 
 namespace Scry.Api.Controllers;
 
-public sealed record UserView(int Id, string Email, bool IsAdmin, bool HasPassword, DateTime CreatedAt, DateTime? SignedInAt);
+/// <summary>A workspace a user is in, with their role there.</summary>
+public sealed record UserWorkspace(int Id, string Name, WorkspaceRole Role);
+
+public sealed record UserView(
+    int Id,
+    string Email,
+    bool IsAdmin,
+    bool HasPassword,
+    DateTime CreatedAt,
+    DateTime? SignedInAt,
+    IReadOnlyList<UserWorkspace> Workspaces);
 
 public sealed record InviteRequest(string? Email, bool IsAdmin);
 
@@ -38,7 +48,12 @@ public sealed partial class UsersController(
     public async Task<IEnumerable<UserView>> List(CancellationToken ct)
     {
         var users = await db.Users.OrderBy(u => u.Email).ToListAsync(ct);
-        return users.Select(View);
+        var workspaces = (await db.WorkspaceMembers
+                .OrderBy(m => m.Workspace!.Name)
+                .Select(m => new { m.UserId, Workspace = new UserWorkspace(m.WorkspaceId, m.Workspace!.Name, m.Role) })
+                .ToListAsync(ct))
+            .ToLookup(m => m.UserId, m => m.Workspace);
+        return users.Select(user => View(user, [.. workspaces[user.Id]]));
     }
 
     /// <summary>Makes a user and mails them an invite link, or answers the link when it cannot be mailed.</summary>
@@ -59,7 +74,7 @@ public sealed partial class UsersController(
         db.Users.Add(user);
         await db.SaveChangesAsync(ct);
         var (link, problem) = await DeliverAsync(user, ct);
-        return StatusCode(StatusCodes.Status201Created, new InviteView(View(user), link, problem));
+        return StatusCode(StatusCodes.Status201Created, new InviteView(View(user, []), link, problem));
     }
 
     /// <summary>Mails the user a new invite link, for one who lost theirs, or answers the link when it cannot be mailed.</summary>
@@ -114,7 +129,12 @@ public sealed partial class UsersController(
 
         user.IsAdmin = edit.IsAdmin;
         await db.SaveChangesAsync(ct);
-        return View(user);
+        var workspaces = await db.WorkspaceMembers
+            .Where(m => m.UserId == id)
+            .OrderBy(m => m.Workspace!.Name)
+            .Select(m => new UserWorkspace(m.WorkspaceId, m.Workspace!.Name, m.Role))
+            .ToListAsync(ct);
+        return View(user, workspaces);
     }
 
     /// <summary>Removes the user and ends their sessions.</summary>
@@ -144,6 +164,6 @@ public sealed partial class UsersController(
 
     private Task<bool> IsLastAdminAsync(User user, CancellationToken ct) => db.Users.AllAsync(u => !u.IsAdmin || u.Id == user.Id, ct);
 
-    private static UserView View(User user) =>
-        new(user.Id, user.Email, user.IsAdmin, user.PasswordHash is not null, user.CreatedAt, user.SignedInAt);
+    private static UserView View(User user, IReadOnlyList<UserWorkspace> workspaces) =>
+        new(user.Id, user.Email, user.IsAdmin, user.PasswordHash is not null, user.CreatedAt, user.SignedInAt, workspaces);
 }

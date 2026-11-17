@@ -30,6 +30,10 @@ public sealed class ScryDbContext(DbContextOptions<ScryDbContext> options) : DbC
 
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
+    public DbSet<Workspace> Workspaces => Set<Workspace>();
+
+    public DbSet<WorkspaceMember> WorkspaceMembers => Set<WorkspaceMember>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<User>(user =>
@@ -55,10 +59,28 @@ public sealed class ScryDbContext(DbContextOptions<ScryDbContext> options) : DbC
             token.Property(t => t.RevokedReason).HasMaxLength(200);
         });
 
+        modelBuilder.Entity<Workspace>(workspace =>
+        {
+            workspace.ToTable("workspaces");
+            workspace.HasIndex(w => w.Folder).IsUnique();
+            workspace.Property(w => w.Name).HasMaxLength(Workspace.MaxNameLength);
+            workspace.Property(w => w.Folder).HasMaxLength(64);
+            workspace.Property(w => w.CreatedAt).HasConversion(Utc);
+        });
+
+        modelBuilder.Entity<WorkspaceMember>(member =>
+        {
+            member.ToTable("workspace_members");
+            member.HasKey(m => new { m.WorkspaceId, m.UserId });
+            member.Property(m => m.Role).HasConversion<string>().HasMaxLength(16);
+            member.HasOne(m => m.Workspace).WithMany().HasForeignKey(m => m.WorkspaceId).OnDelete(DeleteBehavior.Cascade);
+            member.HasOne(m => m.User).WithMany().HasForeignKey(m => m.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
         modelBuilder.Entity<Source>(source =>
         {
             source.ToTable("sources");
-            source.HasIndex(s => s.Name).IsUnique();
+            source.HasIndex(s => new { s.WorkspaceId, s.Name }).IsUnique();
             source.Property(s => s.Name).HasMaxLength(Source.MaxNameLength);
             source.Property(s => s.FileName).HasMaxLength(255);
             source.Property(s => s.StoredFile).HasMaxLength(64);
@@ -69,16 +91,19 @@ public sealed class ScryDbContext(DbContextOptions<ScryDbContext> options) : DbC
             source.Property(s => s.Error).HasMaxLength(1000);
             source.HasOne(s => s.Connection).WithMany().HasForeignKey(s => s.ConnectionId).OnDelete(DeleteBehavior.Restrict);
             source.HasOne(s => s.IngestKey).WithMany().HasForeignKey(s => s.IngestKeyId).OnDelete(DeleteBehavior.SetNull);
+            source.HasOne<Workspace>().WithMany().HasForeignKey(s => s.WorkspaceId).OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<NexusLink>(link =>
         {
             link.ToTable("nexus_link");
+            link.HasIndex(l => l.WorkspaceId).IsUnique();
             link.Property(l => l.NexusUrl).HasMaxLength(2000);
             link.Property(l => l.AppName).HasMaxLength(200);
             link.Property(l => l.WorkspaceName).HasMaxLength(200);
             link.Property(l => l.LinkedAt).HasConversion(Utc);
             link.HasOne(l => l.IngestKey).WithMany().HasForeignKey(l => l.IngestKeyId).OnDelete(DeleteBehavior.SetNull);
+            link.HasOne<Workspace>().WithMany().HasForeignKey(l => l.WorkspaceId).OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<IngestKey>(key =>
@@ -89,6 +114,7 @@ public sealed class ScryDbContext(DbContextOptions<ScryDbContext> options) : DbC
             key.Property(k => k.Hash).HasMaxLength(64);
             key.Property(k => k.Prefix).HasMaxLength(16);
             key.Property(k => k.CreatedAt).HasConversion(Utc);
+            key.HasOne<Workspace>().WithMany().HasForeignKey(k => k.WorkspaceId).OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<Connection>(connection =>
@@ -96,6 +122,7 @@ public sealed class ScryDbContext(DbContextOptions<ScryDbContext> options) : DbC
             connection.ToTable("connections");
             connection.Property(c => c.Connector).HasMaxLength(32);
             connection.Property(c => c.CreatedAt).HasConversion(Utc);
+            connection.HasOne<Workspace>().WithMany().HasForeignKey(c => c.WorkspaceId).OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<Dashboard>(dashboard =>
@@ -104,7 +131,8 @@ public sealed class ScryDbContext(DbContextOptions<ScryDbContext> options) : DbC
             dashboard.Property(d => d.Name).HasMaxLength(Dashboard.MaxNameLength);
             dashboard.Property(d => d.CreatedAt).HasConversion(Utc);
             dashboard.Property(d => d.UpdatedAt).HasConversion(Utc);
-            dashboard.HasIndex(d => d.Landing).IsUnique();
+            dashboard.HasIndex(d => new { d.WorkspaceId, d.Landing }).IsUnique();
+            dashboard.HasOne<Workspace>().WithMany().HasForeignKey(d => d.WorkspaceId).OnDelete(DeleteBehavior.Restrict);
         });
     }
 }

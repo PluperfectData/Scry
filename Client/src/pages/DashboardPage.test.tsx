@@ -7,6 +7,9 @@ import { DashboardPage } from './DashboardPage'
 jest.mock('react-router', () => jest.requireActual('../../jest/router').reactRouterMock())
 const { routerState } = jest.requireActual('../../jest/router')
 
+jest.mock('../workspace', () => jest.requireActual('../../jest/workspace').workspaceMock())
+const { openWorkspace, opened } = jest.requireActual('../../jest/workspace')
+
 const mockNotify = jest.fn()
 jest.mock('../notices', () => ({ useNotices: () => ({ notify: mockNotify }) }))
 
@@ -83,6 +86,7 @@ const byDay: Widget = { id: 'w1', title: 'Sum of amount by day', kind: 'bar', so
 
 beforeEach(() => {
   jest.clearAllMocks()
+  openWorkspace.current = opened()
   routerState.params = { id: '3' }
   jest.mocked(listSources).mockResolvedValue([orders])
   jest.mocked(saveDashboard).mockImplementation(async (dashboard) => ({ ...sales([], {}), ...dashboard }))
@@ -159,7 +163,7 @@ it('offers no chart to add or edit until there is a source', async () => {
   jest.mocked(getDashboard).mockResolvedValue(sales([byDay], {}))
   render(<DashboardPage />)
 
-  expect(await screen.findByRole('link', { name: 'Upload a CSV file' })).toBeInTheDocument()
+  expect(await screen.findByRole('link', { name: 'Upload a CSV file' })).toHaveAttribute('href', '/workspaces/1/sources')
   expect(screen.queryByRole('button', { name: 'Add chart' })).not.toBeInTheDocument()
   expect(screen.queryByRole('button', { name: 'Edit Sum of amount by day' })).not.toBeInTheDocument()
 })
@@ -207,4 +211,26 @@ it('shows only the charts in full screen when the dashboard hides its title', as
   } finally {
     delete (document as { fullscreenElement?: Element | null }).fullscreenElement
   }
+})
+
+it('is read only for a viewer, outside full screen too', async () => {
+  openWorkspace.current = opened('Viewer')
+  jest.mocked(getDashboard).mockResolvedValue(sales([byDay], {}))
+  render(<DashboardPage />)
+
+  expect(await screen.findByRole('heading', { level: 1, name: 'Sales' })).toBeInTheDocument()
+  expect(screen.getByText('Sum of amount by day')).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Add chart' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Edit Sales' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Edit Sum of amount by day' })).not.toBeInTheDocument()
+})
+
+it('tells a viewer the workspace has no sources yet, with no upload to offer', async () => {
+  openWorkspace.current = opened('Viewer')
+  jest.mocked(listSources).mockResolvedValue([])
+  jest.mocked(getDashboard).mockResolvedValue(sales([], {}))
+  render(<DashboardPage />)
+
+  expect(await screen.findByText('This workspace has no sources to chart yet.')).toBeInTheDocument()
+  expect(screen.queryByRole('link', { name: 'Upload a CSV file' })).not.toBeInTheDocument()
 })

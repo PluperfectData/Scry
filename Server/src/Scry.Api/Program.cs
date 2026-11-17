@@ -49,7 +49,9 @@ builder.Services.AddDbContext<ScryDbContext>((services, options) => services.Get
     services.GetRequiredService<Installation>().ConnectionString ?? throw new InvalidOperationException(InstallGate.NotSetUp)));
 
 builder.Services.AddSingleton(builder.Configuration.GetSection(SchwabApp.Section).Get<SchwabApp>() ?? new SchwabApp());
-builder.Services.AddSingleton<Workspace>();
+builder.Services.AddSingleton<WorkspaceStore>();
+builder.Services.AddScoped<WorkspaceAccess>();
+builder.Services.AddScoped<CurrentWorkspace>();
 builder.Services.AddHttpClient(SchwabConnector.HttpClientName);
 builder.Services.AddSingleton<SchwabConnector>();
 builder.Services.AddSingleton<SourceConnectors>();

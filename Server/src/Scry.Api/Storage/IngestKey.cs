@@ -10,6 +10,9 @@ public sealed class IngestKey
 
     public int Id { get; set; }
 
+    /// <summary>The workspace whose sources the key writes.</summary>
+    public int WorkspaceId { get; set; }
+
     public required string Name { get; set; }
 
     /// <summary>The key's SHA-256 hash, as lowercase hex.</summary>

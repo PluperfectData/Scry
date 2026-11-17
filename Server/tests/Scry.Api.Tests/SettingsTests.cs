@@ -4,6 +4,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using NUnit.Framework;
 using Shouldly;
+using static Scry.Api.Tests.ScryApiFactory;
 
 namespace Scry.Api.Tests;
 
@@ -55,7 +56,7 @@ public sealed class SettingsTests
         afterSamePlace.ShouldBe(ScryApiFactory.StoredDatabase);
         moved.StatusCode.ShouldBe(HttpStatusCode.OK);
         factory.NewInstanceFile().Database.ShouldBe(new DatabaseSettings("db.moved.test", 3306, "scry", "scry", "new-password"));
-        (await client.GetAsync(new Uri("/sources", UriKind.Relative))).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await client.GetAsync(new Uri($"{InDefault}/sources", UriKind.Relative))).StatusCode.ShouldBe(HttpStatusCode.OK);
     }
 
     [Test]

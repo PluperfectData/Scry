@@ -20,7 +20,8 @@ public sealed record ConnectorView(
 }
 
 [ApiController]
-[Route("connectors")]
+[Route("workspaces/{workspaceId:int}/connectors")]
+[InWorkspace]
 public sealed class ConnectorsController(SchwabConnector schwab) : ControllerBase
 {
     private static readonly ConnectorView Csv = ConnectorView.From(new CsvSource().Spec);

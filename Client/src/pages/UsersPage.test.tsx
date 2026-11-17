@@ -21,6 +21,7 @@ const user = (id: number, email: string, isAdmin = false): User => ({
   hasPassword: false,
   createdAt: '2026-11-15T12:00:00Z',
   signedInAt: null,
+  workspaces: [],
 })
 
 const renderAs = (me: Me) =>
@@ -90,4 +91,17 @@ it('tells a member that only admins manage users', () => {
 
   expect(screen.getByText('Only admins manage users.')).toBeInTheDocument()
   expect(listUsers).not.toHaveBeenCalled()
+})
+
+it("says where each user works: an admin in every workspace, a member in theirs with their role", async () => {
+  jest.mocked(listUsers).mockResolvedValue([
+    user(1, 'admin@acme.test', true),
+    { ...user(2, 'rowan@acme.test'), workspaces: [{ id: 1, name: 'Default', role: 'Viewer' }, { id: 2, name: 'Finance', role: 'Editor' }] },
+    user(3, 'sam@acme.test'),
+  ])
+  renderAs(admin)
+
+  expect(await screen.findByText('An editor in every workspace')).toBeInTheDocument()
+  expect(screen.getByText('Viewer in Default, Editor in Finance')).toBeInTheDocument()
+  expect(screen.getByText('In no workspace yet')).toBeInTheDocument()
 })

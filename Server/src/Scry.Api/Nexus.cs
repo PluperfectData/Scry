@@ -5,8 +5,8 @@ using Microsoft.Extensions.Caching.Memory;
 
 namespace Scry.Api;
 
-/// <summary>A pairing sent to Nexus and not yet back: the instance it went to, and the verifier that claims it.</summary>
-public sealed record PendingPairing(string NexusUrl, string Verifier);
+/// <summary>A pairing sent to Nexus and not yet back: the instance it went to, the verifier that claims it, and the workspace it links.</summary>
+public sealed record PendingPairing(string NexusUrl, string Verifier, int WorkspaceId);
 
 /// <summary>Pairings waiting for an admin's approval at Nexus, by Nexus's id for them, for ten minutes.</summary>
 public sealed class NexusPairings(IMemoryCache cache)
@@ -37,7 +37,6 @@ public sealed record OpenedPairing(string Id, string ApproveUrl, DateTime Expire
 
 public sealed record ClaimedPairing(string AppKey, int DestinationId, string AppName, string WorkspaceName);
 
-/// <summary>A connector Nexus reads through, such as MySQL.</summary>
 /// <summary>A connector Nexus reads through. <paramref name="NotReady"/> says why the link's workspace cannot connect it yet.</summary>
 public sealed record NexusConnector(string Id, string Name, string Description, string? NotReady = null);
 

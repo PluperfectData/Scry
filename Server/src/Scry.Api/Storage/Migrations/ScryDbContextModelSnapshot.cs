@@ -45,7 +45,12 @@ namespace Scry.Api.Storage.Migrations
                     b.Property<string>("Tokens")
                         .HasColumnType("longtext");
 
+                    b.Property<int>("WorkspaceId")
+                        .HasColumnType("int");
+
                     b.HasKey("Id");
+
+                    b.HasIndex("WorkspaceId");
 
                     b.ToTable("connections", (string)null);
                 });
@@ -83,9 +88,12 @@ namespace Scry.Api.Storage.Migrations
                         .IsRequired()
                         .HasColumnType("longtext");
 
+                    b.Property<int>("WorkspaceId")
+                        .HasColumnType("int");
+
                     b.HasKey("Id");
 
-                    b.HasIndex("Landing")
+                    b.HasIndex("WorkspaceId", "Landing")
                         .IsUnique();
 
                     b.ToTable("dashboards", (string)null);
@@ -117,10 +125,15 @@ namespace Scry.Api.Storage.Migrations
                         .HasMaxLength(16)
                         .HasColumnType("varchar(16)");
 
+                    b.Property<int>("WorkspaceId")
+                        .HasColumnType("int");
+
                     b.HasKey("Id");
 
                     b.HasIndex("Hash")
                         .IsUnique();
+
+                    b.HasIndex("WorkspaceId");
 
                     b.ToTable("ingest_keys", (string)null);
                 });
@@ -156,6 +169,9 @@ namespace Scry.Api.Storage.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("varchar(2000)");
 
+                    b.Property<int>("WorkspaceId")
+                        .HasColumnType("int");
+
                     b.Property<string>("WorkspaceName")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -164,6 +180,9 @@ namespace Scry.Api.Storage.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("IngestKeyId");
+
+                    b.HasIndex("WorkspaceId")
+                        .IsUnique();
 
                     b.ToTable("nexus_link", (string)null);
                 });
@@ -293,13 +312,16 @@ namespace Scry.Api.Storage.Migrations
                     b.Property<DateTime?>("SyncedAt")
                         .HasColumnType("datetime(6)");
 
+                    b.Property<int>("WorkspaceId")
+                        .HasColumnType("int");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ConnectionId");
 
                     b.HasIndex("IngestKeyId");
 
-                    b.HasIndex("Name")
+                    b.HasIndex("WorkspaceId", "Name")
                         .IsUnique();
 
                     b.ToTable("sources", (string)null);
@@ -344,12 +366,94 @@ namespace Scry.Api.Storage.Migrations
                     b.ToTable("users", (string)null);
                 });
 
+            modelBuilder.Entity("Scry.Api.Storage.Workspace", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Folder")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("varchar(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Folder")
+                        .IsUnique();
+
+                    b.ToTable("workspaces", (string)null);
+                });
+
+            modelBuilder.Entity("Scry.Api.Storage.WorkspaceMember", b =>
+                {
+                    b.Property<int>("WorkspaceId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("varchar(16)");
+
+                    b.HasKey("WorkspaceId", "UserId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("workspace_members", (string)null);
+                });
+
+            modelBuilder.Entity("Scry.Api.Storage.Connection", b =>
+                {
+                    b.HasOne("Scry.Api.Storage.Workspace", null)
+                        .WithMany()
+                        .HasForeignKey("WorkspaceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Scry.Api.Storage.Dashboard", b =>
+                {
+                    b.HasOne("Scry.Api.Storage.Workspace", null)
+                        .WithMany()
+                        .HasForeignKey("WorkspaceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Scry.Api.Storage.IngestKey", b =>
+                {
+                    b.HasOne("Scry.Api.Storage.Workspace", null)
+                        .WithMany()
+                        .HasForeignKey("WorkspaceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Scry.Api.Storage.NexusLink", b =>
                 {
                     b.HasOne("Scry.Api.Storage.IngestKey", "IngestKey")
                         .WithMany()
                         .HasForeignKey("IngestKeyId")
                         .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Scry.Api.Storage.Workspace", null)
+                        .WithMany()
+                        .HasForeignKey("WorkspaceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
 
                     b.Navigation("IngestKey");
                 });
@@ -366,9 +470,34 @@ namespace Scry.Api.Storage.Migrations
                         .HasForeignKey("IngestKeyId")
                         .OnDelete(DeleteBehavior.SetNull);
 
+                    b.HasOne("Scry.Api.Storage.Workspace", null)
+                        .WithMany()
+                        .HasForeignKey("WorkspaceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.Navigation("Connection");
 
                     b.Navigation("IngestKey");
+                });
+
+            modelBuilder.Entity("Scry.Api.Storage.WorkspaceMember", b =>
+                {
+                    b.HasOne("Scry.Api.Storage.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Scry.Api.Storage.Workspace", "Workspace")
+                        .WithMany()
+                        .HasForeignKey("WorkspaceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+
+                    b.Navigation("Workspace");
                 });
 #pragma warning restore 612, 618
         }

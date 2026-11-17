@@ -38,6 +38,8 @@ public sealed partial class Source
 
     public int Id { get; set; }
 
+    public int WorkspaceId { get; set; }
+
     public required string Name { get; set; }
 
     /// <summary>The uploaded file's name, for an upload.</summary>

@@ -40,15 +40,15 @@ public sealed record IngestBatchView(long RowCount, bool Skipped);
 public sealed record CallerKeyView(string Name, string Prefix);
 
 /// <summary>
-/// The push API. Every route takes a key made on the Settings page as <c>Authorization: Bearer</c>, and no session, so
-/// there is no cookie for antiforgery to protect. A key writes only to the sources it made, and to a pushed source whose
-/// key was revoked, which it then takes over.
+/// The push API. Every route takes a key made on a workspace's Settings page as <c>Authorization: Bearer</c>, and no
+/// session, so there is no cookie for antiforgery to protect. A key writes into its own workspace: only to the sources it
+/// made, and to a pushed source whose key was revoked, which it then takes over.
 /// </summary>
 [ApiController]
 [Route("ingest/sources/{name}")]
 [AllowAnonymous]
 [SkipAntiforgery]
-public sealed class IngestController(ScryDbContext db, Workspace workspace, IngestKeys keys) : ControllerBase
+public sealed class IngestController(ScryDbContext db, WorkspaceStore store, IngestKeys keys) : ControllerBase
 {
     public const int MaxRows = 10_000;
 
@@ -81,6 +81,8 @@ public sealed class IngestController(ScryDbContext db, Workspace workspace, Inge
             return NoKey();
         }
 
+        var workspace = await DataOfAsync(key, ct);
+
         if (!Source.IsValidName(name))
         {
             return Problem(Source.NameRule, statusCode: StatusCodes.Status400BadRequest);
@@ -96,11 +98,12 @@ public sealed class IngestController(ScryDbContext db, Workspace workspace, Inge
             return Problem(OriginRule, statusCode: StatusCodes.Status400BadRequest);
         }
 
-        var source = await db.Sources.FirstOrDefaultAsync(s => s.Name == name, ct);
+        var source = await db.Sources.FirstOrDefaultAsync(s => s.WorkspaceId == key.WorkspaceId && s.Name == name, ct);
         if (source is null)
         {
             source = new Source
             {
+                WorkspaceId = key.WorkspaceId,
                 Name = name,
                 Pushed = true,
                 IngestKeyId = key.Id,
@@ -150,6 +153,8 @@ public sealed class IngestController(ScryDbContext db, Workspace workspace, Inge
         {
             return NoKey();
         }
+
+        var workspace = await DataOfAsync(key, ct);
 
         var (source, missing) = await SourceAsync(name, key, ct);
         if (missing is not null)
@@ -216,6 +221,8 @@ public sealed class IngestController(ScryDbContext db, Workspace workspace, Inge
             return NoKey();
         }
 
+        var workspace = await DataOfAsync(key, ct);
+
         if (!OriginOf(request, out var origin))
         {
             return Problem(OriginRule, statusCode: StatusCodes.Status400BadRequest);
@@ -258,6 +265,8 @@ public sealed class IngestController(ScryDbContext db, Workspace workspace, Inge
         {
             return NoKey();
         }
+
+        var workspace = await DataOfAsync(key, ct);
 
         var (source, missing) = await SourceAsync(name, key, ct);
         if (missing is not null)
@@ -364,7 +373,7 @@ public sealed class IngestController(ScryDbContext db, Workspace workspace, Inge
     /// <summary>The source <paramref name="key"/> may write to, or the problem to answer.</summary>
     private async Task<(Source Source, ActionResult? Problem)> SourceAsync(string name, IngestKey key, CancellationToken ct)
     {
-        if (await db.Sources.FirstOrDefaultAsync(s => s.Name == name, ct) is not { } source)
+        if (await db.Sources.FirstOrDefaultAsync(s => s.WorkspaceId == key.WorkspaceId && s.Name == name, ct) is not { } source)
         {
             return (null!, Problem(
                 $"There is no source named '{name}'. Make it with PUT /ingest/sources/{name}.",
@@ -400,8 +409,11 @@ public sealed class IngestController(ScryDbContext db, Workspace workspace, Inge
 
     private ObjectResult NoKey() =>
         Problem(
-            "Send a push API key as 'Authorization: Bearer <key>'. Make one on Scry's Settings page.",
+            "Send a push API key as 'Authorization: Bearer <key>'. Make one on a workspace's Settings page in Scry.",
             statusCode: StatusCodes.Status401Unauthorized);
+
+    private async Task<WorkspaceData> DataOfAsync(IngestKey key, CancellationToken ct) =>
+        store.For(await db.Workspaces.AsNoTracking().SingleAsync(w => w.Id == key.WorkspaceId, ct));
 
     private sealed record PendingSchema(IReadOnlyList<ColumnInfo> Columns, IReadOnlyList<string> PrimaryKey);
 }

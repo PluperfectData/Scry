@@ -1,21 +1,31 @@
 import { useEffect, useState } from 'react'
-import { Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router'
-import { signOut } from '../api'
+import { Navigate, NavLink, Outlet, useLocation, useMatch, useNavigate } from 'react-router'
+import { signOut, type Workspace } from '../api'
 import { canRequestFullscreen, enterFullscreen, useFullscreen } from '../fullscreen'
 import { clearNext, rememberNext } from '../next'
 import { SIGNED_OUT, useSession } from '../session'
 import { useTheme } from '../theme'
+import { currentOf, useWorkspaces, workspacePath } from '../workspace'
 import { AccountMenu } from './AccountMenu'
 import { BrandMark } from './BrandMark'
 import { NoticeStack } from './NoticeStack'
 import { Tooltip } from './Tooltip'
+import { WorkspaceMenu } from './WorkspaceMenu'
 
-const NAV = [
-  { to: '/dashboards', label: 'Dashboards' },
-  { to: '/sources', label: 'Sources' },
-  { to: '/settings', label: 'Settings' },
-  { to: '/docs', label: 'Docs' },
-]
+/** The header's links: a workspace's pages, which a viewer opens only the dashboards of, then the docs. */
+function linksFor(workspace: Workspace | null) {
+  const base = workspace ? workspacePath(workspace.id) : null
+  return [
+    ...(base ? [{ to: `${base}/dashboards`, label: 'Dashboards' }] : []),
+    ...(base && workspace?.role === 'Editor'
+      ? [
+          { to: `${base}/sources`, label: 'Sources' },
+          { to: `${base}/settings`, label: 'Settings' },
+        ]
+      : []),
+    { to: '/docs', label: 'Docs' },
+  ]
+}
 
 /** Shows the theme a press switches to: a sun for light, a moon for dark. */
 function ThemeToggle() {
@@ -65,8 +75,11 @@ export function Layout() {
   const { pathname } = useLocation()
   const navigate = useNavigate()
   const { me, setMe } = useSession()
+  const { workspaces } = useWorkspaces()
+  const inPage = useMatch('/workspaces/:workspaceId/*')?.params.workspaceId
+  const current = currentOf(workspaces, inPage === undefined ? null : Number(inPage))
   const fullscreen = useFullscreen()
-  const onDashboard = /^\/dashboards\/[^/]+$/.test(pathname)
+  const onDashboard = /^\/workspaces\/[^/]+\/dashboards\/[^/]+$/.test(pathname)
   // A dashboard in full screen shows only its name and charts, so the header and its banners go.
   const presenting = fullscreen && onDashboard
   // The installer comes before every other page, and signing in before the rest, so the header offers none of them.
@@ -92,14 +105,19 @@ export function Layout() {
         <div className="site-top">
           <header className="site-header">
             <div className="wrap">
-              <NavLink to="/" className="brand">
-                <BrandMark />
-                Scry
-              </NavLink>
+              <div className="header-start">
+                <NavLink to="/" className="brand">
+                  <BrandMark />
+                  <span className="brand-name">Scry</span>
+                </NavLink>
+                {offersPages && current && workspaces && (
+                  <WorkspaceMenu key={pathname} current={current} workspaces={workspaces} isAdmin={me?.isAdmin === true} />
+                )}
+              </div>
 
               {offersPages && (
                 <nav className="nav" id="site-nav" aria-label="Main" data-open={menuOpen ? '' : undefined}>
-                  {NAV.map((item) => (
+                  {linksFor(current).map((item) => (
                     <NavLink key={item.to} to={item.to} end className={({ isActive }) => (isActive ? 'is-active' : '')}>
                       {item.label}
                     </NavLink>

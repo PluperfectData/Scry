@@ -162,6 +162,54 @@ async function readAnswer<T>(response: Response): Promise<T> {
 
 const request = async <T>(path: string, init?: RequestInit): Promise<T> => readAnswer<T>(await authFetch(path, init))
 
+let openWorkspace: number | null = null
+
+/** Sets the workspace that the dashboard, source, key, and Nexus calls below belong to. The workspace's pages set it as they open. */
+export function enterWorkspace(id: number) {
+  openWorkspace = id
+}
+
+function inWorkspace(path: string): string {
+  if (openWorkspace === null) throw new Error('No workspace is open.')
+  return `/workspaces/${openWorkspace}${path}`
+}
+
+/** What a member may do in a workspace. An admin is an editor in every workspace. */
+export type WorkspaceRole = 'Editor' | 'Viewer'
+
+/** A workspace, with the signed-in user's role in it. */
+export interface Workspace {
+  id: number
+  name: string
+  role: WorkspaceRole
+  createdAt: string
+}
+
+export interface Member {
+  userId: number
+  email: string
+  role: WorkspaceRole
+}
+
+/** A workspace, with its members for an admin, and null for anyone else. */
+export interface WorkspaceDetail extends Workspace {
+  members: Member[] | null
+}
+
+export const listWorkspaces = () => request<Workspace[]>('/workspaces')
+export const getWorkspace = (id: number) => request<WorkspaceDetail>(`/workspaces/${id}`)
+export const makeWorkspace = (name: string) => request<WorkspaceDetail>('/workspaces', json('POST', { name }))
+export const renameWorkspace = (id: number, name: string) => request<WorkspaceDetail>(`/workspaces/${id}`, json('PATCH', { name }))
+
+/** Removes a workspace with everything in it. The API refuses unless `name` is the workspace's name. */
+export const removeWorkspace = (id: number, name: string) => request<void>(`/workspaces/${id}`, json('DELETE', { name }))
+
+/** Adds a user to a workspace with a role, or changes their role. */
+export const setMember = (id: number, userId: number, role: WorkspaceRole) =>
+  request<WorkspaceDetail>(`/workspaces/${id}/members/${userId}`, json('PUT', { role }))
+export const removeMember = (id: number, userId: number) =>
+  request<WorkspaceDetail>(`/workspaces/${id}/members/${userId}`, { method: 'DELETE' })
+
 /** Who is signed in. */
 export interface Me {
   signedIn: boolean
@@ -178,6 +226,8 @@ export interface User {
   hasPassword: boolean
   createdAt: string
   signedInAt: string | null
+  /** The workspaces the user is in, with their role in each. */
+  workspaces: { id: number; name: string; role: WorkspaceRole }[]
 }
 
 /** An invite link to pass on, given when it was not mailed, with the reason mailing it failed when it was tried. */
@@ -208,12 +258,12 @@ function json(method: string, body: unknown): RequestInit {
   return { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
 }
 
-export const listSources = () => request<Source[]>('/sources')
+export const listSources = () => request<Source[]>(inWorkspace('/sources'))
 
-export const listConnectors = () => request<Connector[]>('/connectors')
+export const listConnectors = () => request<Connector[]>(inWorkspace('/connectors'))
 
 /** Copies a connection's stream into its source again. */
-export const syncSource = (id: number) => request<Source>(`/sources/${id}/sync`, { method: 'POST' })
+export const syncSource = (id: number) => request<Source>(inWorkspace(`/sources/${id}/sync`), { method: 'POST' })
 
 /** A chart that reads a source, directly or through a join. */
 export interface ChartUse {
@@ -223,15 +273,15 @@ export interface ChartUse {
   chartKind: string | null
 }
 
-export const listSourceUses = (id: number) => request<ChartUse[]>(`/sources/${id}/uses`)
-export const removeSource = (id: number) => request<void>(`/sources/${id}`, { method: 'DELETE' })
+export const listSourceUses = (id: number) => request<ChartUse[]>(inWorkspace(`/sources/${id}/uses`))
+export const removeSource = (id: number) => request<void>(inWorkspace(`/sources/${id}`), { method: 'DELETE' })
 
 /** The streams a Schwab connection offers, by name; listing them needs no sign-in. */
-export const listSchwabStreams = () => request<StreamSummary[]>('/schwab/streams')
+export const listSchwabStreams = () => request<StreamSummary[]>(inWorkspace('/schwab/streams'))
 
 /** Starts a Schwab sign-in for a new connection, and returns Schwab's sign-in page for the browser to go to. */
 export const startSchwabSignIn = (settings: Settings, streams: { table: string; name: string }[]) =>
-  request<{ url: string }>('/schwab/sign-in', json('POST', { settings, streams }))
+  request<{ url: string }>(inWorkspace('/schwab/sign-in'), json('POST', { settings, streams }))
 
 /** A push API key: the prefix that tells it apart, and the sources it writes. */
 export interface IngestKey {
@@ -242,16 +292,16 @@ export interface IngestKey {
   sources: string[]
 }
 
-export const listKeys = () => request<IngestKey[]>('/keys')
+export const listKeys = () => request<IngestKey[]>(inWorkspace('/keys'))
 
 /** Makes a key, and answers with the key itself, which Scry shows only this once. */
 export const makeKey = (name: string) =>
-  request<Omit<IngestKey, 'sources'> & { key: string }>('/keys', json('POST', { name }))
+  request<Omit<IngestKey, 'sources'> & { key: string }>(inWorkspace('/keys'), json('POST', { name }))
 
 /** Revokes a key. The sources it made stay, and no key writes to them. */
-export const revokeKey = (id: number) => request<void>(`/keys/${id}`, { method: 'DELETE' })
+export const revokeKey = (id: number) => request<void>(inWorkspace(`/keys/${id}`), { method: 'DELETE' })
 
-/** Scry's link to Nexus, made by pairing, or `linked: false`. */
+/** The workspace's link to Nexus, made by pairing, or `linked: false`. */
 export interface NexusLink {
   linked: boolean
   nexusUrl: string | null
@@ -263,13 +313,13 @@ export interface NexusLink {
   linkedAt: string | null
 }
 
-export const getNexusLink = () => request<NexusLink>('/nexus')
+export const getNexusLink = () => request<NexusLink>(inWorkspace('/nexus'))
 
 /** Opens a pairing at Nexus, and answers the page where its admin approves it. */
-export const startNexusPairing = (nexusUrl: string) => request<{ approveUrl: string }>('/nexus/pairing', json('POST', { nexusUrl }))
+export const startNexusPairing = (nexusUrl: string) => request<{ approveUrl: string }>(inWorkspace('/nexus/pairing'), json('POST', { nexusUrl }))
 
 /** Unlinks from Nexus, revoking both keys. The sources Nexus pushed stay. */
-export const unlinkNexus = () => request<void>('/nexus', { method: 'DELETE' })
+export const unlinkNexus = () => request<void>(inWorkspace('/nexus'), { method: 'DELETE' })
 
 /** A connector Nexus reads through, such as MySQL, with why the link's workspace cannot connect it yet. */
 export interface NexusConnector {
@@ -292,23 +342,23 @@ export interface NexusSync {
   lastRun: { status: 'Running' | 'Succeeded' | 'Failed'; startedAt: string; endedAt: string | null; rows: number; error: string | null } | null
 }
 
-export const listNexusConnectors = () => request<NexusConnector[]>('/nexus/connectors')
+export const listNexusConnectors = () => request<NexusConnector[]>(inWorkspace('/nexus/connectors'))
 
 /** Opens Nexus's connect page for a connector, which comes back to the Sources page. */
-export const connectThroughNexus = (connector: string) => request<{ url: string }>('/nexus/connect', json('POST', { connector }))
+export const connectThroughNexus = (connector: string) => request<{ url: string }>(inWorkspace('/nexus/connect'), json('POST', { connector }))
 
-export const listNexusSyncs = () => request<NexusSync[]>('/nexus/syncs')
-export const runNexusSync = (id: number) => request<NexusSync>(`/nexus/syncs/${id}/run`, { method: 'POST' })
+export const listNexusSyncs = () => request<NexusSync[]>(inWorkspace('/nexus/syncs'))
+export const runNexusSync = (id: number) => request<NexusSync>(inWorkspace(`/nexus/syncs/${id}/run`), { method: 'POST' })
 
 /** Starts a sign-in that renews the one a Schwab source's connection holds. */
-export const signInAgain = (id: number) => request<{ url: string }>(`/sources/${id}/sign-in`, { method: 'POST' })
+export const signInAgain = (id: number) => request<{ url: string }>(inWorkspace(`/sources/${id}/sign-in`), { method: 'POST' })
 
 export function uploadSource(name: string, file: File, delimiter: string): Promise<Source> {
   const form = new FormData()
   form.append('name', name)
   form.append('file', file)
   if (delimiter) form.append('delimiter', delimiter)
-  return request<Source>('/sources', { method: 'POST', body: form })
+  return request<Source>(inWorkspace('/sources'), { method: 'POST', body: form })
 }
 
 /** What a chart reads: its source, and the source joined to it, if any. A chart's own settings serve as one. */
@@ -326,7 +376,7 @@ function read<T>(from: From, endpoint: string, query: URLSearchParams): Promise<
     query.set('joinKind', from.join.kind)
   }
   const search = query.toString()
-  return request<T>(`/sources/${from.sourceId}/${endpoint}${search ? `?${search}` : ''}`)
+  return request<T>(inWorkspace(`/sources/${from.sourceId}/${endpoint}${search ? `?${search}` : ''}`))
 }
 
 export function getSeries(from: From, x: string, y: string | null, aggregate: Aggregate): Promise<Series> {
@@ -428,25 +478,25 @@ export function getRows(from: From, { columns, sort, count, offset, limit }: Row
   return read(from, 'rows', query)
 }
 
-export const listDashboards = () => request<DashboardSummary[]>('/dashboards')
+export const listDashboards = () => request<DashboardSummary[]>(inWorkspace('/dashboards'))
 
-export const createDashboard = (name: string) => request<Dashboard>('/dashboards', json('POST', { name }))
+export const createDashboard = (name: string) => request<Dashboard>(inWorkspace('/dashboards'), json('POST', { name }))
 
-export const getDashboard = (id: number) => request<Dashboard>(`/dashboards/${id}`)
+export const getDashboard = (id: number) => request<Dashboard>(inWorkspace(`/dashboards/${id}`))
 
 export function saveDashboard(dashboard: Pick<Dashboard, 'id' | 'name' | 'layouts' | 'widgets'>): Promise<Dashboard> {
   const { id, name, layouts, widgets } = dashboard
-  return request<Dashboard>(`/dashboards/${id}`, json('PUT', { name, layouts, widgets }))
+  return request<Dashboard>(inWorkspace(`/dashboards/${id}`), json('PUT', { name, layouts, widgets }))
 }
 
-export const deleteDashboard = (id: number) => request<void>(`/dashboards/${id}`, { method: 'DELETE' })
+export const deleteDashboard = (id: number) => request<void>(inWorkspace(`/dashboards/${id}`), { method: 'DELETE' })
 
 /**
  * Renames a dashboard, makes it the landing dashboard, clearing any other, or stops it being one, and sets how its
  * data scrolls in full screen.
  */
 export const editDashboard = (id: number, name: string, isLanding: boolean, presentation: PresentationSettings) =>
-  request<Dashboard>(`/dashboards/${id}`, json('PATCH', { name, isLanding, presentation }))
+  request<Dashboard>(inWorkspace(`/dashboards/${id}`), json('PATCH', { name, isLanding, presentation }))
 
 export type InstallStage = 'Database' | 'Address' | 'Admin' | 'Done'
 

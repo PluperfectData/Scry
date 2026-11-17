@@ -32,7 +32,7 @@ public sealed record IngestColumn(string Name, ColumnType Type, int? Precision =
 
 /// <summary>The push API's writes to the workspace's DuckDB file.</summary>
 [SuppressMessage("Security", "CA2100", Justification = "Every identifier is quoted by Quote, and every value is appended or bound.")]
-public sealed partial class Workspace
+public sealed partial class WorkspaceData
 {
     // Batch ids already written, kept beside the tables so a batch and its id commit together. A source name
     // starts with a letter, so no source can be named like these tables.

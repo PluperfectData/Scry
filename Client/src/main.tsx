@@ -6,14 +6,17 @@ import { NoticeProvider } from './NoticeProvider'
 import { router } from './router'
 import { SessionProvider } from './SessionProvider'
 import { ThemeProvider } from './ThemeProvider'
+import { WorkspacesProvider } from './components/WorkspacesProvider'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ThemeProvider>
       <SessionProvider>
-        <NoticeProvider>
-          <RouterProvider router={router} />
-        </NoticeProvider>
+        <WorkspacesProvider>
+          <NoticeProvider>
+            <RouterProvider router={router} />
+          </NoticeProvider>
+        </WorkspacesProvider>
       </SessionProvider>
     </ThemeProvider>
   </StrictMode>,

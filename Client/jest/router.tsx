@@ -4,10 +4,21 @@ import type { ReactNode } from 'react'
 export const navigate = jest.fn()
 export const routerState = { params: {} as Record<string, string>, pathname: '/' }
 
-type LinkProps = { to: string; children: ReactNode; className?: string | ((state: { isActive: boolean }) => string); role?: string }
+type LinkProps = {
+  to: string
+  children: ReactNode
+  className?: string | ((state: { isActive: boolean }) => string)
+  role?: string
+  'aria-current'?: 'page'
+}
 
-const link = ({ to, children, className, role }: LinkProps) => (
-  <a href={to} role={role} className={typeof className === 'function' ? className({ isActive: routerState.pathname === to }) : className}>
+const link = ({ to, children, className, role, 'aria-current': current }: LinkProps) => (
+  <a
+    href={to}
+    role={role}
+    aria-current={current}
+    className={typeof className === 'function' ? className({ isActive: routerState.pathname === to }) : className}
+  >
     {children}
   </a>
 )
@@ -22,5 +33,14 @@ export const reactRouterMock = () => ({
   },
   useNavigate: () => navigate,
   useParams: () => routerState.params,
+  useMatch: (pattern: string) => {
+    const names: string[] = []
+    const source = pattern.replace(/\/\*$/, '(?:/.*)?').replace(/:(\w+)/g, (_: string, name: string) => {
+      names.push(name)
+      return '([^/]+)'
+    })
+    const found = new RegExp(`^${source}$`).exec(routerState.pathname)
+    return found ? { params: Object.fromEntries(names.map((name, i) => [name, found[i + 1]])) } : null
+  },
   useLocation: () => ({ pathname: routerState.pathname, hash: '', state: null }),
 })

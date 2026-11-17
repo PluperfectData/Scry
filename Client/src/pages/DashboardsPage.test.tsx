@@ -13,6 +13,9 @@ import { DashboardsPage } from './DashboardsPage'
 jest.mock('react-router', () => jest.requireActual('../../jest/router').reactRouterMock())
 const { navigate } = jest.requireActual('../../jest/router')
 
+jest.mock('../workspace', () => jest.requireActual('../../jest/workspace').workspaceMock())
+const { openWorkspace, opened } = jest.requireActual('../../jest/workspace')
+
 jest.mock('../api', () => ({
   ...jest.requireActual('../api'),
   listDashboards: jest.fn(),
@@ -59,6 +62,7 @@ const sales = summary(1, 'Sales', 3, true)
 
 beforeEach(() => {
   jest.clearAllMocks()
+  openWorkspace.current = opened()
   jest.mocked(listDashboards).mockResolvedValue([costs, sales, summary(4, 'Zeros', 0)])
 })
 
@@ -77,7 +81,7 @@ it('lists each dashboard with its chart count, marking the landing page', async 
 it('opens the landing dashboard in place of the list, as the index', async () => {
   render(<DashboardsPage openLanding />)
 
-  await waitFor(() => expect(navigate).toHaveBeenCalledWith('/dashboards/1', { replace: true }))
+  await waitFor(() => expect(navigate).toHaveBeenCalledWith('/workspaces/1/dashboards/1', { replace: true }))
   expect(screen.queryByRole('heading', { name: 'Sales' })).not.toBeInTheDocument()
 })
 
@@ -97,7 +101,7 @@ it('adds a dashboard from the slideout and opens it', async () => {
   await userEvent.click(within(screen.getByRole('dialog', { name: 'Add a dashboard' })).getByRole('button', { name: 'Save the new dashboard' }))
 
   expect(createDashboard).toHaveBeenCalledWith('Costs 2026')
-  expect(navigate).toHaveBeenCalledWith('/dashboards/9')
+  expect(navigate).toHaveBeenCalledWith('/workspaces/1/dashboards/9')
 })
 
 it('edits a dashboard from its pencil, moving the landing page to it', async () => {
@@ -121,4 +125,14 @@ it('deletes a dashboard from its ×', async () => {
 
   expect(deleteDashboard).toHaveBeenCalledWith(1)
   expect(screen.queryByRole('heading', { name: 'Sales' })).not.toBeInTheDocument()
+})
+
+it("opens a viewer's dashboards, and offers no way to add, edit, or delete one", async () => {
+  openWorkspace.current = opened('Viewer')
+  render(<DashboardsPage />)
+
+  expect(await screen.findByRole('link', { name: 'Sales' })).toHaveAttribute('href', '/workspaces/1/dashboards/1')
+  expect(screen.queryByRole('button', { name: 'Add dashboard' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Edit Sales' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Delete Sales' })).not.toBeInTheDocument()
 })

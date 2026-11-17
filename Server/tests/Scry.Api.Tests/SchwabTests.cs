@@ -9,6 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 using NUnit.Framework;
 using Scry.Api.Storage;
 using Shouldly;
+using static Scry.Api.Tests.ScryApiFactory;
 
 namespace Scry.Api.Tests;
 
@@ -35,7 +36,7 @@ public sealed class SchwabTests
     [Test]
     public async Task Lists_Schwab_with_its_settings_but_not_the_one_that_allows_orders()
     {
-        var schwab = (await _client.GetFromJsonAsync<JsonElement>("/connectors")).EnumerateArray().Last();
+        var schwab = (await _client.GetFromJsonAsync<JsonElement>($"{InDefault}/connectors")).EnumerateArray().Last();
 
         schwab.GetProperty("id").GetString().ShouldBe("schwab");
         schwab.GetProperty("needs").EnumerateArray().ShouldBeEmpty();
@@ -50,8 +51,8 @@ public sealed class SchwabTests
         using var unset = _factory.WithWebHostBuilder(builder => builder.UseSetting("Schwab:AppSecret", ""));
         using var client = unset.SignedIn();
 
-        var schwab = (await client.GetFromJsonAsync<JsonElement>("/connectors")).EnumerateArray().Last();
-        using var signIn = await client.PostAsJsonAsync("/schwab/sign-in", Request(("balances", "schwab_balances")));
+        var schwab = (await client.GetFromJsonAsync<JsonElement>($"{InDefault}/connectors")).EnumerateArray().Last();
+        using var signIn = await client.PostAsJsonAsync($"{InDefault}/schwab/sign-in", Request(("balances", "schwab_balances")));
 
         schwab.GetProperty("needs").EnumerateArray().Select(need => need.GetString()).ShouldBe(["Schwab:AppSecret"]);
         signIn.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
@@ -62,7 +63,7 @@ public sealed class SchwabTests
     [Test]
     public async Task Lists_every_stream_without_a_sign_in()
     {
-        var streams = await _client.GetFromJsonAsync<JsonElement>("/schwab/streams");
+        var streams = await _client.GetFromJsonAsync<JsonElement>($"{InDefault}/schwab/streams");
 
         streams.EnumerateArray().Select(stream => stream.GetProperty("name").GetString())
             .ShouldBe(["balances", "positions", "transactions", "orders", "price_history", "quotes", "movers"]);
@@ -79,7 +80,7 @@ public sealed class SchwabTests
         using var back = await _client.GetAsync(new Uri($"/schwab/callback?code=the-code&state={query["state"]}", UriKind.Relative));
 
         back.StatusCode.ShouldBe(HttpStatusCode.Redirect);
-        back.Headers.Location.ShouldBe(new Uri("http://localhost:6160/sources"));
+        back.Headers.Location.ShouldBe(new Uri("http://localhost:6160/workspaces/1/sources"));
         HttpUtility.ParseQueryString(_factory.Schwab.Requests[0].Body!)["code"].ShouldBe("the-code");
 
         var source = await Settled("schwab_balances");
@@ -101,24 +102,25 @@ public sealed class SchwabTests
         var id = (await Settled("schwab_balances")).GetProperty("id").GetInt32();
         await Task.Delay(10);
 
-        using var synced = await _client.PostAsync(new Uri($"/sources/{id}/sync", UriKind.Relative), null);
+        using var synced = await _client.PostAsync(new Uri($"{InDefault}/sources/{id}/sync", UriKind.Relative), null);
 
         synced.StatusCode.ShouldBe(HttpStatusCode.OK);
         (await synced.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("rowCount").GetInt64().ShouldBe(2);
     }
 
-    [TestCase("code=x&state=nope", "This sign-in ran out of time, or did not start in Scry. Sign in again.")]
-    [TestCase("error=access_denied", "Schwab did not sign you in: access_denied.")]
-    public async Task A_failed_sign_in_goes_back_to_Sources_saying_why(string callback, string message)
+    // A sign-in Scry does not know has no workspace, so it goes back to the client's start.
+    [TestCase("code=x&state=nope", "http://localhost:6160/", "This sign-in ran out of time, or did not start in Scry. Sign in again.")]
+    [TestCase("error=access_denied", "http://localhost:6160/workspaces/1/sources", "Schwab did not sign you in: access_denied.")]
+    public async Task A_failed_sign_in_goes_back_saying_why(string callback, string page, string message)
     {
         var url = await StartSignIn(("balances", "schwab_balances"));
         var sent = callback.Contains("state=", StringComparison.Ordinal) ? callback : $"{callback}&state={State(url)}";
 
         using var back = await _client.GetAsync(new Uri($"/schwab/callback?{sent}", UriKind.Relative));
 
-        back.Headers.Location!.GetLeftPart(UriPartial.Path).ShouldBe("http://localhost:6160/sources");
+        back.Headers.Location!.GetLeftPart(UriPartial.Path).ShouldBe(page);
         HttpUtility.ParseQueryString(back.Headers.Location.Query)["error"].ShouldBe(message);
-        (await _client.GetFromJsonAsync<JsonElement>("/sources")).EnumerateArray().ShouldBeEmpty();
+        (await _client.GetFromJsonAsync<JsonElement>($"{InDefault}/sources")).EnumerateArray().ShouldBeEmpty();
     }
 
     [Test]
@@ -130,8 +132,8 @@ public sealed class SchwabTests
         _factory.Schwab.AccountsReply = (HttpStatusCode.Unauthorized, "{}");
         _factory.Schwab.TokenReply = (HttpStatusCode.BadRequest, """{"error":"invalid_grant"}""");
 
-        using var refused = await _client.PostAsync(new Uri($"/sources/{id}/sync", UriKind.Relative), null);
-        var stale = await _client.GetFromJsonAsync<JsonElement>($"/sources/{id}");
+        using var refused = await _client.PostAsync(new Uri($"{InDefault}/sources/{id}/sync", UriKind.Relative), null);
+        var stale = await _client.GetFromJsonAsync<JsonElement>($"{InDefault}/sources/{id}");
 
         refused.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         stale.GetProperty("status").GetString().ShouldBe("SignInNeeded");
@@ -139,7 +141,7 @@ public sealed class SchwabTests
 
         _factory.Schwab.AccountsReply = (HttpStatusCode.OK, FakeSchwabApi.OneAccount);
         _factory.Schwab.TokenReply = (HttpStatusCode.OK, FakeSchwabApi.Tokens);
-        using var again = await _client.PostAsync(new Uri($"/sources/{id}/sign-in", UriKind.Relative), null);
+        using var again = await _client.PostAsync(new Uri($"{InDefault}/sources/{id}/sign-in", UriKind.Relative), null);
         var againUrl = (await again.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("url").GetString()!;
         using var returned = await _client.GetAsync(new Uri($"/schwab/callback?code=c2&state={State(new Uri(againUrl))}", UriKind.Relative));
 
@@ -152,7 +154,7 @@ public sealed class SchwabTests
     [TestCase("options", "schwab_options", HttpStatusCode.BadRequest)]
     public async Task Refuses_a_bad_name_or_a_stream_Schwab_lacks_before_signing_in(string stream, string name, HttpStatusCode status)
     {
-        using var response = await _client.PostAsJsonAsync("/schwab/sign-in", Request((stream, name)));
+        using var response = await _client.PostAsJsonAsync($"{InDefault}/schwab/sign-in", Request((stream, name)));
 
         response.StatusCode.ShouldBe(status);
     }
@@ -167,7 +169,7 @@ public sealed class SchwabTests
 
     private async Task<Uri> StartSignIn(params (string Table, string Name)[] streams)
     {
-        using var response = await _client.PostAsJsonAsync("/schwab/sign-in", Request(streams));
+        using var response = await _client.PostAsJsonAsync($"{InDefault}/schwab/sign-in", Request(streams));
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         return new Uri((await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("url").GetString()!);
     }
@@ -177,7 +179,7 @@ public sealed class SchwabTests
     {
         for (var attempt = 0; attempt < 100; attempt++)
         {
-            var source = (await _client.GetFromJsonAsync<JsonElement>("/sources")).EnumerateArray()
+            var source = (await _client.GetFromJsonAsync<JsonElement>($"{InDefault}/sources")).EnumerateArray()
                 .Single(s => s.GetProperty("name").GetString() == name);
             if (source.GetProperty("status").GetString() != "Syncing")
             {

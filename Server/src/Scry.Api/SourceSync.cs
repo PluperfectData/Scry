@@ -6,8 +6,8 @@ using Scry.Api.Storage;
 
 namespace Scry.Api;
 
-/// <summary>Syncs a connection's stream into its source's table, and records on the source how it went.</summary>
-public sealed class SourceSync(ScryDbContext db, Workspace workspace, SourceConnectors connectors, ConnectionSecrets secrets)
+/// <summary>Syncs a connection's stream into its source's table, in its workspace, and records on the source how it went.</summary>
+public sealed class SourceSync(ScryDbContext db, WorkspaceStore store, SourceConnectors connectors, ConnectionSecrets secrets)
 {
     private const int MaxErrorLength = 1000;
 
@@ -25,6 +25,7 @@ public sealed class SourceSync(ScryDbContext db, Workspace workspace, SourceConn
                 Tokens: secrets.UnprotectTokens(connection.Tokens),
                 Client: connectors.ClientFor(connection.Connector));
 
+            var workspace = store.For(await db.Workspaces.AsNoTracking().SingleAsync(w => w.Id == source.WorkspaceId, ct));
             var result = await workspace.SyncAsync(
                 connector,
                 config,

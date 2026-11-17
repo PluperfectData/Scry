@@ -9,6 +9,13 @@ interface PassOn extends InviteLink {
   link: string
 }
 
+/** Where a user works: an admin edits every workspace, and a member has a role in each of theirs. */
+function workspacesOf(user: User): string {
+  if (user.isAdmin) return 'An editor in every workspace'
+  if (user.workspaces.length === 0) return 'In no workspace yet'
+  return user.workspaces.map((workspace) => `${workspace.role} in ${workspace.name}`).join(', ')
+}
+
 /** The instance's users, for admins: invite one, make or unmake an admin, send a new invite, and remove one. */
 export function UsersPage() {
   const { me } = useSession()
@@ -82,6 +89,7 @@ export function UsersPage() {
                   {user.isAdmin ? 'Admin' : 'Member'}
                   {user.signedInAt ? `, last signed in ${new Date(user.signedInAt).toLocaleString()}` : ', not signed in yet'}
                 </p>
+                <p className="muted">{workspacesOf(user)}</p>
               </div>
               <div className="row-actions">
                 {user.id !== me.id && (

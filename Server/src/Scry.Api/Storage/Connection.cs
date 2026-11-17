@@ -5,6 +5,8 @@ public sealed class Connection
 {
     public int Id { get; set; }
 
+    public int WorkspaceId { get; set; }
+
     /// <summary>The Nexus connector's id: <c>mysql</c>, <c>postgres</c>, <c>sqlserver</c>, or <c>schwab</c>.</summary>
     public required string Connector { get; set; }
 

@@ -3,15 +3,15 @@ import { getNexusLink, type NexusLink, startNexusPairing, unlinkNexus } from '..
 import { leaveFor } from '../browser'
 
 /**
- * Scry's link to Nexus. Linking sends an admin to Nexus to approve it, and Nexus sends them back here, linked, with the
- * outcome in the address.
+ * The open workspace's link to Nexus. Linking sends an admin to Nexus to approve it, and Nexus sends them back here,
+ * linked, with the outcome in the address.
  */
 export function NexusLinkSection() {
   const [link, setLink] = useState<NexusLink | null>(null)
   const [nexusUrl, setNexusUrl] = useState('http://localhost:6163')
   const [busy, setBusy] = useState(false)
   // Nexus's callback comes back to this page with ?linked=1, or with the reason it failed.
-  const [notice] = useState(() => (new URLSearchParams(window.location.search).has('linked') ? 'Scry is linked to Nexus.' : null))
+  const [notice] = useState(() => (new URLSearchParams(window.location.search).has('linked') ? 'This workspace is linked to Nexus.' : null))
   const [error, setError] = useState<string | null>(() => new URLSearchParams(window.location.search).get('error'))
 
   useEffect(() => {
@@ -37,7 +37,7 @@ export function NexusLinkSection() {
   }
 
   async function unlink() {
-    if (!window.confirm('Unlink Scry from Nexus? Both keys are revoked, and Nexus stops sending rows. The sources it sent stay.')) return
+    if (!window.confirm('Unlink this workspace from Nexus? Both keys are revoked, and Nexus stops sending rows. The sources it sent stay.')) return
     setBusy(true)
     setError(null)
     try {
@@ -55,7 +55,8 @@ export function NexusLinkSection() {
       <h2>Nexus</h2>
       <p className="muted">
         Nexus connects Scry to databases and services, keeps their sign-ins, and sends their rows here. Linking asks an admin
-        of the Nexus instance to approve Scry, and the two exchange keys themselves.
+        of the Nexus instance to approve this workspace, and the two exchange keys themselves. Each workspace links on its
+        own.
       </p>
       {notice && <p className="success">{notice}</p>}
       {error && <p className="error">{error}</p>}

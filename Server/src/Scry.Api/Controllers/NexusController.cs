@@ -24,17 +24,24 @@ public sealed record ConnectRequest(string? Connector);
 public sealed record PairingStarted(string ApproveUrl);
 
 /// <summary>
-/// Links Scry to a Nexus instance by pairing, with nothing copied by hand: Scry asks Nexus, an admin approves at Nexus,
-/// and Nexus's callback lands here, where Scry claims the pairing, trading a push key for an app key.
+/// Links a workspace to a Nexus instance by pairing, with nothing copied by hand: Scry asks Nexus, an admin approves at
+/// Nexus, and Nexus's callback lands here, where Scry claims the pairing, trading a push key for an app key. Each
+/// workspace pairs on its own, and only its editors see or change its link.
 /// </summary>
 [ApiController]
-[Route("nexus")]
-public sealed class NexusController(ScryDbContext db, NexusApi nexus, NexusPairings pairings, ConnectionSecrets secrets, Instance instance)
-    : ControllerBase
+[Route("workspaces/{workspaceId:int}/nexus")]
+[InWorkspace]
+public sealed class NexusController(
+    ScryDbContext db,
+    CurrentWorkspace workspace,
+    NexusApi nexus,
+    NexusPairings pairings,
+    ConnectionSecrets secrets,
+    Instance instance) : ControllerBase
 {
     [HttpGet]
     public async Task<NexusLinkView> Get(CancellationToken ct) =>
-        await db.NexusLinks.AsNoTracking().Include(l => l.IngestKey).FirstOrDefaultAsync(ct) is { } link
+        await Link().AsNoTracking().Include(l => l.IngestKey).FirstOrDefaultAsync(ct) is { } link
             ? new NexusLinkView(true, link.NexusUrl, link.AppName, link.WorkspaceName, link.IngestKey?.Name, link.IngestKey?.Prefix, link.LinkedAt)
             : new NexusLinkView(false, null, null, null, null, null, null);
 
@@ -42,9 +49,9 @@ public sealed class NexusController(ScryDbContext db, NexusApi nexus, NexusPairi
     [HttpPost("pairing")]
     public async Task<ActionResult<PairingStarted>> Pair(PairingStart request, CancellationToken ct)
     {
-        if (await db.NexusLinks.AnyAsync(ct))
+        if (await Link().AnyAsync(ct))
         {
-            return Problem("Scry is linked to Nexus already. Unlink it first.", statusCode: StatusCodes.Status409Conflict);
+            return Problem($"{workspace.Workspace.Name} is linked to Nexus already. Unlink it first.", statusCode: StatusCodes.Status409Conflict);
         }
 
         var url = request.NexusUrl?.Trim().TrimEnd('/');
@@ -61,14 +68,14 @@ public sealed class NexusController(ScryDbContext db, NexusApi nexus, NexusPairi
                 url!,
                 new
                 {
-                    appName = $"Scry at {new Uri(api).Authority}",
+                    appName = $"Scry at {new Uri(api).Authority}, workspace {workspace.Workspace.Name}",
                     ingestUrl = $"{api}/ingest",
-                    callbackUrl = $"{api}/nexus/callback",
-                    connectReturnUrl = $"{instance.Client}/sources",
+                    callbackUrl = $"{api}/workspaces/{workspace.Id}/nexus/callback",
+                    connectReturnUrl = SourcesPage,
                     verifierHash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(verifier))),
                 },
                 ct);
-            pairings.Start(opened.Id, new PendingPairing(url!, verifier));
+            pairings.Start(opened.Id, new PendingPairing(url!, verifier, workspace.Id));
             return new PairingStarted(opened.ApproveUrl);
         }
         catch (NexusException ex)
@@ -94,10 +101,22 @@ public sealed class NexusController(ScryDbContext db, NexusApi nexus, NexusPairi
             return BackToSettings("This pairing has expired. Link Nexus again.");
         }
 
+        if (pending.WorkspaceId != workspace.Id)
+        {
+            return BackToSettings("This pairing was started in another workspace. Link Nexus again here.");
+        }
+
         // Named before the claim, since Nexus records the key's name while claiming.
         var (pushKey, hash, prefix) = IngestKeys.Make();
         var name = $"Nexus at {new Uri(pending.NexusUrl).Authority}";
-        var key = new IngestKey { Name = name.Length > IngestKey.MaxNameLength ? name[..IngestKey.MaxNameLength] : name, Hash = hash, Prefix = prefix, CreatedAt = DateTime.UtcNow };
+        var key = new IngestKey
+        {
+            WorkspaceId = workspace.Id,
+            Name = name.Length > IngestKey.MaxNameLength ? name[..IngestKey.MaxNameLength] : name,
+            Hash = hash,
+            Prefix = prefix,
+            CreatedAt = DateTime.UtcNow,
+        };
         db.IngestKeys.Add(key);
         await db.SaveChangesAsync(ct);
 
@@ -115,6 +134,7 @@ public sealed class NexusController(ScryDbContext db, NexusApi nexus, NexusPairi
 
         db.NexusLinks.Add(new NexusLink
         {
+            WorkspaceId = workspace.Id,
             NexusUrl = pending.NexusUrl,
             AppKey = secrets.ProtectText(claimed.AppKey),
             DestinationId = claimed.DestinationId,
@@ -124,14 +144,14 @@ public sealed class NexusController(ScryDbContext db, NexusApi nexus, NexusPairi
             LinkedAt = DateTime.UtcNow,
         });
         await db.SaveChangesAsync(ct);
-        return Redirect($"{instance.Client}/settings?linked=1");
+        return Redirect($"{SettingsPage}?linked=1");
     }
 
     /// <summary>Unlinks: Nexus revokes Scry's app key, Scry revokes Nexus's push key, and the link goes. The sources stay.</summary>
     [HttpDelete]
     public async Task<IActionResult> Unlink(CancellationToken ct)
     {
-        if (await db.NexusLinks.FirstOrDefaultAsync(ct) is not { } link)
+        if (await Link().FirstOrDefaultAsync(ct) is not { } link)
         {
             return NotFound();
         }
@@ -165,8 +185,7 @@ public sealed class NexusController(ScryDbContext db, NexusApi nexus, NexusPairi
     [HttpPost("connect")]
     public Task<ActionResult<NexusConnectPage>> Connect(ConnectRequest request, CancellationToken ct) =>
         WithLinkAsync(
-            link => nexus.OpenConnectAsync(
-                link.NexusUrl, AppKey(link), request.Connector ?? string.Empty, link.DestinationId, $"{instance.Client}/sources", ct),
+            link => nexus.OpenConnectAsync(link.NexusUrl, AppKey(link), request.Connector ?? string.Empty, link.DestinationId, SourcesPage, ct),
             ct);
 
     /// <summary>The syncs that fill the link's destination, each with how its last run went.</summary>
@@ -181,9 +200,9 @@ public sealed class NexusController(ScryDbContext db, NexusApi nexus, NexusPairi
     // Each call through the link: refused while Scry is unlinked, and Nexus's refusals passed on in its own words.
     private async Task<ActionResult<T>> WithLinkAsync<T>(Func<NexusLink, Task<T>> call, CancellationToken ct)
     {
-        if (await db.NexusLinks.AsNoTracking().FirstOrDefaultAsync(ct) is not { } link)
+        if (await Link().AsNoTracking().FirstOrDefaultAsync(ct) is not { } link)
         {
-            return Problem("Scry is not linked to Nexus. Link it on the Settings page.", statusCode: StatusCodes.Status409Conflict);
+            return Problem($"{workspace.Workspace.Name} is not linked to Nexus. Link it on its Settings page.", statusCode: StatusCodes.Status409Conflict);
         }
 
         try
@@ -196,8 +215,14 @@ public sealed class NexusController(ScryDbContext db, NexusApi nexus, NexusPairi
         }
     }
 
+    private IQueryable<NexusLink> Link() => db.NexusLinks.Where(link => link.WorkspaceId == workspace.Id);
+
     private string AppKey(NexusLink link) => secrets.UnprotectText(link.AppKey);
 
+    private string SettingsPage => $"{instance.Client}/workspaces/{workspace.Id}/settings";
+
+    private string SourcesPage => $"{instance.Client}/workspaces/{workspace.Id}/sources";
+
     private RedirectResult BackToSettings(string error) =>
-        Redirect($"{instance.Client}/settings?error={Uri.EscapeDataString(error)}");
+        Redirect($"{SettingsPage}?error={Uri.EscapeDataString(error)}");
 }

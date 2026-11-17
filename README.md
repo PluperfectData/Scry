@@ -7,7 +7,7 @@ Drag-and-drop dashboards over data synced by [Nexus](https://github.com/Pluperfe
 
 Status: first slice. Upload a CSV file, then chart it on a dashboard page in a drag-and-drop grid, in any of 25
 chart types or a table. Light theme by default, with a dark theme from the header.
-One built-in workspace, no accounts.
+Users sign in, and work in workspaces: each holds its own dashboards, sources, push keys, Nexus link, and DuckDB file.
 
 | Path | Contents |
 |---|---|
@@ -17,7 +17,7 @@ One built-in workspace, no accounts.
 
 | Part | Choice |
 |---|---|
-| Application data | MySQL, through EF Core 9 and Pomelo: sources and dashboards |
+| Application data | MySQL, through EF Core 9 and Pomelo: users, workspaces, sources, and dashboards |
 | Synced data | DuckDB, in process, one file per workspace, written by the Nexus DuckDB destination |
 | Charts | Apache ECharts: bar, stacked bar, pictorial bar, line, area, theme river, pie, funnel, scatter, ripple scatter, heatmap, histogram, box plot, parallel coordinates, radar, treemap, sunburst, tree, Sankey, network graph, chord, region map, flow map, gauge, and candlestick. Tables are plain HTML. |
 | Maps | World countries from world-atlas and US states from us-atlas, both ISC, from Natural Earth and US Census data. Each is a separate asset, fetched the first time a chart needs it. |
@@ -32,42 +32,47 @@ parent directory.
 | Route | Does |
 |---|---|
 | `GET /health` | Answers `{"status": "ok"}` |
-| `GET /sources` | Lists sources: name, the file or the connection's stream the rows come from, columns and their types, row count, sync time, and `status` (`Ready`, `Syncing`, `Failed`, or `SignInNeeded`) with any `error` |
-| `POST /sources` | Form fields `name`, `file`, and optional `delimiter`. Syncs the file through Nexus into a table named `name`. |
-| `POST /sources/{id}/sync` | Copies a connection's stream into its source again. An uploaded file answers 400; upload it again instead. A source syncing in the background answers 409. |
-| `GET /sources/{id}/uses` | Each chart that reads the source, directly or through a join, as `{dashboardId, dashboardName, chartTitle, chartKind}` |
-| `DELETE /sources/{id}` | Removes the source with its table, an upload's stored file, and a connection no other source uses. Charts that read it stay and ask for another source. A source syncing answers 409. A key that can push to a removed source makes it again on its next push. |
-| `POST /sources/{id}/sign-in` | For a Schwab source, starts a sign-in that renews its connection's, and answers `{"url"}`: Schwab's sign-in page |
-| `GET /schwab/streams` | Lists the streams a Schwab connection offers. Needs no sign-in. |
-| `POST /schwab/sign-in` | From `{"settings", "streams": [{"table": "balances", "name": "..."}]}`, checks the names and answers `{"url"}`: Schwab's sign-in page, which returns to the callback |
-| `GET /schwab/callback?code=&state=` | Where Schwab sends the browser after its sign-in. Keeps the tokens encrypted, queues each picked stream to copy in the background, and sends the browser to the client's Sources page, with `error` when the sign-in failed. |
-| `GET /connectors` | Lists the connectors Scry reads through itself, CSV and then Schwab: id, name, description, and the settings each asks for. Databases and other services come through Nexus. |
-| `GET /sources/{id}/series?x=&y=&aggregate=` | `[x, y]`: `y` aggregated per value of `x`, in `x` order, for bar, pictorial bar, line, area, pie, funnel, and region map charts |
-| `GET /sources/{id}/links?from=&to=&y=&aggregate=` | `[from, to, y]`: `y` aggregated per pair of ends, both as text, for Sankey, network graph, and chord charts. A row whose ends match is left out. |
-| `GET /sources/{id}/values?columns=` | `[value, ...]`: 1 to 12 number columns, repeated, one row per source row with all of them filled in, for parallel coordinates and flow maps |
-| `GET /sources/{id}/total?y=&aggregate=` | `["All rows", value]`: `y` aggregated over every row, for a gauge |
-| `GET /sources/{id}/measures?columns=&group=&aggregate=` | `[group, value, ...]`: each number column, repeated, aggregated per group, or over every row without `group`, for a radar chart |
-| `GET /sources/{id}/tree?levels=&y=&aggregate=` | `[level, ..., value]`: `y` aggregated per path through 1 to 4 levels, repeated, for treemaps, sunbursts, and trees |
-| `GET /sources/{id}/groups?x=&group=&y=&aggregate=` | `[x, group, y]`: `y` aggregated per pair, the group as text, for stacked bars, heatmaps, and theme rivers |
-| `GET /sources/{id}/pivot?row=&column=&y=&aggregate=` | `[row, column, value, row's place, column's place]`: `y` aggregated per pair, both as text, for a pivot table. The 50 column values largest in the aggregate keep a column each; the rest share one whose value is null, placed last. |
-| `GET /sources/{id}/histogram?column=&bins=` | `[start, end, count]` for each of `bins` equal-width bins, 20 by default and 200 at most, empty ones included |
-| `GET /sources/{id}/boxes?value=&group=` | `[group, min, first quartile, median, third quartile, max]` per group, or one row named `All rows` without `group` |
-| `GET /sources/{id}/points?x=&y=` | `[x, y]`, one per row, for a scatter chart. `x` is a number or a time. |
-| `GET /sources/{id}/candles?x=&open=&high=&low=&close=` | `[x, open, close, low, high]`, one per row, in `x` order |
-| `GET /sources/{id}/rows?columns=&sort=&direction=&count=&offset=&limit=` | `limit` rows, 1 to 1,000, from `offset`, of the chosen columns, repeated, or every column, as text, with the source's `total` row count. Sorted by `sort` in `direction` (`asc` or `desc`) with blanks last, or in source order without `sort`. With `count=true`, rows matching in every shown column become one, with a last column, Count; it sorts by `sort=__scry_count` or a shown column, and by the count, highest first, without `sort`. |
-| `GET`, `POST /dashboards` | Lists each dashboard's name, `chartCount`, and `isLanding`, or creates one from `{"name": "..."}` |
-| `GET`, `PUT`, `DELETE /dashboards/{id}` | Reads, replaces `name`, `layouts`, and `widgets`, or deletes |
-| `PATCH /dashboards/{id}` | From `{"name": "...", "isLanding": true}`, renames the dashboard and makes it the landing dashboard, clearing any other, or with `false` stops it being one |
-| `GET`, `POST /keys` | Lists push API keys, each with the sources it writes, or makes one from `{"name": "..."}` and answers it with `key`, shown this once |
-| `DELETE /keys/{id}` | Revokes a key. Its sources stay, and no key writes to them. |
-| `GET /nexus` | Scry's link to Nexus, or `{"linked": false}` |
-| `POST /nexus/pairing` | From `{"nexusUrl"}`, opens a pairing at that Nexus and answers `{"approveUrl"}`, the page where its admin approves Scry |
-| `GET /nexus/callback?pairing=` | Where Nexus sends the admin back. Makes a push key named for that Nexus, such as "Nexus at localhost:6163", claims the pairing with it for Nexus's app key, keeps the link, and sends the browser to Settings, with `error` when linking failed. Scry pairs as "Scry at" its own host. |
-| `DELETE /nexus` | Unlinks: Nexus revokes Scry's app key, Scry revokes Nexus's push key, and the link goes. The sources Nexus sent stay. |
-| `GET /nexus/connectors` | The connectors Nexus reads through, such as MySQL, which the Sources page offers under Through Nexus. One the link's workspace cannot connect yet, such as Schwab without a sign-in app, says why on its tile and cannot be picked. |
-| `POST /nexus/connect` | From `{"connector"}`, opens Nexus's connect page for it, into the link's destination and coming back to the Sources page, and answers `{"url"}`. Nexus adds `connection` to the return address once connected, or `error=cancelled`. |
-| `GET /nexus/syncs` | The syncs that fill the link's destination: the connection and stream each reads, its table, and how its last run went |
-| `POST /nexus/syncs/{id}/run` | Runs one of those syncs now |
+| `GET /workspaces` | The workspaces the user is in, each with `role`, `Editor` or `Viewer`. An admin gets every one, as an editor. |
+| `GET /workspaces/{id}` | One of them, with its `members` and their roles for an admin, and `null` for anyone else |
+| `POST /workspaces`, `PATCH /workspaces/{id}` | For admins: makes a workspace from `{"name"}`, or renames one |
+| `DELETE /workspaces/{id}` | For admins: from `{"name"}`, which must be the workspace's name, removes the workspace with its dashboards, sources, push keys, and Nexus link, and deletes its folder. Nexus is asked to revoke the link's app key. A source syncing in it answers 409. |
+| `PUT`, `DELETE /workspaces/{id}/members/{userId}` | For admins: from `{"role"}`, adds a user to the workspace or changes their role, or takes them out |
+| `GET /workspaces/{workspaceId}/sources` | Lists sources: name, the file or the connection's stream the rows come from, columns and their types, row count, sync time, and `status` (`Ready`, `Syncing`, `Failed`, or `SignInNeeded`) with any `error` |
+| `POST /workspaces/{workspaceId}/sources` | Form fields `name`, `file`, and optional `delimiter`. Syncs the file through Nexus into a table named `name`. |
+| `POST /workspaces/{workspaceId}/sources/{id}/sync` | Copies a connection's stream into its source again. An uploaded file answers 400; upload it again instead. A source syncing in the background answers 409. |
+| `GET /workspaces/{workspaceId}/sources/{id}/uses` | Each chart that reads the source, directly or through a join, as `{dashboardId, dashboardName, chartTitle, chartKind}` |
+| `DELETE /workspaces/{workspaceId}/sources/{id}` | Removes the source with its table, an upload's stored file, and a connection no other source uses. Charts that read it stay and ask for another source. A source syncing answers 409. A key that can push to a removed source makes it again on its next push. |
+| `POST /workspaces/{workspaceId}/sources/{id}/sign-in` | For a Schwab source, starts a sign-in that renews its connection's, and answers `{"url"}`: Schwab's sign-in page |
+| `GET /workspaces/{workspaceId}/schwab/streams` | Lists the streams a Schwab connection offers. Needs no sign-in. |
+| `POST /workspaces/{workspaceId}/schwab/sign-in` | From `{"settings", "streams": [{"table": "balances", "name": "..."}]}`, checks the names and answers `{"url"}`: Schwab's sign-in page, which returns to the callback |
+| `GET /schwab/callback?code=&state=` | Where Schwab sends the browser after its sign-in. Keeps the tokens encrypted, queues each picked stream to copy in the background, and sends the browser to the workspace's Sources page, with `error` when the sign-in failed. A sign-in Scry does not know goes back to the client's `/`, with its `error`. |
+| `GET /workspaces/{workspaceId}/connectors` | Lists the connectors Scry reads through itself, CSV and then Schwab: id, name, description, and the settings each asks for. Databases and other services come through Nexus. |
+| `GET /workspaces/{workspaceId}/sources/{id}/series?x=&y=&aggregate=` | `[x, y]`: `y` aggregated per value of `x`, in `x` order, for bar, pictorial bar, line, area, pie, funnel, and region map charts |
+| `GET /workspaces/{workspaceId}/sources/{id}/links?from=&to=&y=&aggregate=` | `[from, to, y]`: `y` aggregated per pair of ends, both as text, for Sankey, network graph, and chord charts. A row whose ends match is left out. |
+| `GET /workspaces/{workspaceId}/sources/{id}/values?columns=` | `[value, ...]`: 1 to 12 number columns, repeated, one row per source row with all of them filled in, for parallel coordinates and flow maps |
+| `GET /workspaces/{workspaceId}/sources/{id}/total?y=&aggregate=` | `["All rows", value]`: `y` aggregated over every row, for a gauge |
+| `GET /workspaces/{workspaceId}/sources/{id}/measures?columns=&group=&aggregate=` | `[group, value, ...]`: each number column, repeated, aggregated per group, or over every row without `group`, for a radar chart |
+| `GET /workspaces/{workspaceId}/sources/{id}/tree?levels=&y=&aggregate=` | `[level, ..., value]`: `y` aggregated per path through 1 to 4 levels, repeated, for treemaps, sunbursts, and trees |
+| `GET /workspaces/{workspaceId}/sources/{id}/groups?x=&group=&y=&aggregate=` | `[x, group, y]`: `y` aggregated per pair, the group as text, for stacked bars, heatmaps, and theme rivers |
+| `GET /workspaces/{workspaceId}/sources/{id}/pivot?row=&column=&y=&aggregate=` | `[row, column, value, row's place, column's place]`: `y` aggregated per pair, both as text, for a pivot table. The 50 column values largest in the aggregate keep a column each; the rest share one whose value is null, placed last. |
+| `GET /workspaces/{workspaceId}/sources/{id}/histogram?column=&bins=` | `[start, end, count]` for each of `bins` equal-width bins, 20 by default and 200 at most, empty ones included |
+| `GET /workspaces/{workspaceId}/sources/{id}/boxes?value=&group=` | `[group, min, first quartile, median, third quartile, max]` per group, or one row named `All rows` without `group` |
+| `GET /workspaces/{workspaceId}/sources/{id}/points?x=&y=` | `[x, y]`, one per row, for a scatter chart. `x` is a number or a time. |
+| `GET /workspaces/{workspaceId}/sources/{id}/candles?x=&open=&high=&low=&close=` | `[x, open, close, low, high]`, one per row, in `x` order |
+| `GET /workspaces/{workspaceId}/sources/{id}/rows?columns=&sort=&direction=&count=&offset=&limit=` | `limit` rows, 1 to 1,000, from `offset`, of the chosen columns, repeated, or every column, as text, with the source's `total` row count. Sorted by `sort` in `direction` (`asc` or `desc`) with blanks last, or in source order without `sort`. With `count=true`, rows matching in every shown column become one, with a last column, Count; it sorts by `sort=__scry_count` or a shown column, and by the count, highest first, without `sort`. |
+| `GET`, `POST /workspaces/{workspaceId}/dashboards` | Lists each dashboard's name, `chartCount`, and `isLanding`, or creates one from `{"name": "..."}` |
+| `GET`, `PUT`, `DELETE /workspaces/{workspaceId}/dashboards/{id}` | Reads, replaces `name`, `layouts`, and `widgets`, or deletes |
+| `PATCH /workspaces/{workspaceId}/dashboards/{id}` | From `{"name": "...", "isLanding": true}`, renames the dashboard and makes it the landing dashboard, clearing any other, or with `false` stops it being one |
+| `GET`, `POST /workspaces/{workspaceId}/keys` | Lists push API keys, each with the sources it writes, or makes one from `{"name": "..."}` and answers it with `key`, shown this once |
+| `DELETE /workspaces/{workspaceId}/keys/{id}` | Revokes a key. Its sources stay, and no key writes to them. |
+| `GET /workspaces/{workspaceId}/nexus` | Scry's link to Nexus, or `{"linked": false}` |
+| `POST /workspaces/{workspaceId}/nexus/pairing` | From `{"nexusUrl"}`, opens a pairing at that Nexus and answers `{"approveUrl"}`, the page where its admin approves Scry |
+| `GET /workspaces/{workspaceId}/nexus/callback?pairing=` | Where Nexus sends the admin back. Makes a push key named for that Nexus, such as "Nexus at localhost:6163", claims the pairing with it for Nexus's app key, keeps the link, and sends the browser to the workspace's Settings page, with `error` when linking failed. Scry pairs as "Scry at" its own host and the workspace's name, such as "Scry at localhost:6161, workspace Default". |
+| `DELETE /workspaces/{workspaceId}/nexus` | Unlinks: Nexus revokes Scry's app key, Scry revokes Nexus's push key, and the link goes. The sources Nexus sent stay. |
+| `GET /workspaces/{workspaceId}/nexus/connectors` | The connectors Nexus reads through, such as MySQL, which the Sources page offers under Through Nexus. One the link's workspace cannot connect yet, such as Schwab without a sign-in app, says why on its tile and cannot be picked. |
+| `POST /workspaces/{workspaceId}/nexus/connect` | From `{"connector"}`, opens Nexus's connect page for it, into the link's destination and coming back to the Sources page, and answers `{"url"}`. Nexus adds `connection` to the return address once connected, or `error=cancelled`. |
+| `GET /workspaces/{workspaceId}/nexus/syncs` | The syncs that fill the link's destination: the connection and stream each reads, its table, and how its last run went |
+| `POST /workspaces/{workspaceId}/nexus/syncs/{id}/run` | Runs one of those syncs now |
 | `GET /install` | Where the instance stands: `installed`, `stage` (`Database`, `Address`, `Admin`, or `Done`), whether the page is `local` and `allowed` to use the installer, whether Scry can send `mail`, and, when it is allowed, the database without its password and both addresses |
 | `POST /install/database` | From `{"host", "port", "name", "user", "password"}`, opens the database, makes it when it is missing and the user may, applies the migrations, and keeps it only once that works. Answers 409 once a database is set. |
 | `POST /install/addresses` | From `{"clientOrigin", "apiOrigin"}`, keeps the client's address and the API's. On an instance already set up, it changes them. |
@@ -76,7 +81,7 @@ parent directory.
 | `POST /install/code` | Writes the install code to the API's log, at most once a minute |
 | `POST /auth/sign-in`, `POST /auth/link`, `POST /auth/link/redeem` | Signs in with a password, mails a link, or signs in with one |
 | `GET /auth/me`, `GET /auth/csrf`, `POST /auth/refresh`, `POST /auth/sign-out`, `PUT /auth/password` | The session and the signed-in user's password |
-| `/users` | Admins invite, change, and remove users. An invite that is not mailed answers its link. |
+| `/users` | Admins invite, change, and remove users, and see each user's workspaces and roles. An invite that is not mailed answers its link. |
 | `GET /settings` | For admins: both addresses, the mail, and the database without its password, each with whether configuration sets it. The server token is never answered. |
 | `PUT /settings/addresses` | From `{"clientOrigin", "apiOrigin"}`, changes the addresses |
 | `PUT` and `DELETE /settings/mail`, `POST /settings/mail/test` | From `{"serverToken", "from", "fromName"}`, sets Postmark's token and the sender, or turns mail off, and mails the admin to check it. A blank token keeps the stored one. |
@@ -87,11 +92,11 @@ parent directory.
 | `POST /ingest/sources/{name}/replace` | Push API: starts a replacement, with new columns or the source's own, and an `origin` as `PUT` takes; batches go to it until a commit |
 | `POST /ingest/sources/{name}/commit` | Push API: swaps a replacement in, and answers the source with its row count |
 
-The Nexus routes answer 409 while Scry is unlinked, and 502 with Nexus's own words when Nexus refuses. A source pushed with
+The Nexus routes answer 409 while the workspace is unlinked, and 502 with Nexus's own words when Nexus refuses. A source pushed with
 the link's push key is listed with `kind` `Nexus`.
 
 - A source name starts with a lowercase letter and holds lowercase letters, digits, and underscores, 63 at most.
-  A taken name answers 409. The file can be up to 1 GB.
+  A name taken in the workspace answers 409. The file can be up to 1 GB.
 - `aggregate` is `sum`, `avg`, `min`, `max`, or `count`. `y` must be a number column, and is left out for
   `count`. Open, high, low, and close must be number columns too.
 - Series, points, and candles carry `xType`: `value` for a number column, `time` for a date or time column, sent
@@ -104,7 +109,10 @@ the link's push key is listed with `kind` `Nexus`.
 - Errors are problem details, with a `detail` safe to show.
 - Every route needs a signed-in user but `/health`, the installer, the sign-in routes under `/auth`, the push API, and
   Schwab's callback, which carries its own `state`.
-- The push API's routes take a key as `Authorization: Bearer <key>`, and no session. A key writes only to the sources it made.
+- A workspace's routes answer 404 to a user outside it. A viewer gets 403 on all but its dashboards, its list of
+  sources, and the chart and row queries its dashboards make.
+- The push API's routes take a key as `Authorization: Bearer <key>`, and no session. A key writes into its own
+  workspace, and only to the sources it made.
   A pushed source whose key was revoked becomes the next key's to write to it.
   The client's `/docs/push-api` page is the reference for people using it: column types, modes, limits, and answers.
 - The API applies its EF migrations each time it opens a database: at a start, and when the installer or the
@@ -153,7 +161,7 @@ to it. The sources' rows stay in `data/workspaces` whichever database Scry uses.
 ### Users and sign-in
 
 There is no sign-up. An admin invites each user from the Users page, in the account menu, and changes the instance's
-settings. Every user changes the dashboards, sources, keys, and the Nexus link.
+settings.
 
 - A user signs in with a password, or with a link mailed to them that works once, for 15 minutes. An invite link works
   once, for 7 days. Mail goes through `Pluperfect.Mail`'s Postmark transport, with the token set on the Settings page.
@@ -167,6 +175,23 @@ settings. Every user changes the dashboards, sources, keys, and the Nexus link.
   time.
 - Setting a password ends the user's other sessions. A forgotten password is replaced by signing in with a mailed link
   and setting a new one.
+
+### Workspaces
+
+Everything a user works with belongs to a workspace: its dashboards, its sources, its push keys, its link to Nexus, and
+its own DuckDB file and uploads under `data/workspaces/<id>`. A chart reads only its workspace's sources, and each
+workspace pairs with Nexus on its own.
+
+- Admins make, rename, and remove workspaces on the Workspaces page, in the account menu, and are editors in every one.
+  They add members on a workspace's Settings page, each as an editor or a viewer.
+- An editor changes the workspace's dashboards, sources, push keys, and Nexus link. A viewer opens its dashboards,
+  full screen included, and changes nothing.
+- The header's workspace menu switches between them, and `/` opens the one last opened in the browser, or the first by
+  name. With none, an admin is offered to make one.
+- Removing a workspace takes its name, typed. Its rows and its folder go, and nothing brings them back.
+- A database from before workspaces moves its dashboards, sources, keys, and Nexus link into a workspace named
+  Default, whose folder is `data/workspaces/default`. Users who are not admins join no workspace until an admin adds
+  them.
 
 A page on the machine the API runs on uses the installer as it is. Any other page needs the install code, which the
 API writes to its log, with a link to `/install` that carries it, at each start while it is not set up. The code is
@@ -223,7 +248,7 @@ These settings have no page:
 
 | Setting | Default |
 |---|---|
-| `Scry:DataDirectory` | `data`, beside the API. Uploads, `workspaces/default/data.duckdb`, `instance.json`, and `keys`, the keys that encrypt stored connections and the database password, live here. |
+| `Scry:DataDirectory` | `data`, beside the API. Each workspace's DuckDB file and uploads, under `workspaces`, `instance.json`, and `keys`, the keys that encrypt stored connections and the database password, live here. |
 | `Schwab:AppKey`, `Schwab:AppSecret` | The key and secret of your Schwab app. Without both, the Schwab form says to set them. |
 | `Schwab:CallbackUrl` | `https://127.0.0.1:6162/schwab/callback`, which must match the app's callback on Schwab's developer portal exactly |
 

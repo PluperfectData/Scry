@@ -308,12 +308,12 @@ function Finish() {
     <>
       <p className="success">Scry is set up, and you are signed in.</p>
       <p>
-        Add a source to bring data in, then chart it on a dashboard. The Settings page changes the addresses, mail, and
-        database later.
+        A workspace holds dashboards and the sources they chart. Open Scry to make the first one, or to open those this
+        database has already. The Settings page changes the addresses, mail, and database later.
       </p>
       <div className="form-actions">
-        <button type="button" onClick={() => navigate('/sources')}>
-          Add a source
+        <button type="button" onClick={() => navigate('/')}>
+          Open Scry
         </button>
       </div>
     </>

@@ -2,11 +2,13 @@ namespace Scry.Api.Storage;
 
 /// <summary>
 /// Scry's link to a Nexus instance, made by pairing: Nexus's address, the app key Nexus gave Scry, the destination its
-/// rows come to, and the push key Scry gave Nexus. Scry keeps at most one.
+/// rows come to, and the push key Scry gave Nexus. A workspace has at most one.
 /// </summary>
 public sealed class NexusLink
 {
     public int Id { get; set; }
+
+    public int WorkspaceId { get; set; }
 
     /// <summary>Nexus's API address, such as <c>http://localhost:6163</c>.</summary>
     public required string NexusUrl { get; set; }

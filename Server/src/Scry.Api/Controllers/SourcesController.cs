@@ -119,31 +119,41 @@ public sealed class SourceJoin
     public string? JoinKind { get; set; }
 }
 
+/// <summary>
+/// A workspace's sources. Its viewers read the list and query charts, which its dashboards need; its editors upload,
+/// sync, and remove sources.
+/// </summary>
 [ApiController]
-[Route("sources")]
-public sealed class SourcesController(ScryDbContext db, Workspace workspace, SourceSync sync) : ControllerBase
+[Route("workspaces/{workspaceId:int}/sources")]
+[InWorkspace]
+public sealed class SourcesController(ScryDbContext db, CurrentWorkspace workspace, SourceSync sync) : ControllerBase
 {
     [HttpGet]
+    [ForViewers]
     public async Task<IEnumerable<SourceView>> List(CancellationToken ct)
     {
         var linkKey = await LinkKeyAsync(ct);
-        return (await db.Sources.AsNoTracking().Include(source => source.Connection).Include(source => source.IngestKey).OrderBy(source => source.Name).ToListAsync(ct))
+        return (await InWorkspace().AsNoTracking().Include(source => source.Connection).Include(source => source.IngestKey).OrderBy(source => source.Name).ToListAsync(ct))
             .Select(source => SourceView.From(source, linkKey));
     }
 
     [HttpGet("{id:int}")]
+    [ForViewers]
     public async Task<ActionResult<SourceView>> Get(int id, CancellationToken ct) =>
-        await db.Sources.Include(source => source.Connection).Include(source => source.IngestKey).FirstOrDefaultAsync(source => source.Id == id, ct) is { } source
+        await InWorkspace().Include(source => source.Connection).Include(source => source.IngestKey).FirstOrDefaultAsync(source => source.Id == id, ct) is { } source
             ? SourceView.From(source, await LinkKeyAsync(ct))
             : NotFound();
 
-    private Task<int?> LinkKeyAsync(CancellationToken ct) => db.NexusLinks.Select(link => link.IngestKeyId).FirstOrDefaultAsync(ct);
+    private IQueryable<Source> InWorkspace() => db.Sources.Where(source => source.WorkspaceId == workspace.Id);
+
+    private Task<int?> LinkKeyAsync(CancellationToken ct) =>
+        db.NexusLinks.Where(link => link.WorkspaceId == workspace.Id).Select(link => link.IngestKeyId).FirstOrDefaultAsync(ct);
 
     /// <summary>Copies a connection's stream into DuckDB again. An uploaded file syncs once, when it is uploaded.</summary>
     [HttpPost("{id:int}/sync")]
     public async Task<ActionResult<SourceView>> Sync(int id, CancellationToken ct)
     {
-        if (await db.Sources.Include(s => s.Connection).FirstOrDefaultAsync(s => s.Id == id, ct) is not { } source)
+        if (await InWorkspace().Include(s => s.Connection).FirstOrDefaultAsync(s => s.Id == id, ct) is not { } source)
         {
             return NotFound();
         }
@@ -174,16 +184,16 @@ public sealed class SourcesController(ScryDbContext db, Workspace workspace, Sou
         return SourceView.From(source, null);
     }
 
-    /// <summary>Each chart that reads the source, directly or through a join, on every dashboard.</summary>
+    /// <summary>Each chart that reads the source, directly or through a join, on the workspace's dashboards.</summary>
     [HttpGet("{id:int}/uses")]
     public async Task<ActionResult<IEnumerable<ChartUse>>> Uses(int id, CancellationToken ct)
     {
-        if (!await db.Sources.AnyAsync(source => source.Id == id, ct))
+        if (!await InWorkspace().AnyAsync(source => source.Id == id, ct))
         {
             return NotFound();
         }
 
-        var dashboards = await db.Dashboards.AsNoTracking().OrderBy(d => d.Name).Select(d => new { d.Id, d.Name, d.Widgets }).ToListAsync(ct);
+        var dashboards = await db.Dashboards.AsNoTracking().Where(d => d.WorkspaceId == workspace.Id).OrderBy(d => d.Name).Select(d => new { d.Id, d.Name, d.Widgets }).ToListAsync(ct);
         return dashboards.SelectMany(d => ChartUse.Reading(d.Widgets, id).Select(chart => chart with { DashboardId = d.Id, DashboardName = d.Name })).ToList();
     }
 
@@ -194,7 +204,7 @@ public sealed class SourcesController(ScryDbContext db, Workspace workspace, Sou
     [HttpDelete("{id:int}")]
     public async Task<IActionResult> Remove(int id, CancellationToken ct)
     {
-        if (await db.Sources.FirstOrDefaultAsync(source => source.Id == id, ct) is not { } source)
+        if (await InWorkspace().FirstOrDefaultAsync(source => source.Id == id, ct) is not { } source)
         {
             return NotFound();
         }
@@ -212,10 +222,10 @@ public sealed class SourcesController(ScryDbContext db, Workspace workspace, Sou
         }
 
         // The row goes first: a table left by a failure here is replaced by the next source of its name.
-        await workspace.DropSourceAsync(source.Name, CancellationToken.None);
-        if (source.StoredFile is { } stored && System.IO.File.Exists(Path.Combine(workspace.Uploads, stored)))
+        await workspace.Data.DropSourceAsync(source.Name, CancellationToken.None);
+        if (source.StoredFile is { } stored && System.IO.File.Exists(Path.Combine(workspace.Data.Uploads, stored)))
         {
-            System.IO.File.Delete(Path.Combine(workspace.Uploads, stored));
+            System.IO.File.Delete(Path.Combine(workspace.Data.Uploads, stored));
         }
 
         return NoContent();
@@ -244,14 +254,14 @@ public sealed class SourcesController(ScryDbContext db, Workspace workspace, Sou
             return Problem("Choose a CSV file to upload.", statusCode: StatusCodes.Status400BadRequest);
         }
 
-        if (await db.Sources.AnyAsync(source => source.Name == name, ct))
+        if (await InWorkspace().AnyAsync(source => source.Name == name, ct))
         {
             return Problem($"A source named '{name}' already exists.", statusCode: StatusCodes.Status409Conflict);
         }
 
-        Directory.CreateDirectory(workspace.Uploads);
+        Directory.CreateDirectory(workspace.Data.Uploads);
         var stored = $"{Guid.NewGuid():N}.csv";
-        var storedPath = Path.Combine(workspace.Uploads, stored);
+        var storedPath = Path.Combine(workspace.Data.Uploads, stored);
         await using (var target = new FileStream(storedPath, FileMode.CreateNew, FileAccess.Write))
         {
             await file.CopyToAsync(target, ct);
@@ -260,7 +270,7 @@ public sealed class SourcesController(ScryDbContext db, Workspace workspace, Sou
         SyncResult result;
         try
         {
-            result = await workspace.SyncCsvAsync(name, file.FileName, storedPath, upload.Delimiter, ct);
+            result = await workspace.Data.SyncCsvAsync(name, file.FileName, storedPath, upload.Delimiter, ct);
         }
         catch (ConnectorException ex)
         {
@@ -270,6 +280,7 @@ public sealed class SourcesController(ScryDbContext db, Workspace workspace, Sou
 
         var created = new Source
         {
+            WorkspaceId = workspace.Id,
             Name = name,
             FileName = Path.GetFileName(file.FileName),
             StoredFile = stored,
@@ -280,11 +291,12 @@ public sealed class SourcesController(ScryDbContext db, Workspace workspace, Sou
         db.Sources.Add(created);
         await db.SaveChangesAsync(ct);
 
-        return CreatedAtAction(nameof(Get), new { id = created.Id }, SourceView.From(created, null));
+        return CreatedAtAction(nameof(Get), new { workspaceId = workspace.Id, id = created.Id }, SourceView.From(created, null));
     }
 
     /// <summary><paramref name="y"/> aggregated per value of <paramref name="x"/>, for line, bar, and pie charts.</summary>
     [HttpGet("{id:int}/series")]
+    [ForViewers]
     public Task<ActionResult<Series>> GetSeries(
         int id,
         [FromQuery] string x,
@@ -296,6 +308,7 @@ public sealed class SourcesController(ScryDbContext db, Workspace workspace, Sou
 
     /// <summary>One point per row, for a scatter chart.</summary>
     [HttpGet("{id:int}/points")]
+    [ForViewers]
     public Task<ActionResult<Series>> GetPoints(
         int id,
         [FromQuery] string x,
@@ -306,6 +319,7 @@ public sealed class SourcesController(ScryDbContext db, Workspace workspace, Sou
 
     /// <summary>One candle per row, as <c>[x, open, close, low, high]</c>.</summary>
     [HttpGet("{id:int}/candles")]
+    [ForViewers]
     public Task<ActionResult<Series>> GetCandles(
         int id,
         [FromQuery] string x,
@@ -319,6 +333,7 @@ public sealed class SourcesController(ScryDbContext db, Workspace workspace, Sou
 
     /// <summary><paramref name="y"/> aggregated per <paramref name="x"/> and <paramref name="group"/>, as <c>[x, group, y]</c>.</summary>
     [HttpGet("{id:int}/groups")]
+    [ForViewers]
     public Task<ActionResult<Series>> GetGroups(
         int id,
         [FromQuery] string x,
@@ -334,6 +349,7 @@ public sealed class SourcesController(ScryDbContext db, Workspace workspace, Sou
     /// <c>[row, column, value, row's place, column's place]</c>, for a pivot table.
     /// </summary>
     [HttpGet("{id:int}/pivot")]
+    [ForViewers]
     public Task<ActionResult<Series>> GetPivot(
         int id,
         [FromQuery] string row,
@@ -346,6 +362,7 @@ public sealed class SourcesController(ScryDbContext db, Workspace workspace, Sou
 
     /// <summary>Equal-width bins over a number column, as <c>[start, end, count]</c>.</summary>
     [HttpGet("{id:int}/histogram")]
+    [ForViewers]
     public Task<ActionResult<Series>> GetHistogram(
         int id,
         [FromQuery] string column,
@@ -356,6 +373,7 @@ public sealed class SourcesController(ScryDbContext db, Workspace workspace, Sou
 
     /// <summary>Box plot statistics per group, as <c>[group, min, q1, median, q3, max]</c>.</summary>
     [HttpGet("{id:int}/boxes")]
+    [ForViewers]
     public Task<ActionResult<Series>> GetBoxes(
         int id,
         [FromQuery] string value,
@@ -366,6 +384,7 @@ public sealed class SourcesController(ScryDbContext db, Workspace workspace, Sou
 
     /// <summary><paramref name="y"/> aggregated over every row, as one <c>["All rows", value]</c> point.</summary>
     [HttpGet("{id:int}/total")]
+    [ForViewers]
     public Task<ActionResult<Series>> GetTotal(
         int id,
         [FromQuery] string? y,
@@ -376,6 +395,7 @@ public sealed class SourcesController(ScryDbContext db, Workspace workspace, Sou
 
     /// <summary>Several number columns aggregated per group, as <c>[group, value, ...]</c>.</summary>
     [HttpGet("{id:int}/measures")]
+    [ForViewers]
     public Task<ActionResult<Series>> GetMeasures(
         int id,
         [FromQuery] string[]? columns,
@@ -387,6 +407,7 @@ public sealed class SourcesController(ScryDbContext db, Workspace workspace, Sou
 
     /// <summary><paramref name="y"/> aggregated per path through the levels, as <c>[level, ..., value]</c>.</summary>
     [HttpGet("{id:int}/tree")]
+    [ForViewers]
     public Task<ActionResult<Series>> GetTree(
         int id,
         [FromQuery] string[]? levels,
@@ -398,6 +419,7 @@ public sealed class SourcesController(ScryDbContext db, Workspace workspace, Sou
 
     /// <summary><paramref name="y"/> aggregated per pair of ends, as <c>[from, to, value]</c>.</summary>
     [HttpGet("{id:int}/links")]
+    [ForViewers]
     public Task<ActionResult<Series>> GetLinks(
         int id,
         [FromQuery(Name = "from")] string source,
@@ -410,6 +432,7 @@ public sealed class SourcesController(ScryDbContext db, Workspace workspace, Sou
 
     /// <summary>The chosen number columns, one row per source row, as <c>[value, ...]</c>.</summary>
     [HttpGet("{id:int}/values")]
+    [ForViewers]
     public Task<ActionResult<Series>> GetValues(
         int id,
         [FromQuery] string[]? columns,
@@ -423,6 +446,7 @@ public sealed class SourcesController(ScryDbContext db, Workspace workspace, Sou
     /// matching rows become one, with a Count column; see <see cref="ChartQueries.Rows"/>.
     /// </summary>
     [HttpGet("{id:int}/rows")]
+    [ForViewers]
     public async Task<ActionResult<Rows>> GetRows(
         int id,
         [FromQuery] string[]? columns,
@@ -449,8 +473,8 @@ public sealed class SourcesController(ScryDbContext db, Workspace workspace, Sou
             return Problem(ex.Message, statusCode: StatusCodes.Status400BadRequest);
         }
 
-        var rows = await workspace.QueryAsync(query.Sql, limit, ct);
-        var totals = await workspace.QueryAsync(query.CountSql, 1, ct);
+        var rows = await workspace.Data.QueryAsync(query.Sql, limit, ct);
+        var totals = await workspace.Data.QueryAsync(query.CountSql, 1, ct);
         var total = totals.Count == 0 ? 0 : Convert.ToInt64(totals[0][0], CultureInfo.InvariantCulture);
         return new Rows(query.Columns, rows, total);
     }
@@ -476,7 +500,7 @@ public sealed class SourcesController(ScryDbContext db, Workspace workspace, Sou
             return Problem(ex.Message, statusCode: StatusCodes.Status400BadRequest);
         }
 
-        var rows = await workspace.QueryAsync(query.Sql, ChartQueries.MaxPoints + 1, ct);
+        var rows = await workspace.Data.QueryAsync(query.Sql, ChartQueries.MaxPoints + 1, ct);
         var truncated = rows.Count > ChartQueries.MaxPoints;
         return new Series(query.XType, truncated ? rows.GetRange(0, ChartQueries.MaxPoints) : rows, truncated);
     }
@@ -484,7 +508,7 @@ public sealed class SourcesController(ScryDbContext db, Workspace workspace, Sou
     /// <summary>The source's table, or the source joined to another; null when the source does not exist.</summary>
     private async Task<Relation?> Read(int id, SourceJoin joined, CancellationToken ct)
     {
-        if (await db.Sources.FindAsync([id], ct) is not { } source)
+        if (await InWorkspace().AsNoTracking().FirstOrDefaultAsync(s => s.Id == id, ct) is not { } source)
         {
             return null;
         }
@@ -495,7 +519,7 @@ public sealed class SourcesController(ScryDbContext db, Workspace workspace, Sou
             return Relation.Of(source.Name, columns);
         }
 
-        var other = await db.Sources.FindAsync([otherId], ct)
+        var other = await InWorkspace().AsNoTracking().FirstOrDefaultAsync(s => s.Id == otherId, ct)
             ?? throw new ArgumentException($"There is no source {otherId} to join.");
         return Relation.Join(
             source.Name,

@@ -10,14 +10,14 @@ namespace Scry.Api;
 /// <summary>A synced table's columns and row count, and the connector's last checkpoint.</summary>
 public sealed record SyncResult(IReadOnlyList<ColumnInfo> Columns, long RowCount, JsonElement? State);
 
-/// <summary>The one built-in workspace: its uploads and its DuckDB file. Every DuckDB access takes one lock.</summary>
-public sealed partial class Workspace : IDisposable
+/// <summary>A workspace's files: its uploads and its DuckDB file. Every DuckDB access takes the file's one lock.</summary>
+public sealed partial class WorkspaceData : IDisposable
 {
     private readonly SemaphoreSlim _lock = new(1, 1);
 
-    public Workspace(ScrySettings settings, IHostEnvironment environment)
+    public WorkspaceData(string root)
     {
-        Root = Path.GetFullPath(Path.Combine(environment.ContentRootPath, settings.DataDirectory, "workspaces", "default"));
+        Root = root;
         Uploads = Path.Combine(Root, "uploads");
         Database = Path.Combine(Root, "data.duckdb");
     }
@@ -27,6 +27,23 @@ public sealed partial class Workspace : IDisposable
     public string Uploads { get; }
 
     public string Database { get; }
+
+    /// <summary>Deletes the folder, uploads and DuckDB file with it, once no read or write of it is under way.</summary>
+    public async Task DeleteAsync(CancellationToken ct)
+    {
+        await _lock.WaitAsync(ct);
+        try
+        {
+            if (Directory.Exists(Root))
+            {
+                Directory.Delete(Root, recursive: true);
+            }
+        }
+        finally
+        {
+            _lock.Release();
+        }
+    }
 
     /// <summary>Reads a CSV file through Nexus and replaces <paramref name="table"/> with it.</summary>
     public Task<SyncResult> SyncCsvAsync(string table, string fileName, string storedPath, string? delimiter, CancellationToken ct)

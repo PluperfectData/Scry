@@ -7,6 +7,8 @@ public sealed class Dashboard
 
     public int Id { get; set; }
 
+    public int WorkspaceId { get; set; }
+
     public required string Name { get; set; }
 
     /// <summary>One react-grid-layout layout per breakpoint, as a JSON object.</summary>
@@ -16,8 +18,8 @@ public sealed class Dashboard
     public required string Widgets { get; set; }
 
     /// <summary>
-    /// True for the dashboard the client's index opens in place of the list, and null for every other. A unique index
-    /// allows one true, since any number of rows may share null.
+    /// True for the dashboard a workspace opens in place of its list, and null for every other. A unique index on the
+    /// workspace and this allows one true in each, since any number of rows may share null.
     /// </summary>
     public bool? Landing { get; set; }
 

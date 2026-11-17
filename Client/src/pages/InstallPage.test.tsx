@@ -77,7 +77,7 @@ beforeEach(() => {
   window.history.replaceState(null, '', '/install')
 })
 
-it('takes the database, the addresses, mail, then the first admin, signs them in, and sends them to add a source', async () => {
+it('takes the database, the addresses, mail, then the first admin, signs them in, and opens Scry', async () => {
   jest.mocked(getInstall).mockResolvedValueOnce(view({}))
   jest.mocked(installDatabase).mockResolvedValue(view({ stage: 'Address' }))
   jest.mocked(installAddresses).mockResolvedValue(view({ stage: 'Admin', mailSettings: mailOff }))
@@ -101,13 +101,13 @@ it('takes the database, the addresses, mail, then the first admin, signs them in
   await userEvent.type(screen.getByLabelText('The same password again'), 'correct horse battery')
   await userEvent.click(screen.getByRole('button', { name: 'Make the admin and sign in' }))
   expect(await screen.findByText('Scry is set up, and you are signed in.')).toBeInTheDocument()
-  await userEvent.click(screen.getByRole('button', { name: 'Add a source' }))
+  await userEvent.click(screen.getByRole('button', { name: 'Open Scry' }))
 
   expect(installDatabase).toHaveBeenCalledWith(null, { host: 'localhost', port: 3306, name: 'scry', user: 'scry', password: 'secret' })
   expect(installAddresses).toHaveBeenCalledWith(null, { clientOrigin: 'http://localhost', apiOrigin: 'http://localhost:6161' })
   expect(installAdmin).toHaveBeenCalledWith(null, 'founder@acme.test', 'correct horse battery')
   expect(setMe).toHaveBeenCalledWith(founder)
-  expect(navigate).toHaveBeenCalledWith('/sources')
+  expect(navigate).toHaveBeenCalledWith('/')
 })
 
 it('makes the first admin with no password once mail works, to sign in by mailed links', async () => {
