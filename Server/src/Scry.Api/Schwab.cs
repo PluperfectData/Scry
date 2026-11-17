@@ -63,9 +63,14 @@ public sealed class SourceConnectors(SchwabConnector schwab)
 
 /// <summary>
 /// A Schwab sign-in under way in a workspace: the settings and streams of a new connection, or the existing connection
-/// whose sign-in it renews.
+/// whose sign-in it renews, and who started it, since the callback carries no session.
 /// </summary>
-public sealed record PendingSignIn(int WorkspaceId, IReadOnlyDictionary<string, string?> Settings, IReadOnlyList<TableChoice> Streams, int? ConnectionId);
+public sealed record PendingSignIn(
+    int WorkspaceId,
+    IReadOnlyDictionary<string, string?> Settings,
+    IReadOnlyList<TableChoice> Streams,
+    int? ConnectionId,
+    string? StartedBy);
 
 /// <summary>Sign-ins sent to Schwab and not yet back, by the <c>state</c> the redirect returns, for ten minutes.</summary>
 public sealed class SchwabSignIns(IMemoryCache cache)

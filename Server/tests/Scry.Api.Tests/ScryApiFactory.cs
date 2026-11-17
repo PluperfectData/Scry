@@ -9,9 +9,9 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.Extensions.Logging;
 using Scry.Api.Auth;
 using Scry.Api.Storage;
+using Serilog.Core;
 
 namespace Scry.Api.Tests;
 
@@ -159,7 +159,6 @@ public sealed class ScryApiFactory : WebApplicationFactory<Program>
         builder.UseSetting($"{SchwabApp.Section}:{nameof(SchwabApp.AppKey)}", "app-key");
         builder.UseSetting($"{SchwabApp.Section}:{nameof(SchwabApp.AppSecret)}", "app-secret");
 
-        builder.ConfigureLogging(logging => logging.AddProvider(Logs));
         builder.ConfigureTestServices(services =>
         {
             services.RemoveAll<IDatabaseHost>();
@@ -168,6 +167,7 @@ public sealed class ScryApiFactory : WebApplicationFactory<Program>
             services.AddHttpClient(NexusApi.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => Nexus);
             services.AddHttpClient(InstanceMailer.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => Postmark);
             services.AddSingleton<IStartupFilter, PretendLocal>();
+            services.AddSingleton<ILogEventSink>(Logs);
         });
     }
 

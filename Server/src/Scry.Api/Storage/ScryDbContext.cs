@@ -34,6 +34,8 @@ public sealed class ScryDbContext(DbContextOptions<ScryDbContext> options) : DbC
 
     public DbSet<WorkspaceMember> WorkspaceMembers => Set<WorkspaceMember>();
 
+    public DbSet<LogEntry> LogEntries => Set<LogEntry>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<User>(user =>
@@ -66,6 +68,20 @@ public sealed class ScryDbContext(DbContextOptions<ScryDbContext> options) : DbC
             workspace.Property(w => w.Name).HasMaxLength(Workspace.MaxNameLength);
             workspace.Property(w => w.Folder).HasMaxLength(64);
             workspace.Property(w => w.CreatedAt).HasConversion(Utc);
+        });
+
+        modelBuilder.Entity<LogEntry>(entry =>
+        {
+            entry.ToTable("log_entries");
+            entry.HasIndex(e => e.At);
+            entry.HasIndex(e => new { e.WorkspaceId, e.Id });
+            entry.Property(e => e.At).HasConversion(Utc);
+            entry.Property(e => e.Level).HasConversion<string>().HasMaxLength(16);
+            entry.Property(e => e.Text).HasMaxLength(LogEntry.MaxTextLength);
+            entry.Property(e => e.Actor).HasMaxLength(LogEntry.MaxActorLength);
+            entry.Ignore(e => e.Pending);
+            entry.HasOne(e => e.Workspace).WithMany().HasForeignKey(e => e.WorkspaceId).OnDelete(DeleteBehavior.SetNull);
+            entry.HasOne(e => e.Source).WithMany().HasForeignKey(e => e.SourceId).OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<WorkspaceMember>(member =>

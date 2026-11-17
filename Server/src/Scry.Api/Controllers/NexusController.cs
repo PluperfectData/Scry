@@ -37,7 +37,8 @@ public sealed class NexusController(
     NexusApi nexus,
     NexusPairings pairings,
     ConnectionSecrets secrets,
-    Instance instance) : ControllerBase
+    Instance instance,
+    OperatorLog log) : ControllerBase
 {
     [HttpGet]
     public async Task<NexusLinkView> Get(CancellationToken ct) =>
@@ -93,7 +94,10 @@ public sealed class NexusController(
     {
         if (error is not null)
         {
-            return BackToSettings(error == "declined" ? "Nexus's admin declined linking Scry." : error);
+            var said = error == "declined" ? "Nexus's admin declined linking Scry." : error;
+            log.Warn($"Linking workspace {workspace.Workspace.Name} to Nexus did not happen: {said}", LogPlace.In(workspace.Id));
+            await db.SaveChangesAsync(ct);
+            return BackToSettings(said);
         }
 
         if (pairing is null || pairings.Take(pairing) is not { } pending)
@@ -128,6 +132,7 @@ public sealed class NexusController(
         catch (NexusException ex)
         {
             db.IngestKeys.Remove(key);
+            log.Warn($"Linking workspace {workspace.Workspace.Name} to Nexus at {pending.NexusUrl} failed: {ex.Message}", LogPlace.In(workspace.Id));
             await db.SaveChangesAsync(CancellationToken.None);
             return BackToSettings(ex.Message);
         }
@@ -143,6 +148,9 @@ public sealed class NexusController(
             IngestKeyId = key.Id,
             LinkedAt = DateTime.UtcNow,
         });
+        log.Info(
+            $"Workspace {workspace.Workspace.Name} was linked to Nexus at {pending.NexusUrl}, workspace {claimed.WorkspaceName}, as {claimed.AppName}. Nexus sends rows with push key {key.Name}.",
+            LogPlace.In(workspace.Id));
         await db.SaveChangesAsync(ct);
         return Redirect($"{SettingsPage}?linked=1");
     }
@@ -172,6 +180,9 @@ public sealed class NexusController(
         }
 
         db.NexusLinks.Remove(link);
+        log.Info(
+            $"Workspace {workspace.Workspace.Name} was unlinked from Nexus at {link.NexusUrl}, and both keys were revoked. The sources Nexus sent stay.",
+            LogPlace.In(workspace.Id));
         await db.SaveChangesAsync(ct);
         return NoContent();
     }
@@ -195,7 +206,15 @@ public sealed class NexusController(
 
     [HttpPost("syncs/{id:int}/run")]
     public Task<ActionResult<NexusSync>> Run(int id, CancellationToken ct) =>
-        WithLinkAsync(link => nexus.RunSyncAsync(link.NexusUrl, AppKey(link), id, ct), ct);
+        WithLinkAsync(
+            async link =>
+            {
+                var run = await nexus.RunSyncAsync(link.NexusUrl, AppKey(link), id, ct);
+                log.Info($"Nexus at {link.NexusUrl} was asked to run sync {run.Table} now, from {run.ConnectionName} ({run.ConnectorName}).", LogPlace.In(workspace.Id));
+                await db.SaveChangesAsync(ct);
+                return run;
+            },
+            ct);
 
     // Each call through the link: refused while Scry is unlinked, and Nexus's refusals passed on in its own words.
     private async Task<ActionResult<T>> WithLinkAsync<T>(Func<NexusLink, Task<T>> call, CancellationToken ct)

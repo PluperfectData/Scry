@@ -8,6 +8,8 @@ namespace Scry.Api.Controllers;
 
 public sealed record MailSettingsRequest(string? ServerToken, string? From, string? FromName);
 
+public sealed record LogSettingsRequest(int? Days);
+
 /// <summary>
 /// How the instance sends mail. The server token is never answered, only whether one is set. A field set by Scry's
 /// configuration is shown, and the page cannot change it.
@@ -22,7 +24,10 @@ public sealed record MailView(
     bool FromNameConfigured,
     string? Folder);
 
-/// <summary>The instance's addresses, mail, and database. A value set by Scry's configuration is shown, and cannot be changed here.</summary>
+/// <summary>
+/// The instance's addresses, mail, database, and the days the operator log keeps an entry. A value set by Scry's
+/// configuration is shown, and cannot be changed here.
+/// </summary>
 public sealed record SettingsView(
     string? ClientOrigin,
     bool ClientOriginConfigured,
@@ -30,25 +35,33 @@ public sealed record SettingsView(
     bool ApiOriginConfigured,
     MailView Mail,
     DatabaseView? Database,
-    bool DatabaseConfigured);
+    bool DatabaseConfigured,
+    int LogDays,
+    bool LogDaysConfigured);
 
 public sealed record TestMailView(string SentTo, MailTransport Transport, string? Folder);
 
-/// <summary>The instance's own settings, for admins: its addresses, its mail, and its database.</summary>
+/// <summary>The instance's own settings, for admins: its addresses, its mail, its database, and how long its log keeps entries.</summary>
 [ApiController]
 [Route("settings")]
 [Authorize(Policy = ScryClaims.AdminPolicy)]
-public sealed class SettingsController(Instance instance, Installation installation, IMailer mailer) : ControllerBase
+public sealed class SettingsController(Instance instance, Installation installation, IMailer mailer, IServiceScopeFactory scopes) : ControllerBase
 {
     [HttpGet]
     public SettingsView Get() => View();
 
     [HttpPut("addresses")]
-    public ActionResult<SettingsView> Addresses(AddressesRequest request)
+    public async Task<ActionResult<SettingsView>> Addresses(AddressesRequest request, CancellationToken ct)
     {
+        var before = (instance.ClientOrigin, instance.ApiOrigin);
         if (AddressForm.Save(request, instance) is { } failed)
         {
             return Problem(failed.Problem, statusCode: failed.Status);
+        }
+
+        if (before != (instance.ClientOrigin, instance.ApiOrigin))
+        {
+            await NoteAsync(log => log.Info($"The addresses were changed: the client is at {instance.ClientOrigin}, and the API at {instance.ApiOrigin}.", LogPlace.Instance), ct);
         }
 
         return View();
@@ -56,14 +69,53 @@ public sealed class SettingsController(Instance instance, Installation installat
 
     /// <summary>Sets Postmark's server token and the sender. A blank token keeps the one stored.</summary>
     [HttpPut("mail")]
-    public ActionResult<SettingsView> Mail(MailSettingsRequest request) =>
-        MailForm.Save(request, instance) is { } failed ? Problem(failed.Problem, statusCode: failed.Status) : View();
+    public async Task<ActionResult<SettingsView>> Mail(MailSettingsRequest request, CancellationToken ct)
+    {
+        if (MailForm.Save(request, instance) is { } failed)
+        {
+            return Problem(failed.Problem, statusCode: failed.Status);
+        }
+
+        var tokenSaid = string.IsNullOrWhiteSpace(request.ServerToken) ? string.Empty : ", with a new server token";
+        await NoteAsync(log => log.Info($"Mail was set to go through Postmark, from {instance.MailFromName} at {instance.Sender}{tokenSaid}.", LogPlace.Instance), ct);
+        return View();
+    }
 
     /// <summary>Forgets the stored token and sender, which turns mail off unless configuration sets it.</summary>
     [HttpDelete("mail")]
-    public SettingsView TurnOffMail()
+    public async Task<SettingsView> TurnOffMail(CancellationToken ct)
     {
         instance.File.ClearMail();
+        await NoteAsync(
+            log => log.Info(
+                instance.MailReady ? "The stored mail settings were removed. Mail still goes out as Scry's configuration sets it." : "Mail was turned off.",
+                LogPlace.Instance),
+            ct);
+        return View();
+    }
+
+    /// <summary>Sets how many days the operator log keeps an entry.</summary>
+    [HttpPut("log")]
+    public async Task<ActionResult<SettingsView>> Log(LogSettingsRequest request, CancellationToken ct)
+    {
+        if (instance.LogDaysConfigured)
+        {
+            return Problem("How long the log keeps entries is set by Scry's configuration, in Scry:LogDays.", statusCode: StatusCodes.Status409Conflict);
+        }
+
+        if (request.Days is not { } days || days < Instance.MinLogDays || days > Instance.MaxLogDays)
+        {
+            return Problem(
+                $"The log keeps entries for {Instance.MinLogDays} to {Instance.MaxLogDays} days.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        if (days != instance.LogDays)
+        {
+            instance.File.SaveLogDays(days);
+            await NoteAsync(log => log.Info($"The log now keeps entries for {Days(days)}.", LogPlace.Instance), ct);
+        }
+
         return View();
     }
 
@@ -77,9 +129,14 @@ public sealed class SettingsController(Instance instance, Installation installat
         }
 
         var to = User.FindFirstValue(ClaimTypes.Name)!;
-        return await MailForm.TestAsync(mailer, instance, to, ct) is { } failed
-            ? Problem(failed, statusCode: StatusCodes.Status502BadGateway)
-            : MailForm.Sent(to, instance);
+        if (await MailForm.TestAsync(mailer, instance, to, ct) is { } failed)
+        {
+            await NoteAsync(log => log.Warn($"A test mail to {to} failed: {failed}", LogPlace.Instance), ct);
+            return Problem(failed, statusCode: StatusCodes.Status502BadGateway);
+        }
+
+        await NoteAsync(log => log.Info($"A test mail was sent to {to}.", LogPlace.Instance), ct);
+        return MailForm.Sent(to, instance);
     }
 
     /// <summary>Moves Scry to another database, or changes how it signs in to this one, once the new one opens and is brought up to date.</summary>
@@ -97,12 +154,28 @@ public sealed class SettingsController(Instance instance, Installation installat
             return Problem(problem, statusCode: StatusCodes.Status400BadRequest);
         }
 
+        var before = instance.File.DatabasePlace;
         if (await installation.UseDatabaseAsync(settings!, ct) is { } failed)
         {
             return Problem(failed, statusCode: StatusCodes.Status400BadRequest);
         }
 
+        // Written through a new scope, whose context opens the database just switched to.
+        var said = before is not null && before.SamePlace(settings!)
+            ? $"Scry now signs in to its database, {settings!.Name} on {settings.Host}:{settings.Port}, as {settings.User}."
+            : $"Scry moved to database {settings!.Name} on {settings.Host}:{settings.Port}, signing in as {settings.User}.";
+        await NoteAsync(log => log.Info(said, LogPlace.Instance), ct);
         return View();
+    }
+
+    private static string Days(int days) => days == 1 ? "1 day" : $"{days} days";
+
+    // Settings live outside the database, so each entry is saved on its own, through a context of its own.
+    private async Task NoteAsync(Action<OperatorLog> write, CancellationToken ct)
+    {
+        using var scope = scopes.CreateScope();
+        write(scope.ServiceProvider.GetRequiredService<OperatorLog>());
+        await scope.ServiceProvider.GetRequiredService<Storage.ScryDbContext>().SaveChangesAsync(ct);
     }
 
     private SettingsView View()
@@ -116,7 +189,9 @@ public sealed class SettingsController(Instance instance, Installation installat
             instance.ApiOriginConfigured,
             MailForm.View(instance),
             place is null ? null : new DatabaseView(place.Host, place.Port, place.Name, place.User),
-            configured is not null);
+            configured is not null,
+            instance.LogDays,
+            instance.LogDaysConfigured);
     }
 }
 

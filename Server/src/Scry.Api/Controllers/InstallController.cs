@@ -52,8 +52,13 @@ public sealed record InstallView(
 [AllowAnonymous]
 [SkipAntiforgery]
 [AnyOrigin]
-public sealed class InstallController(Installation installation, Instance instance, InstallAccess access, IMailer mailer, TimeProvider time)
-    : ControllerBase
+public sealed class InstallController(
+    Installation installation,
+    Instance instance,
+    InstallAccess access,
+    IMailer mailer,
+    IServiceScopeFactory scopes,
+    TimeProvider time) : ControllerBase
 {
     private const string MailIsSet = "Scry is set up. An admin changes its mail on the Settings page.";
 
@@ -91,6 +96,7 @@ public sealed class InstallController(Installation installation, Instance instan
             return Problem(failed, statusCode: StatusCodes.Status400BadRequest);
         }
 
+        await NoteAsync($"The installer set the database: {settings!.Name} on {settings.Host}:{settings.Port}, signing in as {settings.User}.", ct);
         return await ViewAsync(allowed: true, ct);
     }
 
@@ -108,9 +114,15 @@ public sealed class InstallController(Installation installation, Instance instan
             return Problem("Set up the database first.", statusCode: StatusCodes.Status409Conflict);
         }
 
+        var before = (instance.ClientOrigin, instance.ApiOrigin);
         if (AddressForm.Save(request, instance) is { } failed)
         {
             return Problem(failed.Problem, statusCode: failed.Status);
+        }
+
+        if (before != (instance.ClientOrigin, instance.ApiOrigin))
+        {
+            await NoteAsync($"The installer set the addresses: the client is at {instance.ClientOrigin}, and the API at {instance.ApiOrigin}.", ct);
         }
 
         await installation.AddressesSavedAsync(ct);
@@ -168,6 +180,15 @@ public sealed class InstallController(Installation installation, Instance instan
             user.PasswordHash = Passwords.Hash(user, password);
         }
 
+        services.GetRequiredService<OperatorLog>().Info(
+            (existing, password is not null) switch
+            {
+                (true, true) => $"The installer made {email} an admin, with a new password.",
+                (true, false) => $"The installer made {email} an admin.",
+                (false, true) => $"The installer made {email}, the first admin.",
+                (false, false) => $"The installer made {email}, the first admin, who signs in with mailed links.",
+            },
+            LogPlace.Instance);
         await db.SaveChangesAsync(ct);
         if (existing)
         {
@@ -188,9 +209,17 @@ public sealed class InstallController(Installation installation, Instance instan
             return refused;
         }
 
-        return MailForm.Save(request, instance) is { } failed
-            ? Problem(failed.Problem, statusCode: failed.Status)
-            : await ViewAsync(allowed: true, ct);
+        if (MailForm.Save(request, instance) is { } failed)
+        {
+            return Problem(failed.Problem, statusCode: failed.Status);
+        }
+
+        if (installation.DatabaseReady)
+        {
+            await NoteAsync($"The installer set mail to go through Postmark, from {instance.MailFromName} at {instance.Sender}.", ct);
+        }
+
+        return await ViewAsync(allowed: true, ct);
     }
 
     /// <summary>Forgets the stored token and sender, which turns mail off unless configuration sets it.</summary>
@@ -236,6 +265,14 @@ public sealed class InstallController(Installation installation, Instance instan
     {
         await installation.AnnounceAsync(ct);
         return NoContent();
+    }
+
+    // The installer's routes run before the database is set, so each entry is saved through a context of its own.
+    private async Task NoteAsync(string text, CancellationToken ct)
+    {
+        using var scope = scopes.CreateScope();
+        scope.ServiceProvider.GetRequiredService<OperatorLog>().Info(text, LogPlace.Instance);
+        await scope.ServiceProvider.GetRequiredService<ScryDbContext>().SaveChangesAsync(ct);
     }
 
     // Mail is the installer's only until the instance is set up; the Settings page changes it from then on.

@@ -415,3 +415,10 @@ it("names the Nexus sync that would bring a removed source back", async () => {
   )
   confirm.mockRestore()
 })
+
+it("links each source to its own entries on the Log page", async () => {
+  jest.mocked(listSources).mockResolvedValue([mockUpload])
+  render(<SourcesPage />)
+
+  expect(await screen.findByRole('link', { name: 'Log for q3_orders' })).toHaveAttribute('href', '/log?source=7')
+})

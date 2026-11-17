@@ -80,6 +80,8 @@ public sealed class InstanceFile
 
     public bool HasServerToken => _stored.Mail?.ServerToken is not null;
 
+    public int? LogDays => _stored.LogDays;
+
     /// <summary>The stored database without its password, or null when none is stored.</summary>
     public DatabaseSettings? DatabasePlace =>
         _stored.Database is { } stored ? new DatabaseSettings(stored.Host, stored.Port, stored.Name, stored.User, string.Empty) : null;
@@ -131,6 +133,8 @@ public sealed class InstanceFile
         });
 
     public void ClearMail() => Change(stored => stored with { Mail = null });
+
+    public void SaveLogDays(int days) => Change(stored => stored with { LogDays = days });
 
     private void Change(Func<Stored, Stored> change)
     {
@@ -214,6 +218,8 @@ public sealed class InstanceFile
         public StoredMail? Mail { get; init; }
 
         public string? SigningKey { get; init; }
+
+        public int? LogDays { get; init; }
     }
 
     internal sealed record StoredDatabase(string Host, int Port, string Name, string User, string Password);
@@ -233,6 +239,12 @@ public sealed class Instance(
     IHostEnvironment environment)
 {
     public const string DefaultSenderName = "Scry";
+
+    public const int DefaultLogDays = 30;
+
+    public const int MinLogDays = 1;
+
+    public const int MaxLogDays = 365;
 
     // A sender for mail written to files, which reaches no one.
     private const string FileSender = "scry@localhost";
@@ -294,6 +306,11 @@ public sealed class Instance(
                 : MailTransport.None;
 
     public bool MailReady => Transport != MailTransport.None;
+
+    /// <summary>How many days the operator log keeps an entry.</summary>
+    public int LogDays => Math.Clamp(settings.LogDays ?? file.LogDays ?? DefaultLogDays, MinLogDays, MaxLogDays);
+
+    public bool LogDaysConfigured => settings.LogDays is not null;
 
     private static string? Given(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }

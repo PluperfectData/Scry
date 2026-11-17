@@ -1,6 +1,6 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { getInstanceSettings, type InstanceSettings, saveAddresses, saveDatabase } from '../api'
+import { getInstanceSettings, type InstanceSettings, saveAddresses, saveDatabase, saveLogDays } from '../api'
 import { InstanceSection } from './InstanceSection'
 
 jest.mock('../api', () => ({
@@ -8,6 +8,7 @@ jest.mock('../api', () => ({
   getInstanceSettings: jest.fn(),
   saveAddresses: jest.fn(),
   saveDatabase: jest.fn(),
+  saveLogDays: jest.fn(),
 }))
 
 const settings: InstanceSettings = {
@@ -27,6 +28,8 @@ const settings: InstanceSettings = {
   },
   database: { host: 'localhost', port: 3306, name: 'scry', user: 'scry' },
   databaseConfigured: false,
+  logDays: 30,
+  logDaysConfigured: false,
 }
 
 const section = (name: string) => screen.getByRole('heading', { level: 2, name }).closest('section') as HTMLElement
@@ -77,4 +80,25 @@ it('shows what the configuration sets, and offers no way to change it', async ()
   expect(await screen.findByLabelText('API address')).toBeDisabled()
   expect(screen.getByText(/ConnectionStrings:Scry in Scry's configuration sets the database/)).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: 'Test and switch' })).not.toBeInTheDocument()
+})
+
+it('changes how many days the Log page keeps an entry', async () => {
+  jest.mocked(saveLogDays).mockResolvedValue({ ...settings, logDays: 14 })
+  render(<InstanceSection />)
+  const log = await screen.findByRole('heading', { level: 2, name: 'Log' }).then(() => section('Log'))
+
+  await userEvent.clear(within(log).getByLabelText('Keep entries for this many days'))
+  await userEvent.type(within(log).getByLabelText('Keep entries for this many days'), '14')
+  await userEvent.click(within(log).getByRole('button', { name: 'Save' }))
+
+  expect(saveLogDays).toHaveBeenCalledWith(14)
+  expect(await within(log).findByText('Saved.')).toBeInTheDocument()
+})
+
+it('shows the days kept as set by configuration, with nothing to change', async () => {
+  jest.mocked(getInstanceSettings).mockResolvedValue({ ...settings, logDays: 7, logDaysConfigured: true })
+  render(<InstanceSection />)
+
+  expect(await screen.findByText("Scry's configuration keeps log entries for 7 days, in Scry:LogDays.")).toBeInTheDocument()
+  expect(screen.queryByLabelText('Keep entries for this many days')).not.toBeInTheDocument()
 })

@@ -21,4 +21,7 @@ public sealed class ScrySettings
     public string? MailFrom { get; set; }
 
     public string? MailFromName { get; set; }
+
+    /// <summary>How many days the operator log keeps an entry, from 1 to 365.</summary>
+    public int? LogDays { get; set; }
 }

@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -53,7 +54,7 @@ public sealed class SchwabController(ScryDbContext db, CurrentWorkspace workspac
 
         // Scry only reads, so a connection never allows orders.
         var kept = request.Settings.Where(setting => setting.Key != SchwabSettings.AllowOrders).ToDictionary();
-        var state = signIns.Start(new PendingSignIn(workspace.Id, kept, streams, ConnectionId: null));
+        var state = signIns.Start(new PendingSignIn(workspace.Id, kept, streams, ConnectionId: null, User.FindFirstValue(ClaimTypes.Name)));
         return new SignInView(SchwabSignIn.AuthorizeUrl(app, schwab.App.CallbackUrl, state));
     }
 
@@ -76,7 +77,7 @@ public sealed class SchwabController(ScryDbContext db, CurrentWorkspace workspac
             return Problem("Only a Schwab source signs in.", statusCode: StatusCodes.Status400BadRequest);
         }
 
-        var state = signIns.Start(new PendingSignIn(workspace.Id, new Dictionary<string, string?>(), [], source.ConnectionId));
+        var state = signIns.Start(new PendingSignIn(workspace.Id, new Dictionary<string, string?>(), [], source.ConnectionId, User.FindFirstValue(ClaimTypes.Name)));
         return new SignInView(SchwabSignIn.AuthorizeUrl(app, schwab.App.CallbackUrl, state));
     }
 
@@ -98,7 +99,8 @@ public sealed class SchwabCallbackController(
     SchwabSignIns signIns,
     ConnectionSecrets secrets,
     PendingSyncs queue,
-    Instance instance) : ControllerBase
+    Instance instance,
+    OperatorLog log) : ControllerBase
 {
     /// <summary>
     /// Keeps the tokens in the workspace the sign-in started in, queues each source to sync in the background, and sends
@@ -114,12 +116,16 @@ public sealed class SchwabCallbackController(
             return Redirect($"{instance.Client}/?error={Uri.EscapeDataString("This sign-in ran out of time, or did not start in Scry. Sign in again.")}");
         }
 
-        IActionResult BackToSources(string error) =>
-            Redirect($"{instance.Client}/workspaces/{pending.WorkspaceId}/sources?error={Uri.EscapeDataString(error)}");
+        async Task<IActionResult> BackToSources(string error)
+        {
+            log.Warn($"Signing in to Schwab did not work: {error}", LogPlace.In(pending.WorkspaceId), pending.StartedBy);
+            await db.SaveChangesAsync(CancellationToken.None);
+            return Redirect($"{instance.Client}/workspaces/{pending.WorkspaceId}/sources?error={Uri.EscapeDataString(error)}");
+        }
 
         if (string.IsNullOrEmpty(code))
         {
-            return BackToSources($"Schwab did not sign you in: {error ?? "no reason given"}.");
+            return await BackToSources($"Schwab did not sign you in: {error ?? "no reason given"}.");
         }
 
         OAuthTokens tokens;
@@ -129,7 +135,7 @@ public sealed class SchwabCallbackController(
         }
         catch (ConnectorException ex)
         {
-            return BackToSources(ex.Message);
+            return await BackToSources(ex.Message);
         }
 
         List<Source> sources;
@@ -137,18 +143,22 @@ public sealed class SchwabCallbackController(
         {
             if (await db.Connections.FirstOrDefaultAsync(c => c.Id == connectionId && c.WorkspaceId == pending.WorkspaceId, ct) is not { } connection)
             {
-                return BackToSources("The Schwab connection this sign-in was for has been removed.");
+                return await BackToSources("The Schwab connection this sign-in was for has been removed.");
             }
 
             connection.Tokens = secrets.ProtectTokens(tokens);
             sources = await db.Sources.Where(source => source.ConnectionId == connectionId).ToListAsync(ct);
+            log.Info(
+                $"The Schwab sign-in for {string.Join(", ", sources.Select(s => s.Name))} was renewed, and each syncs again.",
+                LogPlace.In(pending.WorkspaceId),
+                pending.StartedBy);
         }
         else
         {
             // A name may have been taken while Schwab had the browser.
             if (await SourceNames.CheckAsync(db, pending.WorkspaceId, [.. pending.Streams.Select(choice => choice.Name)], "stream", ct) is { } problem)
             {
-                return BackToSources(problem.Detail);
+                return await BackToSources(problem.Detail);
             }
 
             var connection = new Connection
@@ -172,6 +182,10 @@ public sealed class SchwabCallbackController(
                 .ToList();
             db.Connections.Add(connection);
             db.Sources.AddRange(sources);
+            log.Info(
+                $"Signing in to Schwab added {string.Join(", ", sources.Select(s => s.Name))}, each syncing in the background.",
+                LogPlace.In(pending.WorkspaceId),
+                pending.StartedBy);
         }
 
         foreach (var source in sources)

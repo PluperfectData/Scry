@@ -32,6 +32,7 @@ public sealed class WorkspacesController(
     WorkspaceStore store,
     NexusApi nexus,
     ConnectionSecrets secrets,
+    OperatorLog log,
     TimeProvider time) : ControllerBase
 {
     [HttpGet]
@@ -70,6 +71,7 @@ public sealed class WorkspacesController(
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         var workspace = new Workspace { Name = name, Folder = Guid.NewGuid().ToString("N"), CreatedAt = time.GetUtcNow().UtcDateTime };
         db.Workspaces.Add(workspace);
+        log.Info($"Workspace {name} was made.", LogPlace.In(workspace));
         await db.SaveChangesAsync(ct);
         workspace.Folder = workspace.Id.ToString(CultureInfo.InvariantCulture);
         await db.SaveChangesAsync(ct);
@@ -89,6 +91,11 @@ public sealed class WorkspacesController(
         if (NameOf(request) is not { } name)
         {
             return NameProblem();
+        }
+
+        if (workspace.Name != name)
+        {
+            log.Info($"Workspace {workspace.Name} was renamed {name}.", LogPlace.In(workspace.Id));
         }
 
         workspace.Name = name;
@@ -140,6 +147,8 @@ public sealed class WorkspacesController(
             await db.IngestKeys.Where(k => k.WorkspaceId == id).ExecuteDeleteAsync(ct);
             await db.Dashboards.Where(d => d.WorkspaceId == id).ExecuteDeleteAsync(ct);
             await db.Workspaces.Where(w => w.Id == id).ExecuteDeleteAsync(ct);
+            log.Info($"Workspace {workspace.Name} was removed, with its dashboards, sources, push keys, Nexus link, and files.", LogPlace.Instance);
+            await db.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
         }
 
@@ -158,18 +167,26 @@ public sealed class WorkspacesController(
         }
 
         var workspace = await db.Workspaces.AsNoTracking().FirstOrDefaultAsync(w => w.Id == id, ct);
-        if (workspace is null || !await db.Users.AnyAsync(u => u.Id == userId, ct))
+        var email = await db.Users.Where(u => u.Id == userId).Select(u => u.Email).FirstOrDefaultAsync(ct);
+        if (workspace is null || email is null)
         {
             return NotFound();
         }
 
+        var asRole = role == WorkspaceRole.Editor ? "an editor" : "a viewer";
         if (await db.WorkspaceMembers.FirstOrDefaultAsync(m => m.WorkspaceId == id && m.UserId == userId, ct) is { } member)
         {
+            if (member.Role != role)
+            {
+                log.Info($"{email} is now {asRole} in workspace {workspace.Name}.", LogPlace.In(id));
+            }
+
             member.Role = role;
         }
         else
         {
             db.WorkspaceMembers.Add(new WorkspaceMember { WorkspaceId = id, UserId = userId, Role = role });
+            log.Info($"{email} was added to workspace {workspace.Name} as {asRole}.", LogPlace.In(id));
         }
 
         await db.SaveChangesAsync(ct);
@@ -185,7 +202,13 @@ public sealed class WorkspacesController(
             return NotFound();
         }
 
-        await db.WorkspaceMembers.Where(m => m.WorkspaceId == id && m.UserId == userId).ExecuteDeleteAsync(ct);
+        var email = await db.Users.Where(u => u.Id == userId).Select(u => u.Email).FirstOrDefaultAsync(ct);
+        if (await db.WorkspaceMembers.Where(m => m.WorkspaceId == id && m.UserId == userId).ExecuteDeleteAsync(ct) > 0)
+        {
+            log.Info($"{email} was taken out of workspace {workspace.Name}.", LogPlace.In(id));
+            await db.SaveChangesAsync(ct);
+        }
+
         return await DetailAsync(workspace, WorkspaceRole.Editor, ct);
     }
 

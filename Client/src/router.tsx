@@ -9,6 +9,7 @@ import { DocsPage } from './pages/DocsPage'
 import { HomePage } from './pages/HomePage'
 import { InstallPage } from './pages/InstallPage'
 import { LinkPage } from './pages/LinkPage'
+import { LogPage } from './pages/LogPage'
 import { PushApiDocsPage } from './pages/PushApiDocsPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { SignInPage } from './pages/SignInPage'
@@ -50,6 +51,7 @@ export const router = createBrowserRouter([
                 ],
               },
               { path: 'settings', element: <SettingsPage /> },
+              { path: 'log', element: <LogPage /> },
               { path: 'users', element: <UsersPage /> },
               { path: 'account', element: <AccountPage /> },
               { path: 'docs', element: <DocsPage /> },

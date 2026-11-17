@@ -48,7 +48,7 @@ public sealed record CallerKeyView(string Name, string Prefix);
 [Route("ingest/sources/{name}")]
 [AllowAnonymous]
 [SkipAntiforgery]
-public sealed class IngestController(ScryDbContext db, WorkspaceStore store, IngestKeys keys) : ControllerBase
+public sealed class IngestController(ScryDbContext db, WorkspaceStore store, IngestKeys keys, OperatorLog log) : ControllerBase
 {
     public const int MaxRows = 10_000;
 
@@ -115,11 +115,13 @@ public sealed class IngestController(ScryDbContext db, WorkspaceStore store, Ing
             await workspace.DropSourceAsync(name, ct);
             await workspace.CreatePushedAsync(name, schema.Columns, ct);
             db.Sources.Add(source);
+            log.Info($"Source {name} was made through the push API, with {LogWords.Columns(schema.Columns.Count)}{From(origin)}.", LogPlace.On(source), Actor(key));
         }
         else
         {
             if (Admit(source, key) is { } refused)
             {
+                await db.SaveChangesAsync(ct);
                 return refused;
             }
 
@@ -138,6 +140,11 @@ public sealed class IngestController(ScryDbContext db, WorkspaceStore store, Ing
 
             await workspace.CreatePushedAsync(name, schema.Columns, ct);
             source.Columns = ColumnInfo.Serialize(Infos(schema.Columns));
+            var added = schema.Columns.Count(column => !existing.Any(e => string.Equals(e.Name, column.Name, StringComparison.OrdinalIgnoreCase)));
+            if (added > 0)
+            {
+                log.Info($"{LogWords.Columns(added)} {(added == 1 ? "was" : "were")} added to source {name}.", LogPlace.On(source), Actor(key));
+            }
         }
 
         await db.SaveChangesAsync(ct);
@@ -280,10 +287,12 @@ public sealed class IngestController(ScryDbContext db, WorkspaceStore store, Ing
             source.Columns = ColumnInfo.Serialize(replacement.Columns);
             source.PrimaryKey = JsonSerializer.Serialize(replacement.PrimaryKey);
             source.Replacement = null;
+            log.Info($"Source {name} was replaced, and holds {LogWords.Rows(source.RowCount)}{From(source.Origin)}.", LogPlace.On(source), Actor(key));
         }
         else
         {
             source.RowCount = await workspace.RowCountAsync(name, ct);
+            log.Info($"A commit to source {name} left it holding {LogWords.Rows(source.RowCount)}{From(source.Origin)}.", LogPlace.On(source), Actor(key));
         }
 
         source.SyncedAt = DateTime.UtcNow;
@@ -380,25 +389,47 @@ public sealed class IngestController(ScryDbContext db, WorkspaceStore store, Ing
                 statusCode: StatusCodes.Status404NotFound));
         }
 
-        return (source, Admit(source, key));
+        // A refusal is saved here, so its entry reaches the log though the write does not.
+        var refused = Admit(source, key);
+        if (refused is not null)
+        {
+            await db.SaveChangesAsync(ct);
+        }
+
+        return (source, refused);
     }
 
     /// <summary>
     /// The problem to answer when <paramref name="key"/> may not write to the source, or null when it may. A pushed
-    /// source whose key was revoked becomes this key's, which the caller saves.
+    /// source whose key was revoked becomes this key's, which the caller saves. Each refusal and takeover is logged.
     /// </summary>
     private ObjectResult? Admit(Source source, IngestKey key)
     {
         if (!source.Pushed)
         {
+            log.Warn($"Push key {key.Name} was refused writing to source {source.Name}, which was not made through the push API.", LogPlace.On(source), Actor(key));
             return Problem($"'{source.Name}' was not made through the push API, so no key writes to it.", statusCode: StatusCodes.Status403Forbidden);
         }
 
-        source.IngestKeyId ??= key.Id;
-        return source.IngestKeyId == key.Id
-            ? null
-            : Problem($"This key did not make '{source.Name}', so it cannot write to it.", statusCode: StatusCodes.Status403Forbidden);
+        if (source.IngestKeyId is null)
+        {
+            source.IngestKeyId = key.Id;
+            log.Info($"Push key {key.Name} took over source {source.Name}, whose key was revoked.", LogPlace.On(source), Actor(key));
+            return null;
+        }
+
+        if (source.IngestKeyId == key.Id)
+        {
+            return null;
+        }
+
+        log.Warn($"Push key {key.Name} was refused writing to source {source.Name}, which another key made.", LogPlace.On(source), Actor(key));
+        return Problem($"This key did not make '{source.Name}', so it cannot write to it.", statusCode: StatusCodes.Status403Forbidden);
     }
+
+    private static string Actor(IngestKey key) => OperatorLog.KeyActor(key.Name);
+
+    private static string From(string? origin) => origin is null ? string.Empty : $", from {origin}";
 
     /// <summary>The origin a request gives, trimmed, or null when it gives none; false when it is too long.</summary>
     private static bool OriginOf(IngestSchemaRequest? request, out string? origin)

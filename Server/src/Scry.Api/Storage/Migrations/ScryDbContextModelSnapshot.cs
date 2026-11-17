@@ -138,6 +138,48 @@ namespace Scry.Api.Storage.Migrations
                     b.ToTable("ingest_keys", (string)null);
                 });
 
+            modelBuilder.Entity("Scry.Api.Storage.LogEntry", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Actor")
+                        .HasMaxLength(254)
+                        .HasColumnType("varchar(254)");
+
+                    b.Property<DateTime>("At")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Level")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("varchar(16)");
+
+                    b.Property<int?>("SourceId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("varchar(1000)");
+
+                    b.Property<int?>("WorkspaceId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("At");
+
+                    b.HasIndex("SourceId");
+
+                    b.HasIndex("WorkspaceId", "Id");
+
+                    b.ToTable("log_entries", (string)null);
+                });
+
             modelBuilder.Entity("Scry.Api.Storage.NexusLink", b =>
                 {
                     b.Property<int>("Id")
@@ -440,6 +482,23 @@ namespace Scry.Api.Storage.Migrations
                         .HasForeignKey("WorkspaceId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Scry.Api.Storage.LogEntry", b =>
+                {
+                    b.HasOne("Scry.Api.Storage.Source", "Source")
+                        .WithMany()
+                        .HasForeignKey("SourceId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Scry.Api.Storage.Workspace", "Workspace")
+                        .WithMany()
+                        .HasForeignKey("WorkspaceId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Source");
+
+                    b.Navigation("Workspace");
                 });
 
             modelBuilder.Entity("Scry.Api.Storage.NexusLink", b =>

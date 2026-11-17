@@ -16,7 +16,7 @@ public sealed record KeyRequest(string? Name);
 [ApiController]
 [Route("workspaces/{workspaceId:int}/keys")]
 [InWorkspace]
-public sealed class KeysController(ScryDbContext db, CurrentWorkspace workspace) : ControllerBase
+public sealed class KeysController(ScryDbContext db, CurrentWorkspace workspace, OperatorLog log) : ControllerBase
 {
     [HttpGet]
     public async Task<IEnumerable<IngestKeyView>> List(CancellationToken ct)
@@ -45,6 +45,7 @@ public sealed class KeysController(ScryDbContext db, CurrentWorkspace workspace)
         var (secret, hash, prefix) = IngestKeys.Make();
         var key = new IngestKey { WorkspaceId = workspace.Id, Name = name, Hash = hash, Prefix = prefix, CreatedAt = DateTime.UtcNow };
         db.IngestKeys.Add(key);
+        log.Info($"Push key {name} was made, starting {prefix}.", LogPlace.In(workspace.Id));
         await db.SaveChangesAsync(ct);
         return new MadeKeyView(key.Id, key.Name, key.Prefix, key.CreatedAt, secret);
     }
@@ -64,6 +65,7 @@ public sealed class KeysController(ScryDbContext db, CurrentWorkspace workspace)
         }
 
         db.IngestKeys.Remove(key);
+        log.Info($"Push key {key.Name}, starting {key.Prefix}, was revoked. The sources it made stay, and no key writes to them.", LogPlace.In(workspace.Id));
         await db.SaveChangesAsync(ct);
         return NoContent();
     }

@@ -7,7 +7,7 @@ using Scry.Api.Storage;
 namespace Scry.Api;
 
 /// <summary>Syncs a connection's stream into its source's table, in its workspace, and records on the source how it went.</summary>
-public sealed class SourceSync(ScryDbContext db, WorkspaceStore store, SourceConnectors connectors, ConnectionSecrets secrets)
+public sealed class SourceSync(ScryDbContext db, WorkspaceStore store, SourceConnectors connectors, ConnectionSecrets secrets, OperatorLog log)
 {
     private const int MaxErrorLength = 1000;
 
@@ -46,11 +46,21 @@ public sealed class SourceSync(ScryDbContext db, WorkspaceStore store, SourceCon
             source.SyncedAt = DateTime.UtcNow;
             source.Status = SourceStatus.Ready;
             source.Error = null;
+            log.Info($"Source {source.Name} synced from {connector.Spec.DisplayName}, and holds {LogWords.Rows(result.RowCount)}.", LogPlace.On(source));
         }
         catch (ConnectorException ex)
         {
             source.Status = ex.Kind == ConnectorErrorKind.AuthExpired ? SourceStatus.SignInNeeded : SourceStatus.Failed;
             source.Error = ex.Message.Length > MaxErrorLength ? ex.Message[..MaxErrorLength] : ex.Message;
+            if (ex.Kind == ConnectorErrorKind.AuthExpired)
+            {
+                log.Warn($"Source {source.Name} needs a new sign-in before it syncs again: {ex.Message} Sign in again from its card on the Sources page.", LogPlace.On(source));
+            }
+            else
+            {
+                log.Error($"Source {source.Name} failed to sync: {ex.Message}", LogPlace.On(source));
+            }
+
             await db.SaveChangesAsync(CancellationToken.None);
             throw;
         }
@@ -117,7 +127,10 @@ public sealed partial class SyncWorker(PendingSyncs queue, IServiceScopeFactory 
             {
                 LogFailure(logger, ex, source.Id);
                 source.Status = SourceStatus.Failed;
-                source.Error = "The sync stopped on an error Scry did not expect. Sync again, or see the API's log.";
+                source.Error = "The sync stopped on an error Scry did not expect. Sync again; the Log page has the error.";
+                scope.ServiceProvider.GetRequiredService<OperatorLog>().Error(
+                    $"Source {source.Name} stopped syncing on an error Scry did not expect: {ex.GetType().Name}: {ex.Message}",
+                    LogPlace.On(source));
                 await db.SaveChangesAsync(CancellationToken.None);
             }
         }

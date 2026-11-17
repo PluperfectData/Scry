@@ -41,6 +41,7 @@ public sealed partial class UsersController(
     LinkMail mail,
     Sessions sessions,
     Instance instance,
+    OperatorLog log,
     TimeProvider time,
     ILogger<UsersController> logger) : ControllerBase
 {
@@ -72,6 +73,7 @@ public sealed partial class UsersController(
 
         var user = new User { Email = email, IsAdmin = request.IsAdmin, LinkStamp = SignInLinks.NewStamp(), CreatedAt = time.GetUtcNow().UtcDateTime };
         db.Users.Add(user);
+        log.Info(request.IsAdmin ? $"{email} was invited, as an admin." : $"{email} was invited.", LogPlace.Instance);
         await db.SaveChangesAsync(ct);
         var (link, problem) = await DeliverAsync(user, ct);
         return StatusCode(StatusCodes.Status201Created, new InviteView(View(user, []), link, problem));
@@ -86,6 +88,8 @@ public sealed partial class UsersController(
             return NotFound();
         }
 
+        log.Info($"{user.Email} was invited again.", LogPlace.Instance);
+        await db.SaveChangesAsync(ct);
         var (link, problem) = await DeliverAsync(user, ct);
         return new InviteLinkView(link, problem);
     }
@@ -107,6 +111,8 @@ public sealed partial class UsersController(
         catch (MailDeliveryException ex)
         {
             LogUndelivered(logger, ex, user.Email);
+            log.Warn($"An invite could not be mailed to {user.Email}: {ex.Message} The Users page gave its link to pass on instead.", LogPlace.Instance);
+            await db.SaveChangesAsync(ct);
             return (link, ex.Message);
         }
     }
@@ -125,6 +131,11 @@ public sealed partial class UsersController(
         if (user.IsAdmin && !edit.IsAdmin && await IsLastAdminAsync(user, ct))
         {
             return Problem("An instance keeps at least one admin. Make someone else an admin first.", statusCode: StatusCodes.Status409Conflict);
+        }
+
+        if (user.IsAdmin != edit.IsAdmin)
+        {
+            log.Info(edit.IsAdmin ? $"{user.Email} was made an admin." : $"{user.Email} is no longer an admin.", LogPlace.Instance);
         }
 
         user.IsAdmin = edit.IsAdmin;
@@ -158,6 +169,7 @@ public sealed partial class UsersController(
 
         await sessions.EndAllAsync(user, "The user was removed.", ct);
         db.Users.Remove(user);
+        log.Info($"{user.Email} was removed, and their sessions ended.", LogPlace.Instance);
         await db.SaveChangesAsync(ct);
         return NoContent();
     }

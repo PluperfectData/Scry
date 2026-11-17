@@ -49,7 +49,7 @@ public sealed record DashboardEdit(string? Name, bool IsLanding, JsonElement? Pr
 [ApiController]
 [Route("workspaces/{workspaceId:int}/dashboards")]
 [InWorkspace]
-public sealed class DashboardsController(ScryDbContext db, CurrentWorkspace workspace) : ControllerBase
+public sealed class DashboardsController(ScryDbContext db, CurrentWorkspace workspace, OperatorLog log) : ControllerBase
 {
     [HttpGet]
     [ForViewers]
@@ -95,6 +95,7 @@ public sealed class DashboardsController(ScryDbContext db, CurrentWorkspace work
             UpdatedAt = now,
         };
         db.Dashboards.Add(dashboard);
+        log.Info($"Dashboard {dashboard.Name} was made.", LogPlace.In(workspace.Id));
         await db.SaveChangesAsync(ct);
 
         return CreatedAtAction(nameof(Get), new { workspaceId = workspace.Id, id = dashboard.Id }, DashboardView.From(dashboard));
@@ -120,7 +121,18 @@ public sealed class DashboardsController(ScryDbContext db, CurrentWorkspace work
             return NotFound();
         }
 
-        dashboard.Name = body.Name!.Trim();
+        var name = body.Name!.Trim();
+        if (dashboard.Name != name)
+        {
+            log.Info($"Dashboard {dashboard.Name} was renamed {name}.", LogPlace.In(workspace.Id));
+        }
+
+        foreach (var change in ChartChanges(name, dashboard.Widgets, body.Widgets))
+        {
+            log.Info(change, LogPlace.In(workspace.Id));
+        }
+
+        dashboard.Name = name;
         dashboard.Layouts = body.Layouts.GetRawText();
         dashboard.Widgets = body.Widgets.GetRawText();
         dashboard.UpdatedAt = DateTime.UtcNow;
@@ -160,7 +172,20 @@ public sealed class DashboardsController(ScryDbContext db, CurrentWorkspace work
                 .ExecuteUpdateAsync(set => set.SetProperty(d => d.Landing, (bool?)null), ct);
         }
 
-        dashboard.Name = body.Name!.Trim();
+        var name = body.Name!.Trim();
+        if (dashboard.Name != name)
+        {
+            log.Info($"Dashboard {dashboard.Name} was renamed {name}.", LogPlace.In(workspace.Id));
+        }
+
+        if (body.IsLanding != (dashboard.Landing == true))
+        {
+            log.Info(
+                body.IsLanding ? $"Dashboard {name} is now the workspace's landing page." : $"Dashboard {name} is no longer the workspace's landing page.",
+                LogPlace.In(workspace.Id));
+        }
+
+        dashboard.Name = name;
         dashboard.Landing = body.IsLanding ? true : null;
         dashboard.Presentation = body.Presentation is { ValueKind: JsonValueKind.Object } presentation ? presentation.GetRawText() : null;
         dashboard.UpdatedAt = DateTime.UtcNow;
@@ -179,9 +204,63 @@ public sealed class DashboardsController(ScryDbContext db, CurrentWorkspace work
         }
 
         db.Dashboards.Remove(dashboard);
+        log.Info($"Dashboard {dashboard.Name} was removed.", LogPlace.In(workspace.Id));
         await db.SaveChangesAsync(ct);
         return NoContent();
     }
+
+    /// <summary>
+    /// A sentence for each chart a save adds, edits, or removes, matched by the widgets' ids. Moving or resizing a chart
+    /// changes only the layouts, so it says nothing.
+    /// </summary>
+    internal static IEnumerable<string> ChartChanges(string dashboard, string stored, JsonElement saved)
+    {
+        var before = Charts(DashboardView.Parse(stored));
+        var after = Charts(saved);
+        foreach (var (id, chart) in after)
+        {
+            if (!before.TryGetValue(id, out var was))
+            {
+                yield return $"{Capital(chart.Said)} was added to dashboard {dashboard}.";
+            }
+            else if (was.Json != chart.Json)
+            {
+                yield return $"{Capital(chart.Said)} on dashboard {dashboard} was edited.";
+            }
+        }
+
+        foreach (var (id, chart) in before)
+        {
+            if (!after.ContainsKey(id))
+            {
+                yield return $"{Capital(chart.Said)} was removed from dashboard {dashboard}.";
+            }
+        }
+    }
+
+    private static Dictionary<string, (string Json, string Said)> Charts(JsonElement widgets)
+    {
+        var charts = new Dictionary<string, (string, string)>(StringComparer.Ordinal);
+        if (widgets.ValueKind != JsonValueKind.Array)
+        {
+            return charts;
+        }
+
+        foreach (var widget in widgets.EnumerateArray())
+        {
+            if (widget.ValueKind == JsonValueKind.Object && Text(widget, "id") is { } id)
+            {
+                charts[id] = (widget.GetRawText(), LogWords.Chart(Text(widget, "name") ?? Text(widget, "title"), Text(widget, "kind")));
+            }
+        }
+
+        return charts;
+    }
+
+    private static string? Text(JsonElement widget, string property) =>
+        widget.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+
+    private static string Capital(string text) => text.Length == 0 ? text : char.ToUpperInvariant(text[0]) + text[1..];
 
     private Task<Dashboard?> FindAsync(int id, CancellationToken ct) =>
         db.Dashboards.FirstOrDefaultAsync(d => d.Id == id && d.WorkspaceId == workspace.Id, ct);

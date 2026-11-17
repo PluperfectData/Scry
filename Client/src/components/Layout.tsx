@@ -12,8 +12,11 @@ import { NoticeStack } from './NoticeStack'
 import { Tooltip } from './Tooltip'
 import { WorkspaceMenu } from './WorkspaceMenu'
 
-/** The header's links: a workspace's pages, which a viewer opens only the dashboards of, then the docs. */
-function linksFor(workspace: Workspace | null) {
+/**
+ * The header's links: a workspace's pages, which a viewer opens only the dashboards of, then the Log, for an admin or
+ * anyone who edits a workspace, and the docs.
+ */
+function linksFor(workspace: Workspace | null, readsLog: boolean) {
   const base = workspace ? workspacePath(workspace.id) : null
   return [
     ...(base ? [{ to: `${base}/dashboards`, label: 'Dashboards' }] : []),
@@ -23,6 +26,7 @@ function linksFor(workspace: Workspace | null) {
           { to: `${base}/settings`, label: 'Settings' },
         ]
       : []),
+    ...(readsLog ? [{ to: '/log', label: 'Log' }] : []),
     { to: '/docs', label: 'Docs' },
   ]
 }
@@ -117,7 +121,7 @@ export function Layout() {
 
               {offersPages && (
                 <nav className="nav" id="site-nav" aria-label="Main" data-open={menuOpen ? '' : undefined}>
-                  {linksFor(current).map((item) => (
+                  {linksFor(current, me?.isAdmin === true || (workspaces ?? []).some((w) => w.role === 'Editor')).map((item) => (
                     <NavLink key={item.to} to={item.to} end className={({ isActive }) => (isActive ? 'is-active' : '')}>
                       {item.label}
                     </NavLink>

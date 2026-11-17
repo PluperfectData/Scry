@@ -222,7 +222,7 @@ it('waits to learn who is signed in before showing a page', () => {
 })
 
 describe('workspaces', () => {
-  it("links an editor to the workspace's dashboards, sources, and settings, then the docs", () => {
+  it("links an editor to the workspace's dashboards, sources, and settings, then the Log and the docs", () => {
     routerState.pathname = '/workspaces/1/dashboards'
     render(<SignedIn><Layout /></SignedIn>)
 
@@ -230,16 +230,17 @@ describe('workspaces', () => {
       'Dashboards /workspaces/1/dashboards',
       'Sources /workspaces/1/sources',
       'Settings /workspaces/1/settings',
+      'Log /log',
       'Docs /docs',
     ])
     expect(screen.getByRole('button', { name: 'Workspace: Default' })).toBeInTheDocument()
   })
 
-  it("links a viewer to the workspace's dashboards and the docs alone", () => {
+  it("links a viewer to the workspace's dashboards alone, with the Log for the workspace they edit elsewhere", () => {
     routerState.pathname = '/workspaces/2/dashboards/7'
     render(<SignedIn><Layout /></SignedIn>)
 
-    expect(links()).toEqual(['Dashboards /workspaces/2/dashboards', 'Docs /docs'])
+    expect(links()).toEqual(['Dashboards /workspaces/2/dashboards', 'Log /log', 'Docs /docs'])
     expect(screen.getByRole('button', { name: 'Workspace: Finance' })).toBeInTheDocument()
   })
 
@@ -248,7 +249,17 @@ describe('workspaces', () => {
     routerState.pathname = '/docs'
     render(<SignedIn><Layout /></SignedIn>)
 
+    expect(links()).toEqual(['Dashboards /workspaces/2/dashboards', 'Log /log', 'Docs /docs'])
+  })
+
+  it('offers no Log to someone who only views workspaces, and offers it to an admin', () => {
+    routerState.pathname = '/workspaces/2/dashboards'
+    const { unmount } = render(<SignedIn workspaces={[workspace(2, 'Finance', 'Viewer')]}><Layout /></SignedIn>)
     expect(links()).toEqual(['Dashboards /workspaces/2/dashboards', 'Docs /docs'])
+    unmount()
+
+    render(<SignedIn me={{ ...member, isAdmin: true }} workspaces={[]}><Layout /></SignedIn>)
+    expect(links()).toEqual(['Log /log', 'Docs /docs'])
   })
 
   it('switches workspaces from the menu, which offers an admin a way to manage them', async () => {

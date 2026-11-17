@@ -563,6 +563,9 @@ export interface InstanceSettings {
   mail: MailSettings
   database: DatabasePlace | null
   databaseConfigured: boolean
+  /** How many days the Log page keeps an entry. */
+  logDays: number
+  logDaysConfigured: boolean
 }
 
 export interface TestMail {
@@ -615,4 +618,45 @@ export interface MailActions {
   /** The installer asks where a test mail goes, since no admin exists yet to mail. */
   test: (to: string) => Promise<TestMail>
   asksForRecipient: boolean
+}
+
+export const saveLogDays = (days: number) => request<InstanceSettings>('/settings/log', json('PUT', { days }))
+
+export type EntryLevel = 'Information' | 'Warning' | 'Error'
+
+/** Something that happened, in a sentence. `workspaceId` is null for an entry about the whole instance. */
+export interface LogEntry {
+  id: number
+  at: string
+  level: EntryLevel
+  text: string
+  actor: string | null
+  workspaceId: number | null
+  workspaceName: string | null
+  sourceId: number | null
+}
+
+/** A page of entries, newest first. `next` reads the older ones; `subject` names the source filtered by. */
+export interface LogEntries {
+  entries: LogEntry[]
+  next: number | null
+  subject: string | null
+}
+
+/** `instance` picks the entries about the whole instance; `level: 'Warning'` keeps warnings and errors. */
+export interface LogFilter {
+  workspace?: number
+  instance?: boolean
+  source?: number
+  level?: 'Warning'
+  before?: number
+}
+
+export function getLog(filter: LogFilter) {
+  const query = new URLSearchParams()
+  for (const [name, value] of Object.entries(filter)) {
+    if (value !== undefined && value !== false) query.set(name, String(value))
+  }
+  const text = query.toString()
+  return request<LogEntries>(text ? `/log?${text}` : '/log')
 }

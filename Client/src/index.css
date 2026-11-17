@@ -253,8 +253,8 @@ h1 {
   display: none;
 }
 
-/* The row of four links, the brand, a 12rem workspace name, and a dashboard's header buttons needs about 49rem. */
-@media (max-width: 50rem) {
+/* An editor's five links, the brand, a 12rem workspace name, and a dashboard's header buttons need about 52rem. */
+@media (max-width: 53rem) {
   .nav-toggle {
     display: inline-flex;
   }
@@ -1246,4 +1246,47 @@ button.quiet {
   text-align: left;
   vertical-align: top;
   border-bottom: 1px solid var(--border);
+}
+
+.log-filters {
+  margin-top: 0;
+}
+
+.list.log > li {
+  display: block;
+}
+
+.log-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+/* The word and the icon say the level; the color only repeats them. */
+.level {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.level svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.log-entry.warning .level {
+  color: var(--warning);
+}
+
+.log-entry.error .level {
+  color: var(--error);
+}
+
+.log-text {
+  margin: 0.25rem 0 0;
 }

@@ -126,7 +126,7 @@ public sealed class SourceJoin
 [ApiController]
 [Route("workspaces/{workspaceId:int}/sources")]
 [InWorkspace]
-public sealed class SourcesController(ScryDbContext db, CurrentWorkspace workspace, SourceSync sync) : ControllerBase
+public sealed class SourcesController(ScryDbContext db, CurrentWorkspace workspace, SourceSync sync, OperatorLog log) : ControllerBase
 {
     [HttpGet]
     [ForViewers]
@@ -215,6 +215,9 @@ public sealed class SourcesController(ScryDbContext db, CurrentWorkspace workspa
         }
 
         db.Sources.Remove(source);
+        log.Info(
+            source.StoredFile is null ? $"Source {source.Name} was removed, with its table." : $"Source {source.Name} was removed, with its table and its uploaded file.",
+            LogPlace.In(workspace.Id));
         await db.SaveChangesAsync(ct);
         if (source.ConnectionId is { } connectionId && !await db.Sources.AnyAsync(s => s.ConnectionId == connectionId, ct))
         {
@@ -289,6 +292,9 @@ public sealed class SourcesController(ScryDbContext db, CurrentWorkspace workspa
             SyncedAt = DateTime.UtcNow,
         };
         db.Sources.Add(created);
+        log.Info(
+            $"Source {name} was uploaded from {created.FileName}, with {LogWords.Rows(result.RowCount)} and {LogWords.Columns(result.Columns.Count)}.",
+            LogPlace.On(created));
         await db.SaveChangesAsync(ct);
 
         return CreatedAtAction(nameof(Get), new { workspaceId = workspace.Id, id = created.Id }, SourceView.From(created, null));

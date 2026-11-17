@@ -82,7 +82,9 @@ parent directory.
 | `POST /auth/sign-in`, `POST /auth/link`, `POST /auth/link/redeem` | Signs in with a password, mails a link, or signs in with one |
 | `GET /auth/me`, `GET /auth/csrf`, `POST /auth/refresh`, `POST /auth/sign-out`, `PUT /auth/password` | The session and the signed-in user's password |
 | `/users` | Admins invite, change, and remove users, and see each user's workspaces and roles. An invite that is not mailed answers its link. |
-| `GET /settings` | For admins: both addresses, the mail, and the database without its password, each with whether configuration sets it. The server token is never answered. |
+| `GET /settings` | For admins: both addresses, the mail, the database without its password, and the days the log keeps an entry, each with whether configuration sets it. The server token is never answered. |
+| `PUT /settings/log` | For admins: from `{"days"}`, 1 to 365, sets how many days the log keeps an entry |
+| `GET /log?workspace=&source=&level=&before=&instance=` | The Log page's entries, below: newest first, 100 at a time, with `next` for the older ones. `level=Warning` keeps warnings and errors, and an admin's `instance=true` keeps the entries about the whole instance. |
 | `PUT /settings/addresses` | From `{"clientOrigin", "apiOrigin"}`, changes the addresses |
 | `PUT` and `DELETE /settings/mail`, `POST /settings/mail/test` | From `{"serverToken", "from", "fromName"}`, sets Postmark's token and the sender, or turns mail off, and mails the admin to check it. A blank token keeps the stored one. |
 | `PUT /settings/database` | From the installer's fields, moves Scry to another database once it opens and is up to date. A blank password keeps the stored one for the same server, database, and user. |
@@ -217,6 +219,33 @@ build has no such command. Stop the API before running it.
 dotnet run --project Server/src/Scry.Api -- reset
 ```
 
+### Logs
+
+Scry keeps two logs.
+
+**The Log page**, `/log` on the client, lists what happened, newest first, each in a sentence that names what it
+happened to:
+
+- a workspace, a member, a dashboard, a chart added, edited, or removed, a source, and a push key, made, changed, or
+  removed, with who did it. Moving or resizing a chart writes nothing.
+- the push API's sources made, columns added, replacements, and commits with their row counts, by the key, and each
+  write it refused, as a warning. A batch on its own writes nothing.
+- the Nexus link made, refused, or removed, and a Nexus sync run from the Sources page
+- each Schwab sign-in and sync, with its rows or its error
+- users, settings, and the installer, which belong to the whole instance
+
+An admin sees every entry. Anyone else sees the entries of the workspaces they edit, and a viewer sees none. Each
+source on the Sources page links to its own entries. A removed workspace's entries stay, as entries about the whole
+instance.
+
+Entries are kept in the database for 30 days, a number an admin changes on the Settings page, from 1 to 365. Signing
+in or out, reading anything, a chart's query, and the install code write no entry.
+
+**The developer log** goes to the console and to a file a day in `data/logs`, `scry-<date>.log`, keeping 14. It has
+every Log page entry, under `Scry.Operator`, one line for each request, and the framework's detail and the stack
+traces the Log page leaves out. Its levels come from `Serilog:MinimumLevel`: Information, with `Microsoft.AspNetCore`
+and `Microsoft.EntityFrameworkCore` at Warning. For more detail, set `Serilog__MinimumLevel__Default` to `Debug`.
+
 ### Configuration
 
 Every setting the installer and the Settings page take can be set in configuration instead, for an operator or for
@@ -230,6 +259,7 @@ debugging. A configured value wins over the stored one, and the pages show it wi
 | `Mail:ServerToken` | `Mail__ServerToken` | Postmark's server token |
 | `Scry:MailFrom`, `Scry:MailFromName` | `Scry__MailFrom`, `Scry__MailFromName` | The sender |
 | `Jwt:SigningKey` | `Jwt__SigningKey` | The session signing key the API makes, at least 32 bytes |
+| `Scry:LogDays` | `Scry__LogDays` | How many days the Log page keeps an entry |
 | `Mail:PickupDirectory` | `Mail__PickupDirectory` | Sending mail, in a Debug build running as Development: it is written to files there until a Postmark token and sender are saved. Anywhere else it is ignored, and the log says so. |
 
 For example, as a user secret:

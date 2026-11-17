@@ -347,6 +347,13 @@ export function SourcesPage() {
                         </button>
                       </Tooltip>
                     )}
+                    <Tooltip label="Log">
+                      <Link to={`/log?source=${source.id}`} className="widget-action" aria-label={`Log for ${source.name}`}>
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                          <path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                        </svg>
+                      </Link>
+                    </Tooltip>
                     {source.status !== 'Syncing' && (
                       <Tooltip label="Remove source">
                         <button type="button" className="widget-action" onClick={() => remove(source)} aria-label={`Remove ${source.name}`}>
