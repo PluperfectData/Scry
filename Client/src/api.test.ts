@@ -1,4 +1,12 @@
-import { ApiError, getPivot, getRows, getSeries, uploadSource } from './api'
+import { ApiError, getPivot, getRows, getSeries, mailLink, uploadSource } from './api'
+
+// The session's client, reduced to a fetch at the API's address.
+jest.mock('@pluperfect/jwt', () => ({
+  createAuthClient:
+    ({ baseUrl }: { baseUrl: string }) =>
+    (path: string, init?: RequestInit) =>
+      globalThis.fetch(`${baseUrl}${path}`, init),
+}))
 
 const fetchMock = jest.fn()
 
@@ -7,7 +15,16 @@ beforeEach(() => {
   global.fetch = fetchMock
 })
 
-const reply = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body })
+// jsdom has no Response, so this is one in shape: JSON, or no body at all.
+const reply = (status: number, body?: unknown) => ({
+  ok: status < 400,
+  status,
+  headers: { get: (name: string) => (name === 'content-type' && body !== undefined ? 'application/json' : null) },
+  json: async () => {
+    if (body === undefined) throw new SyntaxError('Unexpected end of JSON input')
+    return body
+  },
+})
 
 it('uploads the file, its name, and its delimiter as a form', async () => {
   fetchMock.mockResolvedValue(reply(201, { id: 1, name: 'orders' }))
@@ -62,6 +79,12 @@ it('adds the joined source to any chart request, and asks for a pivot by row and
     'http://localhost:6161/sources/3/pivot?row=orders.day&column=regions.name&aggregate=sum&y=orders.amount'
       + '&join=4&joinOn=region&joinTo=code&joinKind=left',
   )
+})
+
+it('takes an answer with no body, as the mailed link answers', async () => {
+  fetchMock.mockResolvedValue(reply(202))
+
+  await expect(mailLink('rowan@acme.test')).resolves.toBeUndefined()
 })
 
 it("throws the API's problem detail with its status", async () => {

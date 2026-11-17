@@ -1,7 +1,18 @@
+import { createAuthClient } from '@pluperfect/jwt'
 import type { Aggregate, Join, Layouts, TableSort, Widget } from './dashboard'
 import type { PresentationSettings } from './presentation'
 
 const baseUrl = import.meta.env.VITE_API_URL
+
+let signedOut: () => void = () => {}
+
+/** Sets what happens when the session ends for good: a refresh was tried and refused. */
+export function onSignedOut(listener: () => void) {
+  signedOut = listener
+}
+
+// Holds no credential: the session is in HttpOnly cookies. It sends the CSRF header and refreshes an expired session once.
+const authFetch = createAuthClient({ baseUrl, onSignedOut: () => signedOut() })
 
 /** The API's address, for pages that show it, such as the push API reference. */
 export const apiUrl: string = baseUrl
@@ -139,14 +150,59 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${baseUrl}${path}`, init)
+// Only an answer that says it is JSON is read as JSON: a 202 or a 204 carries no body.
+async function readAnswer<T>(response: Response): Promise<T> {
+  const json = response.headers.get('content-type')?.includes('json') ? await response.json().catch(() => null) : null
   if (!response.ok) {
-    const problem = (await response.json().catch(() => null)) as { detail?: string; title?: string } | null
+    const problem = json as { detail?: string; title?: string } | null
     throw new ApiError(response.status, problem?.detail ?? problem?.title ?? `The request failed (${response.status}).`)
   }
-  return response.status === 204 ? (undefined as T) : ((await response.json()) as T)
+  return (json ?? undefined) as T
 }
+
+const request = async <T>(path: string, init?: RequestInit): Promise<T> => readAnswer<T>(await authFetch(path, init))
+
+/** Who is signed in. */
+export interface Me {
+  signedIn: boolean
+  id: number | null
+  email: string | null
+  isAdmin: boolean
+  hasPassword: boolean
+}
+
+export interface User {
+  id: number
+  email: string
+  isAdmin: boolean
+  hasPassword: boolean
+  createdAt: string
+  signedInAt: string | null
+}
+
+/** An invite link to pass on, given when it was not mailed, with the reason mailing it failed when it was tried. */
+export interface InviteLink {
+  link: string | null
+  mailProblem: string | null
+}
+
+export interface Invite extends InviteLink {
+  user: User
+}
+
+export const getMe = () => request<Me>('/auth/me')
+export const signIn = (email: string, password: string, remember: boolean) =>
+  request<Me>('/auth/sign-in', json('POST', { email, password, remember }))
+export const mailLink = (email: string) => request<void>('/auth/link', json('POST', { email }))
+export const redeemLink = (token: string, remember: boolean) => request<Me>('/auth/link/redeem', json('POST', { token, remember }))
+export const signOut = () => request<void>('/auth/sign-out', { method: 'POST' })
+export const setPassword = (password: string) => request<Me>('/auth/password', json('PUT', { password }))
+
+export const listUsers = () => request<User[]>('/users')
+export const inviteUser = (email: string, isAdmin: boolean) => request<Invite>('/users', json('POST', { email, isAdmin }))
+export const reinviteUser = (id: number) => request<InviteLink>(`/users/${id}/invite`, { method: 'POST' })
+export const editUser = (id: number, isAdmin: boolean) => request<User>(`/users/${id}`, json('PATCH', { isAdmin }))
+export const removeUser = (id: number) => request<void>(`/users/${id}`, { method: 'DELETE' })
 
 function json(method: string, body: unknown): RequestInit {
   return { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
@@ -392,7 +448,7 @@ export const deleteDashboard = (id: number) => request<void>(`/dashboards/${id}`
 export const editDashboard = (id: number, name: string, isLanding: boolean, presentation: PresentationSettings) =>
   request<Dashboard>(`/dashboards/${id}`, json('PATCH', { name, isLanding, presentation }))
 
-export type InstallStage = 'Database' | 'Address' | 'Done'
+export type InstallStage = 'Database' | 'Address' | 'Admin' | 'Done'
 
 /** A MySQL database's place, without its password. */
 export interface DatabasePlace {
@@ -413,7 +469,8 @@ export interface Addresses {
 
 /**
  * Where the instance stands. `local` says this page is on the machine Scry runs on, which needs no install code;
- * `allowed` says this page may use the installer, and only then are the database and the addresses shown.
+ * `allowed` says this page may use the installer, and only then are the database and the addresses shown. `mail`
+ * says whether Scry can send mail yet.
  */
 export interface InstallView {
   installed: boolean
@@ -427,36 +484,85 @@ export interface InstallView {
   clientOriginConfigured: boolean
   apiOrigin: string | null
   apiOriginConfigured: boolean
+  mail: boolean
+  /** How the instance sends mail, given when this page may use the installer. */
+  mailSettings: MailSettings | null
 }
 
-/** The instance's addresses and database. A value set by Scry's configuration cannot be changed here. */
+export type MailTransport = 'None' | 'Postmark' | 'Files'
+
+/** How the instance sends mail. A field set by Scry's configuration cannot be changed here. */
+export interface MailSettings {
+  transport: MailTransport
+  tokenSet: boolean
+  tokenConfigured: boolean
+  from: string | null
+  fromConfigured: boolean
+  fromName: string
+  fromNameConfigured: boolean
+  /** The folder mail is written to instead of sent, when configuration names one. */
+  folder: string | null
+}
+
+/** The instance's addresses, mail, and database. A value set by Scry's configuration cannot be changed here. */
 export interface InstanceSettings {
   clientOrigin: string | null
   clientOriginConfigured: boolean
   apiOrigin: string | null
   apiOriginConfigured: boolean
+  mail: MailSettings
   database: DatabasePlace | null
   databaseConfigured: boolean
 }
 
-// A page on another machine than Scry's sends the install code from Scry's log.
-const install = <T>(code: string | null, path: string, method = 'GET', body?: unknown) =>
-  request<T>(path, {
-    method,
-    headers: {
-      ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
-      ...(code ? { Authorization: `Bearer scryi_${code}` } : {}),
-    },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  })
+export interface TestMail {
+  sentTo: string
+  transport: MailTransport
+  folder: string | null
+}
+
+// The installer checks who calls it itself, so it goes around the session's client: a refused code is not a signed-out
+// session. It sends cookies, since its admin stage signs the admin in. A page on another machine sends the install code.
+const install = async <T>(code: string | null, path: string, method = 'GET', body?: unknown): Promise<T> =>
+  readAnswer<T>(
+    await fetch(`${baseUrl}${path}`, {
+      method,
+      credentials: 'include',
+      headers: {
+        ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+        ...(code ? { Authorization: `Bearer scryi_${code}` } : {}),
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    }),
+  )
 
 export const getInstall = (code: string | null = null) => install<InstallView>(code, '/install')
 export const installDatabase = (code: string | null, database: DatabaseForm) =>
   install<InstallView>(code, '/install/database', 'POST', database)
 export const installAddresses = (code: string | null, addresses: Addresses) =>
   install<InstallView>(code, '/install/addresses', 'POST', addresses)
+/** The first admin; the password may be blank once mail works, to sign in by mailed links. */
+export const installAdmin = (code: string | null, email: string, password: string) =>
+  install<Me>(code, '/install/admin', 'POST', { email, password })
+export const installMail = (code: string | null, serverToken: string, from: string, fromName: string) =>
+  install<InstallView>(code, '/install/mail', 'PUT', { serverToken, from, fromName })
+export const installMailOff = (code: string | null) => install<InstallView>(code, '/install/mail', 'DELETE')
+export const installTestMail = (code: string | null, to: string) => install<TestMail>(code, '/install/mail/test', 'POST', { to })
 export const askForInstallCode = () => install<void>(null, '/install/code', 'POST')
 
 export const getInstanceSettings = () => request<InstanceSettings>('/settings')
 export const saveAddresses = (addresses: Addresses) => request<InstanceSettings>('/settings/addresses', json('PUT', addresses))
 export const saveDatabase = (database: DatabaseForm) => request<InstanceSettings>('/settings/database', json('PUT', database))
+export const saveMail = (serverToken: string, from: string, fromName: string) =>
+  request<InstanceSettings>('/settings/mail', json('PUT', { serverToken, from, fromName }))
+export const turnOffMail = () => request<InstanceSettings>('/settings/mail', { method: 'DELETE' })
+export const testMail = () => request<TestMail>('/settings/mail/test', { method: 'POST' })
+
+/** What the mail form does with what it is given: the Settings page's calls, or the installer's. */
+export interface MailActions {
+  save: (serverToken: string, from: string, fromName: string) => Promise<void>
+  off: () => Promise<void>
+  /** The installer asks where a test mail goes, since no admin exists yet to mail. */
+  test: (to: string) => Promise<TestMail>
+  asksForRecipient: boolean
+}

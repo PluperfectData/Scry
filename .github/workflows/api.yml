@@ -15,21 +15,32 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: Scry/Server
+        working-directory: Pluperfect.Data/Scry/Server
     steps:
-      # Scry.Api reaches Nexus four levels up from Server/src/Scry.Api, so both check out side by side.
+      # Scry.Api reaches Nexus four levels up from Server/src/Scry.Api, and Pluperfect.Jwt and Pluperfect.Mail five, so
+      # Scry and Nexus check out under Pluperfect.Data, beside the two libraries.
       - uses: actions/checkout@v7
         with:
-          path: Scry
+          path: Pluperfect.Data/Scry
 
       - uses: actions/checkout@v7
         with:
           repository: PluperfectData/Nexus
-          path: Nexus
+          path: Pluperfect.Data/Nexus
+
+      - uses: actions/checkout@v7
+        with:
+          repository: mnwachukwu/Pluperfect.Jwt
+          path: Pluperfect.Jwt
+
+      - uses: actions/checkout@v7
+        with:
+          repository: mnwachukwu/Pluperfect.Mail
+          path: Pluperfect.Mail
 
       - uses: actions/setup-dotnet@v6
         with:
-          global-json-file: Scry/Server/global.json
+          global-json-file: Pluperfect.Data/Scry/Server/global.json
 
       - run: dotnet restore Scry.slnx --locked-mode
       - run: dotnet build Scry.slnx -c Release --no-restore

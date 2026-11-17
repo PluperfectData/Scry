@@ -1,6 +1,19 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { askForInstallCode, getInstall, installAddresses, installDatabase, type InstallView } from '../api'
+import {
+  askForInstallCode,
+  getInstall,
+  installAddresses,
+  installAdmin,
+  installDatabase,
+  installMail,
+  installMailOff,
+  installTestMail,
+  type InstallView,
+  type MailSettings,
+  type Me,
+} from '../api'
+import { SessionContext } from '../session'
 import { InstallPage } from './InstallPage'
 
 jest.mock('react-router', () => jest.requireActual('../../jest/router').reactRouterMock())
@@ -9,9 +22,38 @@ jest.mock('../api', () => ({
   getInstall: jest.fn(),
   installDatabase: jest.fn(),
   installAddresses: jest.fn(),
+  installAdmin: jest.fn(),
+  installMail: jest.fn(),
+  installMailOff: jest.fn(),
+  installTestMail: jest.fn(),
   askForInstallCode: jest.fn(),
 }))
 const { navigate } = jest.requireActual('../../jest/router')
+
+const founder: Me = { signedIn: true, id: 1, email: 'founder@acme.test', isAdmin: true, hasPassword: true }
+
+const mailOff: MailSettings = {
+  transport: 'None',
+  tokenSet: false,
+  tokenConfigured: false,
+  from: null,
+  fromConfigured: false,
+  fromName: 'Scry',
+  fromNameConfigured: false,
+  folder: null,
+}
+
+// Development's mail: written to files, as configuration says.
+const mailToFiles: MailSettings = { ...mailOff, transport: 'Files', folder: 'D:\\scry\\data\\mail' }
+
+const setMe = jest.fn()
+
+const renderPage = () =>
+  render(
+    <SessionContext.Provider value={{ me: null, setMe }}>
+      <InstallPage />
+    </SessionContext.Provider>,
+  )
 
 const view = (overrides: Partial<InstallView>): InstallView => ({
   installed: false,
@@ -25,6 +67,8 @@ const view = (overrides: Partial<InstallView>): InstallView => ({
   clientOriginConfigured: false,
   apiOrigin: null,
   apiOriginConfigured: false,
+  mail: false,
+  mailSettings: null,
   ...overrides,
 })
 
@@ -33,31 +77,124 @@ beforeEach(() => {
   window.history.replaceState(null, '', '/install')
 })
 
-it('takes the database, then the addresses, then sends the visitor to add a source', async () => {
-  jest.mocked(getInstall).mockResolvedValue(view({}))
+it('takes the database, the addresses, mail, then the first admin, signs them in, and sends them to add a source', async () => {
+  jest.mocked(getInstall).mockResolvedValueOnce(view({}))
   jest.mocked(installDatabase).mockResolvedValue(view({ stage: 'Address' }))
-  jest.mocked(installAddresses).mockResolvedValue(view({ stage: 'Done', installed: true }))
-  render(<InstallPage />)
+  jest.mocked(installAddresses).mockResolvedValue(view({ stage: 'Admin', mailSettings: mailOff }))
+  jest.mocked(installAdmin).mockResolvedValue(founder)
+  renderPage()
 
-  await screen.findByText('Step 1 of 2: Database')
+  await screen.findByText('Step 1 of 4: Database')
   await userEvent.type(screen.getByLabelText('Password'), 'secret')
   await userEvent.click(screen.getByRole('button', { name: 'Test and save' }))
-  await screen.findByText('Step 2 of 2: Addresses')
+  await screen.findByText('Step 2 of 4: Addresses')
   expect(screen.getByLabelText('Client address')).toHaveValue('http://localhost')
   expect(screen.getByLabelText('API address')).toHaveValue('http://localhost:6161')
   await userEvent.click(screen.getByRole('button', { name: 'Save addresses' }))
-  await screen.findByText('Scry is set up.')
+  await screen.findByText('Step 3 of 4: Mail')
+  expect(screen.getByLabelText('Postmark server token')).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: 'Continue without mail' }))
+  await screen.findByText('Step 4 of 4: First admin')
+  expect(screen.getByLabelText('Password')).toBeRequired()
+  await userEvent.type(screen.getByLabelText('Email'), 'founder@acme.test')
+  await userEvent.type(screen.getByLabelText('Password'), 'correct horse battery')
+  await userEvent.type(screen.getByLabelText('The same password again'), 'correct horse battery')
+  await userEvent.click(screen.getByRole('button', { name: 'Make the admin and sign in' }))
+  expect(await screen.findByText('Scry is set up, and you are signed in.')).toBeInTheDocument()
   await userEvent.click(screen.getByRole('button', { name: 'Add a source' }))
 
   expect(installDatabase).toHaveBeenCalledWith(null, { host: 'localhost', port: 3306, name: 'scry', user: 'scry', password: 'secret' })
   expect(installAddresses).toHaveBeenCalledWith(null, { clientOrigin: 'http://localhost', apiOrigin: 'http://localhost:6161' })
+  expect(installAdmin).toHaveBeenCalledWith(null, 'founder@acme.test', 'correct horse battery')
+  expect(setMe).toHaveBeenCalledWith(founder)
   expect(navigate).toHaveBeenCalledWith('/sources')
+})
+
+it('makes the first admin with no password once mail works, to sign in by mailed links', async () => {
+  jest.mocked(getInstall).mockResolvedValue(view({ stage: 'Admin', mail: true, mailSettings: mailToFiles }))
+  jest.mocked(installAdmin).mockResolvedValue({ ...founder, hasPassword: false })
+  renderPage()
+
+  expect(await screen.findByText(/writes mail to files in D:\\scry\\data\\mail/)).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+  expect(screen.getByLabelText('Password (optional)')).not.toBeRequired()
+  expect(screen.getByLabelText('The same password again (optional)')).not.toBeRequired()
+  expect(screen.getByText(/leave both fields blank to sign in with mailed links/)).toBeInTheDocument()
+  await userEvent.type(screen.getByLabelText('Email'), 'founder@acme.test')
+  await userEvent.click(screen.getByRole('button', { name: 'Make the admin and sign in' }))
+
+  expect(installAdmin).toHaveBeenCalledWith(null, 'founder@acme.test', '')
+  expect(await screen.findByText('Scry is set up, and you are signed in.')).toBeInTheDocument()
+})
+
+it('goes back to mail files after testing Postmark in a debug build', async () => {
+  const postmark: MailSettings = { ...mailToFiles, transport: 'Postmark', tokenSet: true, from: 'test@acme.test' }
+  jest.mocked(getInstall).mockResolvedValue(view({ stage: 'Admin', mail: true, mailSettings: postmark }))
+  jest.mocked(installMailOff).mockResolvedValue(view({ stage: 'Admin', mail: true, mailSettings: mailToFiles }))
+  jest.spyOn(window, 'confirm').mockReturnValue(true)
+  renderPage()
+
+  expect(await screen.findByText(/Mail goes through Postmark/)).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: 'Use mail files again' }))
+
+  expect(window.confirm).toHaveBeenCalledWith('Stop sending through Postmark? Mail goes to files in D:\\scry\\data\\mail again.')
+  expect(installMailOff).toHaveBeenCalledWith(null)
+  expect(await screen.findByText('Mail goes to files again.')).toBeInTheDocument()
+  expect(screen.getByText(/This debug build writes mail to files/)).toBeInTheDocument()
+})
+
+it('saves mail in the installer, and sends a test mail to the address given', async () => {
+  jest.mocked(getInstall).mockResolvedValue(view({ stage: 'Admin', mailSettings: mailOff }))
+  jest.mocked(installMail).mockResolvedValue(view({ stage: 'Admin', mail: true, mailSettings: { ...mailOff, transport: 'Postmark', tokenSet: true, from: 'scry@acme.test' } }))
+  jest.mocked(installTestMail).mockResolvedValue({ sentTo: 'founder@acme.test', transport: 'Postmark', folder: null })
+  renderPage()
+
+  await userEvent.type(await screen.findByLabelText('Postmark server token'), 'postmark-token')
+  await userEvent.type(screen.getByLabelText('From address'), 'scry@acme.test')
+  await userEvent.click(screen.getByRole('button', { name: 'Save mail' }))
+  await userEvent.type(await screen.findByLabelText('Send a test mail to'), 'founder@acme.test')
+  await userEvent.click(screen.getByRole('button', { name: 'Send a test mail' }))
+
+  expect(installMail).toHaveBeenCalledWith(null, 'postmark-token', 'scry@acme.test', 'Scry')
+  expect(installTestMail).toHaveBeenCalledWith(null, 'founder@acme.test')
+  expect(await screen.findByText('Sent a test mail to founder@acme.test.')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Continue' })).toBeInTheDocument()
+})
+
+it('refuses two different passwords for the first admin before asking Scry', async () => {
+  jest.mocked(getInstall).mockResolvedValue(view({ stage: 'Admin', mailSettings: mailOff }))
+  renderPage()
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Continue without mail' }))
+  await userEvent.type(await screen.findByLabelText('Email'), 'founder@acme.test')
+  await userEvent.type(screen.getByLabelText('Password'), 'correct horse battery')
+  await userEvent.type(screen.getByLabelText('The same password again'), 'correct horse batter')
+  await userEvent.click(screen.getByRole('button', { name: 'Make the admin and sign in' }))
+
+  expect(await screen.findByText('The two passwords differ.')).toBeInTheDocument()
+  expect(installAdmin).not.toHaveBeenCalled()
+})
+
+it('makes an admin for someone locked out of an instance already set up, then opens Scry', async () => {
+  jest.mocked(getInstall).mockResolvedValue(view({ installed: true, stage: 'Done' }))
+  jest.mocked(installAdmin).mockResolvedValue(founder)
+  renderPage()
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Make an admin' }))
+  await userEvent.type(screen.getByLabelText('Email'), 'founder@acme.test')
+  await userEvent.type(screen.getByLabelText('Password'), 'correct horse battery')
+  await userEvent.type(screen.getByLabelText('The same password again'), 'correct horse battery')
+  await userEvent.click(screen.getByRole('button', { name: 'Make the admin and sign in' }))
+
+  expect(installAdmin).toHaveBeenCalledWith(null, 'founder@acme.test', 'correct horse battery')
+  expect(setMe).toHaveBeenCalledWith(founder)
+  expect(navigate).toHaveBeenCalledWith('/')
 })
 
 it('shows why the database did not open, and keeps the form', async () => {
   jest.mocked(getInstall).mockResolvedValue(view({}))
   jest.mocked(installDatabase).mockRejectedValue(new Error("Access denied for user 'scry'@'localhost'"))
-  render(<InstallPage />)
+  renderPage()
 
   await userEvent.click(await screen.findByRole('button', { name: 'Test and save' }))
 
@@ -68,23 +205,23 @@ it('shows why the database did not open, and keeps the form', async () => {
 it('asks a page on another machine for the code, and sends it with every step', async () => {
   jest.mocked(getInstall).mockImplementation(async (code) => (code === 'ABCD-EFGH-JKMN' ? view({ local: false }) : view({ local: false, allowed: false })))
   jest.mocked(askForInstallCode).mockResolvedValue(undefined)
-  render(<InstallPage />)
+  renderPage()
 
   await userEvent.click(await screen.findByRole('button', { name: 'Write the code to the log again' }))
   expect(await screen.findByText('Scry wrote the code to its log.')).toBeInTheDocument()
   await userEvent.type(screen.getByLabelText('Install code'), 'ABCD-EFGH-JKMN')
   await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
-  expect(await screen.findByText('Step 1 of 2: Database')).toBeInTheDocument()
+  expect(await screen.findByText('Step 1 of 4: Database')).toBeInTheDocument()
   expect(getInstall).toHaveBeenLastCalledWith('ABCD-EFGH-JKMN')
 })
 
 it('reads the code from the link Scry logs, then takes it out of the address bar', async () => {
   window.history.replaceState(null, '', '/install#WXYZ-2345-6789')
   jest.mocked(getInstall).mockResolvedValue(view({ local: false }))
-  render(<InstallPage />)
+  renderPage()
 
-  await screen.findByText('Step 1 of 2: Database')
+  await screen.findByText('Step 1 of 4: Database')
 
   expect(getInstall).toHaveBeenCalledWith('WXYZ-2345-6789')
   expect(window.location.hash).toBe('')
@@ -92,7 +229,7 @@ it('reads the code from the link Scry logs, then takes it out of the address bar
 
 it('says when the configuration sets a database Scry cannot open', async () => {
   jest.mocked(getInstall).mockResolvedValue(view({ databaseConfigured: true, databaseProblem: 'Unknown database' }))
-  render(<InstallPage />)
+  renderPage()
 
   expect(await screen.findByText(/in ConnectionStrings:Scry, and Scry cannot open it: Unknown database/)).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: 'Test and save' })).not.toBeInTheDocument()
@@ -101,7 +238,7 @@ it('says when the configuration sets a database Scry cannot open', async () => {
 it('shows an address set by configuration and leaves it out of the step', async () => {
   jest.mocked(getInstall).mockResolvedValue(view({ stage: 'Address', clientOrigin: 'https://scry.example.test', clientOriginConfigured: true }))
   jest.mocked(installAddresses).mockResolvedValue(view({ stage: 'Done', installed: true }))
-  render(<InstallPage />)
+  renderPage()
 
   const client = await screen.findByLabelText('Client address')
   expect(client).toBeDisabled()
@@ -118,7 +255,7 @@ it('changes the addresses of an instance already set up, with the code from the 
   )
   jest.mocked(installAddresses).mockResolvedValue(view(installed))
   jest.spyOn(window, 'confirm').mockReturnValue(true)
-  render(<InstallPage />)
+  renderPage()
 
   await userEvent.click(await screen.findByRole('button', { name: 'Change the addresses' }))
   await userEvent.type(screen.getByLabelText('Install code'), 'ABCD-EFGH-JKMN')

@@ -10,5 +10,7 @@
     <Project Path="../../Nexus/Server/src/Nexus.Csv/Nexus.Csv.csproj" />
     <Project Path="../../Nexus/Server/src/Nexus.DuckDb/Nexus.DuckDb.csproj" />
     <Project Path="../../Nexus/Server/src/Nexus.Schwab/Nexus.Schwab.csproj" />
+    <Project Path="../../../Pluperfect.Jwt/src/Pluperfect.Jwt/Pluperfect.Jwt.csproj" />
+    <Project Path="../../../Pluperfect.Mail/src/Pluperfect.Mail/Pluperfect.Mail.csproj" />
   </Folder>
 </Solution>

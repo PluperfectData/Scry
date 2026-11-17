@@ -9,21 +9,37 @@ on:
 permissions:
   contents: read
 
+# The client takes @pluperfect/jwt from file:../../../Pluperfect.Jwt/client, three levels up from Client: Scry,
+# Pluperfect.Data, then the workspace root. So this repository is checked out at Pluperfect.Data/Scry.
+
 jobs:
   build:
     name: Build and test
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: Client
+        working-directory: Pluperfect.Data/Scry/Client
     steps:
       - uses: actions/checkout@v7
+        with:
+          path: Pluperfect.Data/Scry
+
+      - uses: actions/checkout@v7
+        with:
+          repository: mnwachukwu/Pluperfect.Jwt
+          path: Pluperfect.Jwt
 
       - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: Client/package-lock.json
+          cache-dependency-path: Pluperfect.Data/Scry/Client/package-lock.json
+
+      # The library's dist is not committed, so it is built before the client installs it.
+      - name: Build Pluperfect.Jwt's client
+        run: |
+          npm ci --prefix "$GITHUB_WORKSPACE/Pluperfect.Jwt/client"
+          npm run build --prefix "$GITHUB_WORKSPACE/Pluperfect.Jwt/client"
 
       - run: npm ci
       - run: npm run lint

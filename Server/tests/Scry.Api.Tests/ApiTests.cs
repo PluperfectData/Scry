@@ -26,7 +26,7 @@ public sealed class ApiTests
     public void SetUp()
     {
         _factory = new ScryApiFactory();
-        _client = _factory.CreateClient();
+        _client = _factory.SignedIn();
     }
 
     [TearDown]

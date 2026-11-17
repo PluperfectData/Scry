@@ -21,6 +21,8 @@ export default {
     }],
   },
   moduleNameMapper: {
+    // The library ships only an ES module, which Jest cannot load; tests mock what they use of it.
+    '^@pluperfect/jwt$': '<rootDir>/jest/jwt-stub.cjs',
     '\\.module\\.css$': 'identity-obj-proxy',
     '\\.css$': '<rootDir>/jest/style-stub.cjs',
     '\\.(svg|png|jpe?g|gif|webp|woff2?)$': '<rootDir>/jest/file-stub.cjs',

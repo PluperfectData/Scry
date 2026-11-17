@@ -22,7 +22,7 @@ public sealed class SchwabTests
     public void SetUp()
     {
         _factory = new ScryApiFactory();
-        _client = _factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        _client = _factory.SignedIn();
     }
 
     [TearDown]
@@ -48,7 +48,7 @@ public sealed class SchwabTests
     public async Task Says_which_settings_Scry_needs_before_it_can_sign_in()
     {
         using var unset = _factory.WithWebHostBuilder(builder => builder.UseSetting("Schwab:AppSecret", ""));
-        using var client = unset.CreateClient();
+        using var client = unset.SignedIn();
 
         var schwab = (await client.GetFromJsonAsync<JsonElement>("/connectors")).EnumerateArray().Last();
         using var signIn = await client.PostAsJsonAsync("/schwab/sign-in", Request(("balances", "schwab_balances")));

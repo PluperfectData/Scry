@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react'
-import { NavLink, Outlet, useLocation } from 'react-router'
+import { Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router'
+import { signOut } from '../api'
 import { canRequestFullscreen, enterFullscreen, useFullscreen } from '../fullscreen'
+import { clearNext, rememberNext } from '../next'
+import { SIGNED_OUT, useSession } from '../session'
 import { useTheme } from '../theme'
+import { AccountMenu } from './AccountMenu'
 import { BrandMark } from './BrandMark'
 import { NoticeStack } from './NoticeStack'
 import { Tooltip } from './Tooltip'
@@ -59,15 +63,24 @@ function FullscreenButton() {
 export function Layout() {
   const [menuOpen, setMenuOpen] = useState(false)
   const { pathname } = useLocation()
+  const navigate = useNavigate()
+  const { me, setMe } = useSession()
   const fullscreen = useFullscreen()
   const onDashboard = /^\/dashboards\/[^/]+$/.test(pathname)
   // A dashboard in full screen shows only its name and charts, so the header and its banners go.
   const presenting = fullscreen && onDashboard
-  // The installer comes before every other page, so the header offers none of them.
+  // The installer comes before every other page, and signing in before the rest, so the header offers none of them.
   const installing = pathname === '/install'
+  const offersPages = !installing && me?.signedIn === true
 
   // Navigating with the menu open leaves it covering the page it just went to.
   useEffect(() => setMenuOpen(false), [pathname])
+
+  async function leave() {
+    await signOut().catch(() => {})
+    setMe(SIGNED_OUT)
+    navigate('/sign-in')
+  }
 
   return (
     <>
@@ -84,7 +97,7 @@ export function Layout() {
                 Scry
               </NavLink>
 
-              {!installing && (
+              {offersPages && (
                 <nav className="nav" id="site-nav" aria-label="Main" data-open={menuOpen ? '' : undefined}>
                   {NAV.map((item) => (
                     <NavLink key={item.to} to={item.to} end className={({ isActive }) => (isActive ? 'is-active' : '')}>
@@ -98,7 +111,7 @@ export function Layout() {
                 {onDashboard && canRequestFullscreen() && <FullscreenButton />}
                 <ThemeToggle />
 
-                {!installing && (
+                {offersPages && (
                   <Tooltip label={menuOpen ? 'Close menu' : 'Open menu'}>
                     <button
                       type="button"
@@ -120,6 +133,7 @@ export function Layout() {
                     </button>
                   </Tooltip>
                 )}
+                {offersPages && me && <AccountMenu key={pathname} me={me} onSignOut={leave} />}
               </div>
             </div>
           </header>
@@ -133,4 +147,17 @@ export function Layout() {
       </main>
     </>
   )
+}
+
+/** The pages behind a session: they wait for the client to learn who is signed in, and send anyone else to sign in. */
+export function RequireSession() {
+  const { me } = useSession()
+  const { pathname, search } = useLocation()
+  if (me === null) return <p className="page muted">Loading…</p>
+  if (!me.signedIn) {
+    rememberNext(pathname + (search ?? ''))
+    return <Navigate to="/sign-in" replace />
+  }
+  clearNext()
+  return <Outlet />
 }

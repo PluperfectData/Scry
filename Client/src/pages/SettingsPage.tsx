@@ -6,6 +6,7 @@ import { KeyShownOnce } from '../components/KeyShownOnce'
 import { NexusLinkSection } from '../components/NexusLinkSection'
 import { Slideout } from '../components/Slideout'
 import { Tooltip } from '../components/Tooltip'
+import { useSession } from '../session'
 
 /** Names a key, then shows it once with a way to copy it. */
 function KeyForm({ onMade, onDone }: { onMade: (key: IngestKey) => void; onDone: () => void }) {
@@ -60,6 +61,7 @@ function KeyForm({ onMade, onDone }: { onMade: (key: IngestKey) => void; onDone:
 }
 
 export function SettingsPage() {
+  const { me } = useSession()
   const [keys, setKeys] = useState<IngestKey[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [making, setMaking] = useState(false)
@@ -126,7 +128,7 @@ export function SettingsPage() {
         )}
       </section>
 
-      <InstanceSection />
+      {me?.isAdmin && <InstanceSection />}
 
       <Slideout open={making} title="Make a key" onClose={() => setMaking(false)}>
         {making && (

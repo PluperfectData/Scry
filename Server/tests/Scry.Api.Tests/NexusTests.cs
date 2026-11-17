@@ -20,7 +20,7 @@ public sealed class NexusTests
     public void SetUp()
     {
         _factory = new ScryApiFactory();
-        _client = _factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        _client = _factory.SignedIn();
     }
 
     [TearDown]

@@ -15,6 +15,10 @@ public static class InstanceReset
         ("ConnectionStrings:Scry", "the installer skips its database step"),
         ("Scry:ClientOrigin", "the client's address is fixed"),
         ("Scry:ApiOrigin", "the API's address is fixed"),
+        ("Mail:ServerToken", "Postmark's token is fixed"),
+        ("Scry:MailFrom", "the sender is fixed"),
+        ("Scry:MailFromName", "the sender's name is fixed"),
+        ("Jwt:SigningKey", "the signing key is fixed"),
     ];
 
     /// <summary>Answers the exit code, having said what it did.</summary>

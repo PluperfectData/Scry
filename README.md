@@ -68,12 +68,18 @@ parent directory.
 | `POST /nexus/connect` | From `{"connector"}`, opens Nexus's connect page for it, into the link's destination and coming back to the Sources page, and answers `{"url"}`. Nexus adds `connection` to the return address once connected, or `error=cancelled`. |
 | `GET /nexus/syncs` | The syncs that fill the link's destination: the connection and stream each reads, its table, and how its last run went |
 | `POST /nexus/syncs/{id}/run` | Runs one of those syncs now |
-| `GET /install` | Where the instance stands: `installed`, `stage` (`Database`, `Address`, or `Done`), whether the page is `local` and `allowed` to use the installer, and, when it is, the database without its password and both addresses |
+| `GET /install` | Where the instance stands: `installed`, `stage` (`Database`, `Address`, `Admin`, or `Done`), whether the page is `local` and `allowed` to use the installer, whether Scry can send `mail`, and, when it is allowed, the database without its password and both addresses |
 | `POST /install/database` | From `{"host", "port", "name", "user", "password"}`, opens the database, makes it when it is missing and the user may, applies the migrations, and keeps it only once that works. Answers 409 once a database is set. |
-| `POST /install/addresses` | From `{"clientOrigin", "apiOrigin"}`, keeps the client's address and the API's, which sets the instance up once its database is ready. On an instance already set up, it changes them. |
+| `POST /install/addresses` | From `{"clientOrigin", "apiOrigin"}`, keeps the client's address and the API's. On an instance already set up, it changes them. |
+| `PUT` and `DELETE /install/mail`, `POST /install/mail/test` | From the Settings page's mail fields, sets mail before the first admin, or turns it off, and mails `{"to"}` to check it. Answers 409 once the instance is set up. |
+| `POST /install/admin` | From `{"email", "password"}`, makes the first admin and signs them in, which sets the instance up. The password may be blank once mail works. On an instance already set up, it makes an address an admin, for someone locked out, and ends its other sessions; a blank password leaves theirs. |
 | `POST /install/code` | Writes the install code to the API's log, at most once a minute |
-| `GET /settings` | Both addresses, and the database without its password, each with whether configuration sets it |
+| `POST /auth/sign-in`, `POST /auth/link`, `POST /auth/link/redeem` | Signs in with a password, mails a link, or signs in with one |
+| `GET /auth/me`, `GET /auth/csrf`, `POST /auth/refresh`, `POST /auth/sign-out`, `PUT /auth/password` | The session and the signed-in user's password |
+| `/users` | Admins invite, change, and remove users. An invite that is not mailed answers its link. |
+| `GET /settings` | For admins: both addresses, the mail, and the database without its password, each with whether configuration sets it. The server token is never answered. |
 | `PUT /settings/addresses` | From `{"clientOrigin", "apiOrigin"}`, changes the addresses |
+| `PUT` and `DELETE /settings/mail`, `POST /settings/mail/test` | From `{"serverToken", "from", "fromName"}`, sets Postmark's token and the sender, or turns mail off, and mails the admin to check it. A blank token keeps the stored one. |
 | `PUT /settings/database` | From the installer's fields, moves Scry to another database once it opens and is up to date. A blank password keeps the stored one for the same server, database, and user. |
 | `GET /ingest` | Push API: names the key the request carries, by its name and prefix |
 | `PUT /ingest/sources/{name}` | Push API: makes a source from `{"columns": [{"name", "type"}], "primaryKey": [...], "origin"}`, or adds columns to one. `origin`, optional, says where the rows come from, up to 500 characters, and the Sources page shows it. |
@@ -96,7 +102,9 @@ the link's push key is listed with `kind` `Nexus`.
   (`left`), the other (`right`), or both (`full`). Joined, columns are named for their source, as `orders.amount`,
   and source order is this source's, then the other's.
 - Errors are problem details, with a `detail` safe to show.
-- The push API's routes take a key as `Authorization: Bearer <key>`, and a key writes only to the sources it made.
+- Every route needs a signed-in user but `/health`, the installer, the sign-in routes under `/auth`, the push API, and
+  Schwab's callback, which carries its own `state`.
+- The push API's routes take a key as `Authorization: Bearer <key>`, and no session. A key writes only to the sources it made.
   A pushed source whose key was revoked becomes the next key's to write to it.
   The client's `/docs/push-api` page is the reference for people using it: column types, modes, limits, and answers.
 - The API applies its EF migrations each time it opens a database: at a start, and when the installer or the
@@ -124,8 +132,8 @@ development certificate. The client listens on `http://localhost:6160` and reads
 
 ### The installer
 
-An instance starts with nothing set. Until it has a database and both addresses, every route but `/install` and
-`/health` answers 503, and the client sends its visitors to `/install`. The installer asks, in turn:
+An instance starts with nothing set. Until it has a database, both addresses, and an admin, every route but
+`/install` and `/health` answers 503, and the client sends its visitors to `/install`. The installer asks, in turn:
 
 1. **The database:** a MySQL 8.4 server's host, port, database, user, and password. Scry makes the database if it is
    missing and the user may, applies its migrations, and keeps the settings only once that works. A database Scry
@@ -133,9 +141,32 @@ An instance starts with nothing set. Until it has a database and both addresses,
 2. **The addresses:** the client's, where people open Scry and the one origin CORS allows, and the API's, which
    Scry gives Nexus for its push API and its pairing callback. The page fills in its own address and the API
    address it was built with.
+3. **Mail:** Postmark's server token and the sender, with a test mail to an address you name. Mail may stay off.
+   A Debug build running as Development writes mail to `data/mail`, and the step says so.
+4. **The first admin:** an email, signed in at once. Once mail works the password is optional, and an admin without
+   one signs in with mailed links. With mail off, a password is required. A database that already has an admin skips
+   this step, which is how an existing instance is adopted.
 
-The Settings page changes both later. A new database is opened and brought up to date before Scry moves to it. The
-sources' rows stay in `data/workspaces` whichever database Scry uses.
+Admins change all of it later on the Settings page. A new database is opened and brought up to date before Scry moves
+to it. The sources' rows stay in `data/workspaces` whichever database Scry uses.
+
+### Users and sign-in
+
+There is no sign-up. An admin invites each user from the Users page, in the account menu, and changes the instance's
+settings. Every user changes the dashboards, sources, keys, and the Nexus link.
+
+- A user signs in with a password, or with a link mailed to them that works once, for 15 minutes. An invite link works
+  once, for 7 days. Mail goes through `Pluperfect.Mail`'s Postmark transport, with the token set on the Settings page.
+  A Debug build running as Development writes `.eml` files to `data/mail` instead, until a Postmark token and sender
+  are saved to test real mail; turning Postmark off returns it to the files. A released Scry never writes mail to
+  files. An instance without mail offers no mailed links, and an invite answers its link for the admin to pass on.
+- The session is `Pluperfect.Jwt`'s: an access token in an `HttpOnly` cookie, a refresh token that rotates, and the
+  origin and antiforgery checks on every unsafe request. Scry's cookies are named `scry_sid` and `scry_rt`, so a
+  Nexus on the same host keeps its own session.
+- Five wrong passwords for one address lock it for 15 minutes, and one address gets at most three mailed links in that
+  time.
+- Setting a password ends the user's other sessions. A forgotten password is replaced by signing in with a mailed link
+  and setting a new one.
 
 A page on the machine the API runs on uses the installer as it is. Any other page needs the install code, which the
 API writes to its log, with a link to `/install` that carries it, at each start while it is not set up. The code is
@@ -144,11 +175,13 @@ on the machine when it reaches the API over loopback with no proxy's forwarding 
 page at a loopback name; a box behind Caddy's Unix socket always needs the code.
 
 When a wrong client address keeps the Settings page from reaching the API, `/install` on an instance already set up
-changes the addresses. On another machine it asks the API to write a code to its log, good for an hour. A database
-that stops opening at a start sends the instance back to step 1, with the stored settings filled in.
+changes the addresses. Someone locked out uses its Make an admin, which makes an address an admin with a new password
+and signs it out everywhere else. On another machine, either asks the API to write a code to its log, good for an
+hour. A database that stops opening at a start sends the instance back to step 1, with the stored settings filled in.
 
-The settings are kept in `data/instance.json`, with the database password encrypted by the Data Protection keys in
-`data/keys`. On a box, `data/` must persist across releases.
+The settings are kept in `data/instance.json`, with the database password, the Postmark token, and the session signing
+key encrypted by the Data Protection keys in `data/keys`. The API makes the signing key on its first start. On a box,
+`data/` must persist across releases.
 
 A Debug build has one more command, `reset`, which sets `data/instance.json` aside under a dated name, so the next
 start opens the installer at its first step. The database, `data/keys`, and `data/workspaces` stay: entering the same
@@ -169,11 +202,21 @@ debugging. A configured value wins over the stored one, and the pages show it wi
 | `ConnectionStrings:Scry` | `ConnectionStrings__Scry` | The database |
 | `Scry:ClientOrigin` | `Scry__ClientOrigin` | The client's address |
 | `Scry:ApiOrigin` | `Scry__ApiOrigin` | The API's address |
+| `Mail:ServerToken` | `Mail__ServerToken` | Postmark's server token |
+| `Scry:MailFrom`, `Scry:MailFromName` | `Scry__MailFrom`, `Scry__MailFromName` | The sender |
+| `Jwt:SigningKey` | `Jwt__SigningKey` | The session signing key the API makes, at least 32 bytes |
+| `Mail:PickupDirectory` | `Mail__PickupDirectory` | Sending mail, in a Debug build running as Development: it is written to files there until a Postmark token and sender are saved. Anywhere else it is ignored, and the log says so. |
 
 For example, as a user secret:
 
 ```bash
 dotnet user-secrets set ConnectionStrings:Scry "Server=localhost;Database=scry;User ID=...;Password=..." --project Server/src/Scry.Api
+```
+
+`add-admin` makes or restores an admin, prints a link that signs them in once, within an hour, and exits.
+
+```bash
+dotnet run --project Server/src/Scry.Api -- add-admin you@example.com
 ```
 
 These settings have no page:

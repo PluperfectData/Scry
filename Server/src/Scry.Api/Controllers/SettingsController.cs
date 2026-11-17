@@ -1,20 +1,44 @@
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Pluperfect.Mail;
+using Scry.Api.Auth;
 
 namespace Scry.Api.Controllers;
 
-/// <summary>The instance's addresses and database. A value set by Scry's configuration is shown, and cannot be changed here.</summary>
+public sealed record MailSettingsRequest(string? ServerToken, string? From, string? FromName);
+
+/// <summary>
+/// How the instance sends mail. The server token is never answered, only whether one is set. A field set by Scry's
+/// configuration is shown, and the page cannot change it.
+/// </summary>
+public sealed record MailView(
+    MailTransport Transport,
+    bool TokenSet,
+    bool TokenConfigured,
+    string? From,
+    bool FromConfigured,
+    string FromName,
+    bool FromNameConfigured,
+    string? Folder);
+
+/// <summary>The instance's addresses, mail, and database. A value set by Scry's configuration is shown, and cannot be changed here.</summary>
 public sealed record SettingsView(
     string? ClientOrigin,
     bool ClientOriginConfigured,
     string? ApiOrigin,
     bool ApiOriginConfigured,
+    MailView Mail,
     DatabaseView? Database,
     bool DatabaseConfigured);
 
-/// <summary>The instance's own settings: its addresses and its database.</summary>
+public sealed record TestMailView(string SentTo, MailTransport Transport, string? Folder);
+
+/// <summary>The instance's own settings, for admins: its addresses, its mail, and its database.</summary>
 [ApiController]
 [Route("settings")]
-public sealed class SettingsController(Instance instance, Installation installation) : ControllerBase
+[Authorize(Policy = ScryClaims.AdminPolicy)]
+public sealed class SettingsController(Instance instance, Installation installation, IMailer mailer) : ControllerBase
 {
     [HttpGet]
     public SettingsView Get() => View();
@@ -28,6 +52,34 @@ public sealed class SettingsController(Instance instance, Installation installat
         }
 
         return View();
+    }
+
+    /// <summary>Sets Postmark's server token and the sender. A blank token keeps the one stored.</summary>
+    [HttpPut("mail")]
+    public ActionResult<SettingsView> Mail(MailSettingsRequest request) =>
+        MailForm.Save(request, instance) is { } failed ? Problem(failed.Problem, statusCode: failed.Status) : View();
+
+    /// <summary>Forgets the stored token and sender, which turns mail off unless configuration sets it.</summary>
+    [HttpDelete("mail")]
+    public SettingsView TurnOffMail()
+    {
+        instance.File.ClearMail();
+        return View();
+    }
+
+    /// <summary>Mails the signed-in admin, to show the settings work.</summary>
+    [HttpPost("mail/test")]
+    public async Task<ActionResult<TestMailView>> TestMail(CancellationToken ct)
+    {
+        if (!instance.MailReady)
+        {
+            return Problem(InstanceMailer.NotSetUp, statusCode: StatusCodes.Status409Conflict);
+        }
+
+        var to = User.FindFirstValue(ClaimTypes.Name)!;
+        return await MailForm.TestAsync(mailer, instance, to, ct) is { } failed
+            ? Problem(failed, statusCode: StatusCodes.Status502BadGateway)
+            : MailForm.Sent(to, instance);
     }
 
     /// <summary>Moves Scry to another database, or changes how it signs in to this one, once the new one opens and is brought up to date.</summary>
@@ -62,7 +114,84 @@ public sealed class SettingsController(Instance instance, Installation installat
             instance.ClientOriginConfigured,
             instance.ApiOrigin,
             instance.ApiOriginConfigured,
+            MailForm.View(instance),
             place is null ? null : new DatabaseView(place.Host, place.Port, place.Name, place.User),
             configured is not null);
     }
+}
+
+/// <summary>Keeps and tests the instance's mail, for the installer and the Settings page alike.</summary>
+public static class MailForm
+{
+    public const int MaxNameLength = 100;
+
+    /// <summary>
+    /// Keeps Postmark's server token and the sender the form names, or answers why it cannot, with the status to answer
+    /// it with. A blank token keeps the one stored, and a value set by configuration is left as it is.
+    /// </summary>
+    public static (string Problem, int Status)? Save(MailSettingsRequest request, Instance instance)
+    {
+        var token = string.IsNullOrWhiteSpace(request.ServerToken) ? null : request.ServerToken.Trim();
+        if (instance.ServerTokenConfigured && token is not null)
+        {
+            return ("Postmark's server token is set by Scry's configuration, in Mail:ServerToken.", StatusCodes.Status409Conflict);
+        }
+
+        if (token is null && !instance.ServerTokenConfigured && !instance.File.HasServerToken)
+        {
+            return ("Enter Postmark's server token. Postmark shows it under the server's API Tokens.", StatusCodes.Status400BadRequest);
+        }
+
+        string? from = null;
+        if (!instance.MailFromConfigured && (from = Emails.Normalize(request.From)) is null)
+        {
+            return ("Enter the address mail comes from, on a domain Postmark may send as.", StatusCodes.Status400BadRequest);
+        }
+
+        var name = string.IsNullOrWhiteSpace(request.FromName) ? Instance.DefaultSenderName : request.FromName.Trim();
+        if (name.Length > MaxNameLength || name.Any(char.IsControl))
+        {
+            return ($"A sender's name is one line of up to {MaxNameLength} characters.", StatusCodes.Status400BadRequest);
+        }
+
+        instance.File.SaveMail(token, from, name);
+        return null;
+    }
+
+    /// <summary>Mails <paramref name="to"/> to show the settings work. Answers why the transport refused, or null once sent.</summary>
+    public static async Task<string?> TestAsync(IMailer mailer, Instance instance, string to, CancellationToken ct)
+    {
+        try
+        {
+            await mailer.SendAsync(
+                new MailRequest
+                {
+                    From = new MailAddress(instance.MailFrom!, instance.MailFromName),
+                    To = new MailAddress(to),
+                    Subject = "Scry can send mail",
+                    HtmlBody = "<p>This instance of Scry sends mail with these settings. Sign-in links and invites go out the same way.</p>",
+                    TextBody = "This instance of Scry sends mail with these settings. Sign-in links and invites go out the same way.",
+                },
+                ct);
+            return null;
+        }
+        catch (MailDeliveryException ex)
+        {
+            return ex.Message;
+        }
+    }
+
+    public static TestMailView Sent(string to, Instance instance) =>
+        new(to, instance.Transport, instance.Transport == MailTransport.Files ? Path.GetFullPath(instance.MailFolder!) : null);
+
+    public static MailView View(Instance instance) =>
+        new(
+            instance.Transport,
+            instance.ServerToken is not null,
+            instance.ServerTokenConfigured,
+            instance.Sender,
+            instance.MailFromConfigured,
+            instance.MailFromName,
+            instance.MailFromNameConfigured,
+            instance.MailFolder is { } folder ? Path.GetFullPath(folder) : null);
 }

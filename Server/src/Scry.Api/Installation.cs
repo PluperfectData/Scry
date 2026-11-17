@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using Scry.Api.Storage;
 
 namespace Scry.Api;
@@ -6,12 +7,13 @@ public enum InstallStage
 {
     Database,
     Address,
+    Admin,
     Done,
 }
 
 /// <summary>
-/// Whether the instance is set up: its database opens and is up to date, and it knows its client's address and its
-/// own. Until then, only the installer and the health check answer.
+/// Whether the instance is set up: its database opens and is up to date, it knows its client's address and its own,
+/// and it has an admin. Until then, only the installer and the health check answer.
 /// </summary>
 public sealed partial class Installation(
     Instance instance,
@@ -21,10 +23,11 @@ public sealed partial class Installation(
     InstallCode code,
     ILogger<Installation> logger) : IDisposable
 {
-    private static readonly TimeSpan RepairLifetime = TimeSpan.FromHours(1);
+    private static readonly TimeSpan RecoveryLifetime = TimeSpan.FromHours(1);
 
     private readonly SemaphoreSlim _switching = new(1, 1);
     private volatile bool _ready;
+    private volatile bool _hasAdmin;
     private volatile string? _problem;
 
     /// <summary>The database contexts open, or null before one is set.</summary>
@@ -35,12 +38,13 @@ public sealed partial class Installation(
     /// <summary>Why the database set could not be opened, in the server's words.</summary>
     public string? DatabaseProblem => _problem;
 
-    public InstallStage Stage =>
+    public async Task<InstallStage> StageAsync(CancellationToken ct) =>
         !_ready ? InstallStage.Database
         : instance.ClientOrigin is null || instance.ApiOrigin is null ? InstallStage.Address
+        : !await HasAdminAsync(ct) ? InstallStage.Admin
         : InstallStage.Done;
 
-    public bool IsInstalled => Stage == InstallStage.Done;
+    public async Task<bool> IsInstalledAsync(CancellationToken ct) => await StageAsync(ct) == InstallStage.Done;
 
     /// <summary>Opens the database at Scry's start, and writes the install code to the log while it is not set up.</summary>
     public async Task StartAsync(CancellationToken ct)
@@ -54,7 +58,12 @@ public sealed partial class Installation(
             _problem = "Scry cannot decrypt its database's password, since the keys in its data folder changed. Enter the password again.";
         }
 
-        if (!IsInstalled)
+        if (instance.MailFolderIgnored)
+        {
+            LogMailFolderIgnored(logger);
+        }
+
+        if (!await IsInstalledAsync(ct))
         {
             Announce();
         }
@@ -85,6 +94,7 @@ public sealed partial class Installation(
             {
                 // Queued syncs name sources in the database left behind.
                 syncs.Forget();
+                _hasAdmin = false;
                 _ready = true;
                 await RequeueAsync(ct);
             }
@@ -98,9 +108,19 @@ public sealed partial class Installation(
     }
 
     /// <summary>Spends the install code once saving the addresses sets the instance up.</summary>
-    public void AddressesSaved()
+    public async Task AddressesSavedAsync(CancellationToken ct)
     {
-        if (IsInstalled)
+        if (await IsInstalledAsync(ct))
+        {
+            code.Clear();
+        }
+    }
+
+    /// <summary>Records that the database has an admin, and spends the install code once that sets the instance up.</summary>
+    public async Task AdminMadeAsync(CancellationToken ct)
+    {
+        _hasAdmin = true;
+        if (await IsInstalledAsync(ct))
         {
             code.Clear();
         }
@@ -108,27 +128,35 @@ public sealed partial class Installation(
 
     /// <summary>
     /// Writes the install code to the log, with the installer's address. On an instance already set up, the code is one
-    /// for changing its addresses, and lasts an hour.
+    /// for making an admin or changing the addresses, and lasts an hour.
     /// </summary>
-    public void Announce()
+    public async Task AnnounceAsync(CancellationToken ct)
     {
-        var installed = IsInstalled;
-        var issued = code.Issue(installed ? RepairLifetime : null);
-        if (!code.MayAnnounce())
+        if (await IsInstalledAsync(ct))
         {
+            var issued = code.Issue(RecoveryLifetime);
+            if (code.MayAnnounce())
+            {
+                LogRecovery(logger, Page(issued), issued);
+            }
+
             return;
         }
 
-        var page = instance.ClientOrigin is { } client ? $"{client}/install#{issued}" : "/install on the Scry client";
-        if (installed)
+        Announce();
+    }
+
+    private void Announce()
+    {
+        var issued = code.Issue(lifetime: null);
+        if (code.MayAnnounce())
         {
-            LogRepair(logger, page, issued);
-        }
-        else
-        {
-            LogInstall(logger, page, issued);
+            LogInstall(logger, Page(issued), issued);
         }
     }
+
+    private string Page(string issued) =>
+        instance.ClientOrigin is { } client ? $"{client}/install#{issued}" : "/install on the Scry client";
 
     private async Task OpenAsync(string connectionString, CancellationToken ct)
     {
@@ -154,14 +182,30 @@ public sealed partial class Installation(
         await syncs.RequeueAsync(scope.ServiceProvider.GetRequiredService<ScryDbContext>(), ct);
     }
 
+    // An instance keeps at least one admin, so once one is seen the answer holds until the database changes.
+    private async Task<bool> HasAdminAsync(CancellationToken ct)
+    {
+        if (_hasAdmin)
+        {
+            return true;
+        }
+
+        await using var scope = scopes.CreateAsyncScope();
+        _hasAdmin = await scope.ServiceProvider.GetRequiredService<ScryDbContext>().Users.AnyAsync(u => u.IsAdmin, ct);
+        return _hasAdmin;
+    }
+
     public void Dispose() => _switching.Dispose();
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Scry is not set up yet. Open {Page} to set it up. A page on another machine asks for this install code: {Code}")]
     private static partial void LogInstall(ILogger logger, string page, string code);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "An install code was asked for, to change Scry's addresses. Open {Page} within an hour, and enter this code: {Code}")]
-    private static partial void LogRepair(ILogger logger, string page, string code);
+    [LoggerMessage(Level = LogLevel.Warning, Message = "An install code was asked for, to make an admin or change Scry's addresses. Open {Page} within an hour, and enter this code: {Code}")]
+    private static partial void LogRecovery(ILogger logger, string page, string code);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Scry cannot open its database: {Problem}")]
     private static partial void LogUnreachable(ILogger logger, string problem);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Mail:PickupDirectory is set, but Scry writes mail to files only in a Debug build running as Development. Mail goes through Postmark once it is set up on the Settings page.")]
+    private static partial void LogMailFolderIgnored(ILogger logger);
 }

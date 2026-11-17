@@ -1,5 +1,11 @@
 using System.Text.RegularExpressions;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Pluperfect.Jwt;
+using Pluperfect.Mail;
+using Scry.Api.Auth;
+using Scry.Api.Storage;
 
 namespace Scry.Api.Controllers;
 
@@ -7,13 +13,18 @@ public sealed record DatabaseRequest(string? Host, int? Port, string? Name, stri
 
 public sealed record AddressesRequest(string? ClientOrigin, string? ApiOrigin);
 
+/// <summary>The first admin, or an admin made for someone locked out. The password may be blank once mail works.</summary>
+public sealed record InstallAdminRequest(string? Email, string? Password);
+
+public sealed record InstallTestMailRequest(string? To);
+
 /// <summary>A database's place, without its password.</summary>
 public sealed record DatabaseView(string Host, int Port, string Name, string User);
 
 /// <summary>
 /// Where the instance stands, for the installer page. <c>Local</c> says the page is on the machine Scry runs on, which
 /// needs no code; <c>Allowed</c> says this request may use the installer, and only then are the database and the
-/// addresses shown.
+/// addresses shown. <c>Mail</c> says whether Scry can send mail yet.
 /// </summary>
 public sealed record InstallView(
     bool Installed,
@@ -26,19 +37,30 @@ public sealed record InstallView(
     string? ClientOrigin,
     bool ClientOriginConfigured,
     string? ApiOrigin,
-    bool ApiOriginConfigured);
+    bool ApiOriginConfigured,
+    bool Mail,
+    MailView? MailSettings);
 
 /// <summary>
-/// The first-run installer: the database, then the client's address and the API's. On an instance already set up, it
-/// changes the addresses, for when a wrong client address keeps the Settings page from reaching the API. A page on the
-/// machine Scry runs on may use it; any other page needs the install code from Scry's log.
+/// The first-run installer: the database, then the client's address and the API's, then the first admin. On an
+/// instance already set up, it changes the addresses, for when a wrong client address keeps the Settings page from
+/// reaching the API, and makes or restores an admin for someone locked out. A page on the machine Scry runs on may use
+/// it; any other page needs the install code from Scry's log.
 /// </summary>
 [ApiController]
 [Route("install")]
-public sealed class InstallController(Installation installation, Instance instance, InstallAccess access) : ControllerBase
+[AllowAnonymous]
+[SkipAntiforgery]
+[AnyOrigin]
+public sealed class InstallController(Installation installation, Instance instance, InstallAccess access, IMailer mailer, TimeProvider time)
+    : ControllerBase
 {
+    private const string MailIsSet = "Scry is set up. An admin changes its mail on the Settings page.";
+
+    private const string NoWayBack = "Set up mail, or choose a password. Without either, there is no way to sign in again.";
+
     [HttpGet]
-    public InstallView Get() => View(access.Check(HttpContext) == InstallAccessResult.Allowed);
+    public async Task<InstallView> Get(CancellationToken ct) => await ViewAsync(access.Check(HttpContext) == InstallAccessResult.Allowed, ct);
 
     [HttpPost("database")]
     public async Task<ActionResult<InstallView>> Database(DatabaseRequest request, CancellationToken ct)
@@ -69,12 +91,12 @@ public sealed class InstallController(Installation installation, Instance instan
             return Problem(failed, statusCode: StatusCodes.Status400BadRequest);
         }
 
-        return View(allowed: true);
+        return await ViewAsync(allowed: true, ct);
     }
 
-    /// <summary>Sets the client's address and the API's, which sets the instance up once its database is ready.</summary>
+    /// <summary>Sets the client's address and the API's, which leads to the first admin once the database is ready.</summary>
     [HttpPost("addresses")]
-    public ActionResult<InstallView> Addresses(AddressesRequest request)
+    public async Task<ActionResult<InstallView>> Addresses(AddressesRequest request, CancellationToken ct)
     {
         if (Refusal() is { } refused)
         {
@@ -91,17 +113,134 @@ public sealed class InstallController(Installation installation, Instance instan
             return Problem(failed.Problem, statusCode: failed.Status);
         }
 
-        installation.AddressesSaved();
-        return View(allowed: true);
+        await installation.AddressesSavedAsync(ct);
+        return await ViewAsync(allowed: true, ct);
+    }
+
+    /// <summary>Makes the first admin, or makes an existing user an admin with a new password, and signs them in.</summary>
+    [HttpPost("admin")]
+    public async Task<ActionResult<MeView>> Admin(
+        InstallAdminRequest request,
+        [FromServices] IServiceProvider services,
+        CancellationToken ct)
+    {
+        if (Refusal() is { } refused)
+        {
+            return refused;
+        }
+
+        if (await installation.StageAsync(ct) is InstallStage.Database or InstallStage.Address)
+        {
+            return Problem("Set up the database and the addresses first.", statusCode: StatusCodes.Status409Conflict);
+        }
+
+        if (Emails.Normalize(request.Email) is not { } email)
+        {
+            return Problem("Enter an email address.", statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var password = string.IsNullOrEmpty(request.Password) ? null : request.Password;
+        if (password is null && !instance.MailReady)
+        {
+            return Problem(NoWayBack, statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        if (password is not null && Passwords.Problem(password) is { } problem)
+        {
+            return Problem(problem, statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var db = services.GetRequiredService<ScryDbContext>();
+        var sessions = services.GetRequiredService<Sessions>();
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Email == email, ct);
+        var existing = user is not null;
+        if (user is null)
+        {
+            user = new User { Email = email, LinkStamp = SignInLinks.NewStamp(), CreatedAt = time.GetUtcNow().UtcDateTime };
+            db.Users.Add(user);
+        }
+
+        // A new stamp ends the user's mailed links, since the installer signs them in. A blank password leaves theirs.
+        user.IsAdmin = true;
+        user.LinkStamp = SignInLinks.NewStamp();
+        if (password is not null)
+        {
+            user.PasswordHash = Passwords.Hash(user, password);
+        }
+
+        await db.SaveChangesAsync(ct);
+        if (existing)
+        {
+            await sessions.EndAllAsync(user, "An admin was made from the installer.", ct);
+        }
+
+        await installation.AdminMadeAsync(ct);
+        await sessions.SignInAsync(user, persistent: false, ct);
+        return new MeView(true, user.Id, user.Email, true, user.PasswordHash is not null);
+    }
+
+    /// <summary>Sets Postmark's server token and the sender before the first admin, as the Settings page does after.</summary>
+    [HttpPut("mail")]
+    public async Task<ActionResult<InstallView>> Mail(MailSettingsRequest request, CancellationToken ct)
+    {
+        if (await MailRefusalAsync(ct) is { } refused)
+        {
+            return refused;
+        }
+
+        return MailForm.Save(request, instance) is { } failed
+            ? Problem(failed.Problem, statusCode: failed.Status)
+            : await ViewAsync(allowed: true, ct);
+    }
+
+    /// <summary>Forgets the stored token and sender, which turns mail off unless configuration sets it.</summary>
+    [HttpDelete("mail")]
+    public async Task<ActionResult<InstallView>> TurnOffMail(CancellationToken ct)
+    {
+        if (await MailRefusalAsync(ct) is { } refused)
+        {
+            return refused;
+        }
+
+        instance.File.ClearMail();
+        return await ViewAsync(allowed: true, ct);
+    }
+
+    /// <summary>Mails the address given, to show the settings work. No admin exists yet to mail instead.</summary>
+    [HttpPost("mail/test")]
+    public async Task<ActionResult<TestMailView>> TestMail(InstallTestMailRequest request, CancellationToken ct)
+    {
+        if (await MailRefusalAsync(ct) is { } refused)
+        {
+            return refused;
+        }
+
+        if (!instance.MailReady)
+        {
+            return Problem(InstanceMailer.NotSetUp, statusCode: StatusCodes.Status409Conflict);
+        }
+
+        if (Emails.Normalize(request.To) is not { } to)
+        {
+            return Problem("Enter the address to send the test mail to.", statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        return await MailForm.TestAsync(mailer, instance, to, ct) is { } failed
+            ? Problem(failed, statusCode: StatusCodes.Status502BadGateway)
+            : MailForm.Sent(to, instance);
     }
 
     /// <summary>Writes the install code to Scry's log, for a page on another machine. It is written at most once a minute.</summary>
     [HttpPost("code")]
-    public IActionResult Code()
+    public async Task<IActionResult> Code(CancellationToken ct)
     {
-        installation.Announce();
+        await installation.AnnounceAsync(ct);
         return NoContent();
     }
+
+    // Mail is the installer's only until the instance is set up; the Settings page changes it from then on.
+    private async Task<ObjectResult?> MailRefusalAsync(CancellationToken ct) =>
+        Refusal() ?? (await installation.IsInstalledAsync(ct) ? Problem(MailIsSet, statusCode: StatusCodes.Status409Conflict) : null);
 
     private ObjectResult? Refusal() => access.Check(HttpContext) switch
     {
@@ -115,9 +254,9 @@ public sealed class InstallController(Installation installation, Instance instan
             statusCode: StatusCodes.Status401Unauthorized),
     };
 
-    private InstallView View(bool allowed)
+    private async Task<InstallView> ViewAsync(bool allowed, CancellationToken ct)
     {
-        var stage = installation.Stage;
+        var stage = await installation.StageAsync(ct);
         var configured = instance.ConfiguredConnectionString;
         var place = configured is not null ? DatabaseSettings.Describe(configured) : instance.File.DatabasePlace;
         return new InstallView(
@@ -131,7 +270,9 @@ public sealed class InstallController(Installation installation, Instance instan
             allowed ? instance.ClientOrigin : null,
             instance.ClientOriginConfigured,
             allowed ? instance.ApiOrigin : null,
-            instance.ApiOriginConfigured);
+            instance.ApiOriginConfigured,
+            instance.MailReady,
+            allowed ? MailForm.View(instance) : null);
     }
 }
 

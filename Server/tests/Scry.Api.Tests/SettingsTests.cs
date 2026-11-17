@@ -14,7 +14,7 @@ public sealed class SettingsTests
     public async Task Shows_the_addresses_and_database_and_moves_CORS_with_the_client_address()
     {
         using var factory = new ScryApiFactory();
-        using var client = factory.CreateClient();
+        using var client = factory.SignedIn();
 
         var before = await client.GetFromJsonAsync<JsonElement>("/settings");
         using var refused = await client.PutAsJsonAsync("/settings/addresses", new { clientOrigin = "scry.example.test", apiOrigin = ScryApiFactory.ApiOrigin });
@@ -38,7 +38,7 @@ public sealed class SettingsTests
     public async Task Keeps_a_new_database_only_once_it_opens_and_a_blank_password_keeps_the_stored_one()
     {
         using var factory = new ScryApiFactory();
-        using var client = factory.CreateClient();
+        using var client = factory.SignedIn();
         factory.Database.Refusal = "Unknown MySQL server host 'db.moved.test'";
 
         using var refused = await client.PutAsJsonAsync("/settings/database", new { host = "db.moved.test", port = 3306, name = "scry", user = "scry", password = "new-password" });
@@ -67,7 +67,7 @@ public sealed class SettingsTests
             builder.UseSetting("ConnectionStrings:Scry", "Server=configured.test;Database=scry;User ID=ops");
             builder.UseSetting("Scry:ApiOrigin", "https://api.configured.test");
         });
-        using var client = configured.CreateClient();
+        using var client = configured.SignedIn();
 
         var view = await client.GetFromJsonAsync<JsonElement>("/settings");
         using var database = await client.PutAsJsonAsync("/settings/database", new { host = "db.moved.test", port = 3306, name = "scry", user = "scry", password = "p" });

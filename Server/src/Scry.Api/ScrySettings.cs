@@ -1,8 +1,8 @@
 namespace Scry.Api;
 
 /// <summary>
-/// The <c>Scry</c> configuration section. The two addresses are an operator's way around the installer: either one set
-/// here wins over the one the installer stored, and the pages cannot change it.
+/// The <c>Scry</c> configuration section. Apart from the data folder, each value is an operator's way around the
+/// installer and the Settings page: one set here wins over the one stored, and the pages cannot change it.
 /// </summary>
 public sealed class ScrySettings
 {
@@ -16,4 +16,9 @@ public sealed class ScrySettings
 
     /// <summary>This API's own origin, which Scry gives Nexus for its push API and its pairing callback.</summary>
     public string? ApiOrigin { get; set; }
+
+    /// <summary>The address mail comes from, on a domain the mail transport may send as.</summary>
+    public string? MailFrom { get; set; }
+
+    public string? MailFromName { get; set; }
 }

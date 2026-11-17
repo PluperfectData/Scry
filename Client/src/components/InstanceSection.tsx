@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { type DatabaseForm, getInstanceSettings, type InstanceSettings, saveAddresses, saveDatabase } from '../api'
-import { AddressFields, DatabaseFields } from './InstanceForms'
+import { settingsMail } from '../mail'
+import { AddressFields, DatabaseFields, MailForm } from './InstanceForms'
 
-/** The instance's addresses and database, as the installer set them. */
+/** The instance's addresses, mail, and database, as the installer set them. */
 export function InstanceSection() {
   const [settings, setSettings] = useState<InstanceSettings | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -40,6 +41,11 @@ export function InstanceSection() {
           submitLabel="Save addresses"
           onSubmit={async (addresses) => setSettings(await saveAddresses(addresses))}
         />
+      </section>
+
+      <section>
+        <h2>Mail</h2>
+        <MailForm mail={settings.mail} actions={settingsMail(setSettings)} />
       </section>
 
       <section>

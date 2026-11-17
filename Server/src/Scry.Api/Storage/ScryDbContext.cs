@@ -12,6 +12,10 @@ public sealed class ScryDbContext(DbContextOptions<ScryDbContext> options) : DbC
         value => value,
         value => DateTime.SpecifyKind(value, DateTimeKind.Utc));
 
+    private static readonly ValueConverter<DateTime?, DateTime?> NullableUtc = new(
+        value => value,
+        value => value.HasValue ? DateTime.SpecifyKind(value.Value, DateTimeKind.Utc) : null);
+
     public DbSet<Source> Sources => Set<Source>();
 
     public DbSet<Connection> Connections => Set<Connection>();
@@ -22,8 +26,35 @@ public sealed class ScryDbContext(DbContextOptions<ScryDbContext> options) : DbC
 
     public DbSet<NexusLink> NexusLinks => Set<NexusLink>();
 
+    public DbSet<User> Users => Set<User>();
+
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<User>(user =>
+        {
+            user.ToTable("users");
+            user.HasIndex(u => u.Email).IsUnique();
+            user.Property(u => u.Email).HasMaxLength(User.MaxEmailLength);
+            user.Property(u => u.PasswordHash).HasMaxLength(255);
+            user.Property(u => u.LinkStamp).HasMaxLength(64);
+            user.Property(u => u.CreatedAt).HasConversion(Utc);
+            user.Property(u => u.SignedInAt).HasConversion(NullableUtc);
+        });
+
+        modelBuilder.Entity<RefreshToken>(token =>
+        {
+            token.ToTable("refresh_tokens");
+            token.HasIndex(t => t.TokenHash).IsUnique();
+            token.HasIndex(t => t.UserId);
+            token.Property(t => t.UserId).HasMaxLength(32);
+            token.Property(t => t.Email).HasMaxLength(User.MaxEmailLength);
+            token.Property(t => t.TokenHash).HasMaxLength(64);
+            token.Property(t => t.IssuedForIp).HasMaxLength(64);
+            token.Property(t => t.RevokedReason).HasMaxLength(200);
+        });
+
         modelBuilder.Entity<Source>(source =>
         {
             source.ToTable("sources");

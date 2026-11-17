@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.AspNetCore.DataProtection;
 using MySqlConnector;
+using Pluperfect.Mail;
 
 namespace Scry.Api;
 
@@ -38,9 +39,16 @@ public sealed record DatabaseSettings(string Host, int Port, string Name, string
     }
 }
 
+public enum MailTransport
+{
+    None,
+    Postmark,
+    Files,
+}
+
 /// <summary>
-/// What the installer and the Settings page set, kept in <c>instance.json</c> in the data folder. The database's
-/// password is encrypted with Scry's Data Protection keys, which live beside it in <c>keys</c>.
+/// What the installer and the Settings page set, kept in <c>instance.json</c> in the data folder. The secrets in it are
+/// encrypted with Scry's Data Protection keys, which live beside it in <c>keys</c>.
 /// </summary>
 public sealed class InstanceFile
 {
@@ -64,6 +72,14 @@ public sealed class InstanceFile
 
     public string? ApiOrigin => _stored.ApiOrigin;
 
+    public string? MailFrom => _stored.Mail?.From;
+
+    public string? MailFromName => _stored.Mail?.FromName;
+
+    public string? ServerToken => Reveal(_stored.Mail?.ServerToken);
+
+    public bool HasServerToken => _stored.Mail?.ServerToken is not null;
+
     /// <summary>The stored database without its password, or null when none is stored.</summary>
     public DatabaseSettings? DatabasePlace =>
         _stored.Database is { } stored ? new DatabaseSettings(stored.Host, stored.Port, stored.Name, stored.User, string.Empty) : null;
@@ -73,6 +89,25 @@ public sealed class InstanceFile
         _stored.Database is { } stored && Reveal(stored.Password) is { } password
             ? new DatabaseSettings(stored.Host, stored.Port, stored.Name, stored.User, password)
             : null;
+
+    /// <summary>The key sessions are signed with, made and kept the first time it is asked for.</summary>
+    public string SigningKey
+    {
+        get
+        {
+            lock (_gate)
+            {
+                if (Reveal(_stored.SigningKey) is { } key)
+                {
+                    return key;
+                }
+
+                var made = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(64));
+                Save(_stored with { SigningKey = _protector.Protect(made) });
+                return made;
+            }
+        }
+    }
 
     public void SaveDatabase(DatabaseSettings database) =>
         Change(stored => stored with
@@ -87,6 +122,15 @@ public sealed class InstanceFile
             ClientOrigin = clientOrigin ?? stored.ClientOrigin,
             ApiOrigin = apiOrigin ?? stored.ApiOrigin,
         });
+
+    /// <summary>Keeps the sender, and the token when one is given; a null token keeps the one stored.</summary>
+    public void SaveMail(string? serverToken, string? from, string fromName) =>
+        Change(stored => stored with
+        {
+            Mail = new StoredMail(serverToken is null ? stored.Mail?.ServerToken : _protector.Protect(serverToken), from, fromName),
+        });
+
+    public void ClearMail() => Change(stored => stored with { Mail = null });
 
     private void Change(Func<Stored, Stored> change)
     {
@@ -123,8 +167,13 @@ public sealed class InstanceFile
         _stored = next;
     }
 
-    private string? Reveal(string stored)
+    private string? Reveal(string? stored)
     {
+        if (stored is null)
+        {
+            return null;
+        }
+
         try
         {
             return _protector.Unprotect(stored);
@@ -161,17 +210,33 @@ public sealed class InstanceFile
         public string? ClientOrigin { get; init; }
 
         public string? ApiOrigin { get; init; }
+
+        public StoredMail? Mail { get; init; }
+
+        public string? SigningKey { get; init; }
     }
 
     internal sealed record StoredDatabase(string Host, int Port, string Name, string User, string Password);
+
+    internal sealed record StoredMail(string? ServerToken, string? From, string FromName);
 }
 
 /// <summary>
 /// The instance's settings as Scry uses them. Each comes from configuration when an operator set it there, and
 /// otherwise from what the installer and the Settings page stored.
 /// </summary>
-public sealed class Instance(InstanceFile file, ScrySettings settings, IConfiguration configuration)
+public sealed class Instance(
+    InstanceFile file,
+    ScrySettings settings,
+    PluperfectMailOptions mail,
+    IConfiguration configuration,
+    IHostEnvironment environment)
 {
+    public const string DefaultSenderName = "Scry";
+
+    // A sender for mail written to files, which reaches no one.
+    private const string FileSender = "scry@localhost";
+
     public InstanceFile File => file;
 
     public string? ConfiguredConnectionString => Given(configuration.GetConnectionString("Scry"));
@@ -189,6 +254,46 @@ public sealed class Instance(InstanceFile file, ScrySettings settings, IConfigur
 
     /// <summary>This API's public origin, once the instance knows it.</summary>
     public string Api => ApiOrigin ?? throw new InvalidOperationException("Scry has no API address yet. Set one at /install.");
+
+    public string? ServerToken => Given(mail.ServerToken) ?? file.ServerToken;
+
+    public bool ServerTokenConfigured => Given(mail.ServerToken) is not null;
+
+    /// <summary>The address mail comes from, as configured or stored.</summary>
+    public string? Sender => Given(settings.MailFrom) ?? file.MailFrom;
+
+    /// <summary>The address a message is sent from: the sender, or a placeholder for mail written to files.</summary>
+    public string? MailFrom => Sender ?? (Transport == MailTransport.Files ? FileSender : null);
+
+    public bool MailFromConfigured => Given(settings.MailFrom) is not null;
+
+    public string MailFromName => Given(settings.MailFromName) ?? file.MailFromName ?? DefaultSenderName;
+
+    public bool MailFromNameConfigured => Given(settings.MailFromName) is not null;
+
+#if DEBUG
+    private static readonly bool DebugBuild = true;
+#else
+    private static readonly bool DebugBuild = false;
+#endif
+
+    /// <summary>
+    /// The folder mail is written to when no Postmark token and sender are set: the one configuration names, honored only
+    /// in a Debug build running as Development.
+    /// </summary>
+    public string? MailFolder => DebugBuild && environment.IsDevelopment() ? Given(mail.PickupDirectory) : null;
+
+    /// <summary>Whether configuration names a mail folder that this build or environment does not write to.</summary>
+    public bool MailFolderIgnored => MailFolder is null && Given(mail.PickupDirectory) is not null;
+
+    public MailTransport Transport =>
+        ServerToken is not null && Sender is not null
+            ? MailTransport.Postmark
+            : MailFolder is not null
+                ? MailTransport.Files
+                : MailTransport.None;
+
+    public bool MailReady => Transport != MailTransport.None;
 
     private static string? Given(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }

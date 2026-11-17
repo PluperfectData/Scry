@@ -1,9 +1,11 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.EntityFrameworkCore;
 using Nexus;
+using Pluperfect.Jwt;
 using Scry.Api.Storage;
 
 namespace Scry.Api.Controllers;
@@ -38,11 +40,14 @@ public sealed record IngestBatchView(long RowCount, bool Skipped);
 public sealed record CallerKeyView(string Name, string Prefix);
 
 /// <summary>
-/// The push API. Every route takes a key made on the Settings page as <c>Authorization: Bearer</c>. A key writes only
-/// to the sources it made, and to a pushed source whose key was revoked, which it then takes over.
+/// The push API. Every route takes a key made on the Settings page as <c>Authorization: Bearer</c>, and no session, so
+/// there is no cookie for antiforgery to protect. A key writes only to the sources it made, and to a pushed source whose
+/// key was revoked, which it then takes over.
 /// </summary>
 [ApiController]
 [Route("ingest/sources/{name}")]
+[AllowAnonymous]
+[SkipAntiforgery]
 public sealed class IngestController(ScryDbContext db, Workspace workspace, IngestKeys keys) : ControllerBase
 {
     public const int MaxRows = 10_000;

@@ -113,23 +113,35 @@ public sealed partial class InstallTests
     }
 
     [Test]
-    public async Task Sets_up_in_two_stages_then_spends_the_code_and_allows_only_the_client()
+    public async Task Sets_up_in_three_stages_signs_the_first_admin_in_then_spends_the_code_and_allows_only_the_client()
     {
         using var factory = new ScryApiFactory(installed: false);
-        using var client = factory.CreateClient();
+        using var browser = factory.NewBrowser();
+        var client = browser.Client;
         var code = CodeFromLog(factory);
 
         using var early = await PostAsync(client, "/install/addresses", Addresses, code: code);
         (await PostAsync(client, "/install/database", Database, code: code)).EnsureSuccessStatusCode();
+        using var earlyAdmin = await PostAsync(client, "/install/admin", new { email = "founder@acme.test", password = Browser.Password }, code: code);
         using var badClient = await PostAsync(client, "/install/addresses", new { clientOrigin = "http://localhost:6160/install", apiOrigin = ScryApiFactory.ApiOrigin }, code: code);
         using var badApi = await PostAsync(client, "/install/addresses", new { clientOrigin = ScryApiFactory.ClientOrigin, apiOrigin = "ftp://localhost:6161" }, code: code);
-        using var done = await PostAsync(client, "/install/addresses", Addresses, code: code);
+        using var addressed = await PostAsync(client, "/install/addresses", Addresses, code: code);
+        using var weak = await PostAsync(client, "/install/admin", new { email = "founder@acme.test", password = "short" }, code: code);
+        using var made = await PostAsync(client, "/install/admin", new { email = "Founder@Acme.test", password = Browser.Password }, code: code);
 
         early.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        earlyAdmin.StatusCode.ShouldBe(HttpStatusCode.Conflict);
         (await DetailAsync(badClient)).ShouldBe("Enter the client's address, such as https://scry.example.com, with nothing after its host.");
         (await DetailAsync(badApi)).ShouldBe("Enter the API's address, such as https://api.scry.example.com, with nothing after its host.");
-        done.StatusCode.ShouldBe(HttpStatusCode.OK, await done.Content.ReadAsStringAsync());
-        (await done.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("installed").GetBoolean().ShouldBeTrue();
+        var afterAddresses = await addressed.Content.ReadFromJsonAsync<JsonElement>();
+        afterAddresses.GetProperty("installed").GetBoolean().ShouldBeFalse();
+        afterAddresses.GetProperty("stage").GetString().ShouldBe("Admin");
+        (await DetailAsync(weak)).ShouldBe("A password needs at least 12 characters.");
+        made.StatusCode.ShouldBe(HttpStatusCode.OK, await made.Content.ReadAsStringAsync());
+        var me = await browser.GetAsync<JsonElement>("/auth/me");
+        me.GetProperty("email").GetString().ShouldBe("founder@acme.test");
+        me.GetProperty("isAdmin").GetBoolean().ShouldBeTrue();
+        (await GetAsync(client)).GetProperty("installed").GetBoolean().ShouldBeTrue();
         (await GetAsync(client, code: code)).GetProperty("allowed").GetBoolean().ShouldBeFalse();
         var stored = factory.NewInstanceFile();
         (stored.ClientOrigin, stored.ApiOrigin).ShouldBe((ScryApiFactory.ClientOrigin, ScryApiFactory.ApiOrigin));
@@ -138,7 +150,43 @@ public sealed partial class InstallTests
         using var fromElsewhere = await GetWithOriginAsync(client, "/sources", "https://elsewhere.example");
         fromClient.StatusCode.ShouldBe(HttpStatusCode.OK);
         fromClient.Headers.GetValues("Access-Control-Allow-Origin").ShouldBe([ScryApiFactory.ClientOrigin]);
+        fromClient.Headers.GetValues("Access-Control-Allow-Credentials").ShouldBe(["true"]);
         fromElsewhere.Headers.Contains("Access-Control-Allow-Origin").ShouldBeFalse();
+    }
+
+    [Test]
+    public async Task A_database_that_already_has_an_admin_skips_the_admin_stage()
+    {
+        using var factory = new ScryApiFactory(installed: false);
+        using var client = factory.CreateClient();
+        (await PostAsync(client, "/install/database", Database, local: true)).EnsureSuccessStatusCode();
+        await factory.AddUserAsync("ops@acme.test", Browser.Password, admin: true);
+
+        using var addressed = await PostAsync(client, "/install/addresses", Addresses, local: true);
+
+        (await addressed.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("installed").GetBoolean().ShouldBeTrue();
+    }
+
+    [Test]
+    public async Task Someone_locked_out_asks_for_a_code_and_makes_an_admin_with_it()
+    {
+        const string NewPassword = "a brand new password";
+        using var factory = new ScryApiFactory();
+        using var browser = factory.NewBrowser();
+
+        using var bare = await PostAsync(browser.Client, "/install/admin", new { email = ScryApiFactory.OwnerEmail, password = NewPassword });
+        (await browser.Client.PostAsync(new Uri("/install/code", UriKind.Relative), null)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        var line = factory.Logs.Lines.Single(l => l.Contains("install code", StringComparison.Ordinal));
+        using var made = await PostAsync(
+            browser.Client, "/install/admin", new { email = ScryApiFactory.OwnerEmail, password = NewPassword }, code: CodePattern().Match(line).Value);
+
+        bare.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        line.ShouldContain("to make an admin or change Scry's addresses");
+        made.StatusCode.ShouldBe(HttpStatusCode.OK, await made.Content.ReadAsStringAsync());
+        (await browser.GetAsync<JsonElement>("/auth/me")).GetProperty("email").GetString().ShouldBe(ScryApiFactory.OwnerEmail);
+        using var other = factory.NewBrowser();
+        (await other.SignInAsync(ScryApiFactory.OwnerEmail, ScryApiFactory.OwnerPassword)).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        (await other.SignInAsync(ScryApiFactory.OwnerEmail, NewPassword)).StatusCode.ShouldBe(HttpStatusCode.OK);
     }
 
     [Test]
@@ -155,7 +203,7 @@ public sealed partial class InstallTests
         using var changed = await PostAsync(client, "/install/addresses", moved, code: CodePattern().Match(line).Value);
 
         bare.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
-        line.ShouldContain("to change Scry's addresses");
+        line.ShouldContain("to make an admin or change Scry's addresses");
         line.ShouldContain($"{ScryApiFactory.ClientOrigin}/install#");
         database.StatusCode.ShouldBe(HttpStatusCode.Conflict);
         (await DetailAsync(database)).ShouldBe("The database is set up. Change it on the Settings page.");
@@ -212,6 +260,95 @@ public sealed partial class InstallTests
         factory.Database.Prepared.ShouldContain("Server=configured.test;Database=scry;User ID=ops");
     }
 
+    [Test]
+    public async Task The_installers_mail_needs_its_access_and_closes_once_the_instance_is_set_up()
+    {
+        using var factory = new ScryApiFactory(installed: false, mailToFiles: false);
+        using var browser = factory.NewBrowser();
+        var client = browser.Client;
+        (await PostAsync(client, "/install/database", Database, local: true)).EnsureSuccessStatusCode();
+        (await PostAsync(client, "/install/addresses", Addresses, local: true)).EnsureSuccessStatusCode();
+        var mail = new { serverToken = FakePostmark.Token, from = "scry@acme.test", fromName = "Acme Scry" };
+
+        using var bare = await SendAsync(client, HttpMethod.Put, "/install/mail", mail);
+        using var saved = await SendAsync(client, HttpMethod.Put, "/install/mail", mail, local: true);
+        using var nowhere = await SendAsync(client, HttpMethod.Post, "/install/mail/test", new { to = "" }, local: true);
+        using var tested = await SendAsync(client, HttpMethod.Post, "/install/mail/test", new { to = "founder@acme.test" }, local: true);
+        using var made = await PostAsync(client, "/install/admin", new { email = "founder@acme.test", password = "" }, local: true);
+        using var closed = await SendAsync(client, HttpMethod.Put, "/install/mail", mail, local: true);
+
+        bare.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        saved.StatusCode.ShouldBe(HttpStatusCode.OK, await saved.Content.ReadAsStringAsync());
+        var view = await saved.Content.ReadFromJsonAsync<JsonElement>();
+        view.GetProperty("mail").GetBoolean().ShouldBeTrue();
+        view.GetProperty("mailSettings").GetProperty("transport").GetString().ShouldBe("Postmark");
+        view.ToString().ShouldNotContain(FakePostmark.Token);
+        nowhere.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        tested.StatusCode.ShouldBe(HttpStatusCode.OK, await tested.Content.ReadAsStringAsync());
+        factory.Postmark.Sent.Single().GetProperty("To").GetString().ShouldBe("founder@acme.test");
+        made.StatusCode.ShouldBe(HttpStatusCode.OK, await made.Content.ReadAsStringAsync());
+        (await made.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("hasPassword").GetBoolean().ShouldBeFalse();
+        closed.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        (await DetailAsync(closed)).ShouldBe("Scry is set up. An admin changes its mail on the Settings page.");
+    }
+
+    [Test]
+    public async Task The_first_admin_needs_a_password_while_mail_is_off()
+    {
+        using var factory = new ScryApiFactory(installed: false, mailToFiles: false);
+        using var browser = factory.NewBrowser();
+        var client = browser.Client;
+        (await PostAsync(client, "/install/database", Database, local: true)).EnsureSuccessStatusCode();
+        (await PostAsync(client, "/install/addresses", Addresses, local: true)).EnsureSuccessStatusCode();
+
+        using var passwordless = await PostAsync(client, "/install/admin", new { email = "founder@acme.test", password = "" }, local: true);
+        using var made = await PostAsync(client, "/install/admin", new { email = "founder@acme.test", password = Browser.Password }, local: true);
+
+        passwordless.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await DetailAsync(passwordless)).ShouldBe("Set up mail, or choose a password. Without either, there is no way to sign in again.");
+        made.StatusCode.ShouldBe(HttpStatusCode.OK, await made.Content.ReadAsStringAsync());
+    }
+
+    [Test]
+    public async Task With_mail_written_to_files_the_first_admin_needs_no_password_and_signs_in_by_link()
+    {
+        using var factory = new ScryApiFactory(installed: false);
+        using var browser = factory.NewBrowser();
+        var client = browser.Client;
+        (await PostAsync(client, "/install/database", Database, local: true)).EnsureSuccessStatusCode();
+        (await PostAsync(client, "/install/addresses", Addresses, local: true)).EnsureSuccessStatusCode();
+        var view = await GetAsync(client, local: true);
+
+        using var made = await PostAsync(client, "/install/admin", new { email = "founder@acme.test", password = "" }, local: true);
+        using var later = factory.NewBrowser();
+        (await later.SendAsync(HttpMethod.Post, "/auth/link", new { email = "founder@acme.test" })).StatusCode.ShouldBe(HttpStatusCode.Accepted);
+        var link = Browser.MailTo(factory.MailDirectory, "founder@acme.test").Single();
+        using var redeemed = await later.SendAsync(HttpMethod.Post, "/auth/link/redeem", new { token = Browser.LinkToken(link) });
+
+        view.GetProperty("mail").GetBoolean().ShouldBeTrue();
+        view.GetProperty("mailSettings").GetProperty("transport").GetString().ShouldBe("Files");
+        made.StatusCode.ShouldBe(HttpStatusCode.OK, await made.Content.ReadAsStringAsync());
+        (await browser.GetAsync<JsonElement>("/auth/me")).GetProperty("isAdmin").GetBoolean().ShouldBeTrue();
+        redeemed.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await later.GetAsync<JsonElement>("/auth/me")).GetProperty("email").GetString().ShouldBe("founder@acme.test");
+    }
+
+    [Test]
+    public async Task Make_an_admin_with_no_password_keeps_the_users_own()
+    {
+        using var factory = new ScryApiFactory();
+        await factory.AddUserAsync("rowan@acme.test", Browser.Password);
+        using var browser = factory.NewBrowser();
+
+        using var made = await PostAsync(browser.Client, "/install/admin", new { email = "rowan@acme.test", password = "" }, local: true);
+
+        made.StatusCode.ShouldBe(HttpStatusCode.OK, await made.Content.ReadAsStringAsync());
+        (await made.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("hasPassword").GetBoolean().ShouldBeTrue();
+        using var other = factory.NewBrowser();
+        (await other.SignInAsync("rowan@acme.test", Browser.Password)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await other.GetAsync<JsonElement>("/auth/me")).GetProperty("isAdmin").GetBoolean().ShouldBeTrue();
+    }
+
     private static string CodeFromLog(ScryApiFactory factory) =>
         CodePattern().Match(factory.Logs.Lines.Single(l => l.Contains("install code", StringComparison.Ordinal))).Value;
 
@@ -238,6 +375,13 @@ public sealed partial class InstallTests
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, path) { Content = JsonContent.Create(body) };
         Mark(request, local, code, origin, forwarded);
+        return await client.SendAsync(request);
+    }
+
+    private static async Task<HttpResponseMessage> SendAsync(HttpClient client, HttpMethod method, string path, object? body = null, string? code = null, bool local = false)
+    {
+        using var request = new HttpRequestMessage(method, path) { Content = body is null ? null : JsonContent.Create(body) };
+        Mark(request, local, code, ScryApiFactory.ClientOrigin, forwarded: false);
         return await client.SendAsync(request);
     }
 

@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Nexus;
@@ -87,7 +88,9 @@ public sealed class SchwabController(
     /// Where Schwab sends the browser after its sign-in. Keeps the tokens, queues each source to sync in the background,
     /// and sends the browser back to the Sources page, with <c>error</c> when the sign-in failed.
     /// </summary>
+    // Schwab returns to 127.0.0.1, where the session's cookie is never sent, so the `state` is the credential.
     [HttpGet("callback")]
+    [AllowAnonymous]
     public async Task<IActionResult> Callback(string? code, string? state, string? error, CancellationToken ct)
     {
         if (signIns.Take(state) is not { } pending)

@@ -15,6 +15,16 @@ const settings: InstanceSettings = {
   clientOriginConfigured: false,
   apiOrigin: 'http://localhost:6161',
   apiOriginConfigured: false,
+  mail: {
+    transport: 'None',
+    tokenSet: false,
+    tokenConfigured: false,
+    from: null,
+    fromConfigured: false,
+    fromName: 'Scry',
+    fromNameConfigured: false,
+    folder: null,
+  },
   database: { host: 'localhost', port: 3306, name: 'scry', user: 'scry' },
   databaseConfigured: false,
 }
