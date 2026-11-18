@@ -139,6 +139,17 @@ public sealed class ScryApiFactory : WebApplicationFactory<Program>
         await db.SaveChangesAsync();
     }
 
+    /// <summary>The sender an instance from <see cref="WithPostmark"/> mails from.</summary>
+    public const string MailSender = "scry@acme.test";
+
+    /// <summary>An installed factory whose mail goes through <see cref="Postmark"/> from the start, as a Release build's does.</summary>
+    public static ScryApiFactory WithPostmark()
+    {
+        var factory = new ScryApiFactory(mailToFiles: false);
+        factory.NewInstanceFile().SaveMail(FakePostmark.Token, MailSender, Instance.DefaultSenderName);
+        return factory;
+    }
+
     /// <summary>The API's stored settings, from the same file and keys, usable before the API starts.</summary>
     public InstanceFile NewInstanceFile() =>
         new(DataDirectory, DataProtectionProvider.Create(new DirectoryInfo(Path.Combine(DataDirectory, "keys")), builder => builder.SetApplicationName("Scry")));

@@ -107,19 +107,20 @@ public sealed class AccountTests
     [Test]
     public async Task A_mailed_link_signs_in_once()
     {
-        await _factory.AddUserAsync(Rowan);
-        using var browser = _factory.NewBrowser();
+        using var factory = ScryApiFactory.WithPostmark();
+        await factory.AddUserAsync(Rowan);
+        using var browser = factory.NewBrowser();
 
         (await browser.SendAsync(HttpMethod.Post, "/auth/link", new { email = Rowan })).StatusCode.ShouldBe(HttpStatusCode.Accepted);
-        var mail = Browser.MailTo(_factory.MailDirectory, Rowan).Single();
-        mail.Subject.ShouldBe("Your Scry sign-in link");
-        (mail.TextBody ?? string.Empty).ShouldContain($"{ScryApiFactory.ClientOrigin}/sign-in/link#");
+        var mail = Browser.PostmarkTo(factory.Postmark, Rowan).Single();
+        mail.GetProperty("Subject").GetString().ShouldBe("Your Scry sign-in link");
+        (mail.GetProperty("TextBody").GetString() ?? string.Empty).ShouldContain($"{ScryApiFactory.ClientOrigin}/sign-in/link#");
         var token = Browser.LinkToken(mail);
 
         (await browser.SendAsync(HttpMethod.Post, "/auth/link/redeem", new { token })).StatusCode.ShouldBe(HttpStatusCode.OK);
         (await browser.GetAsync<JsonElement>("/auth/me")).GetProperty("hasPassword").GetBoolean().ShouldBeFalse();
 
-        using var again = await _factory.NewBrowser().SendAsync(HttpMethod.Post, "/auth/link/redeem", new { token });
+        using var again = await factory.NewBrowser().SendAsync(HttpMethod.Post, "/auth/link/redeem", new { token });
         again.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         (await Browser.DetailAsync(again)).ShouldBe("This link has expired or was already used. Ask for a new one.");
     }
@@ -127,12 +128,13 @@ public sealed class AccountTests
     [Test]
     public async Task Mails_no_one_for_an_unknown_address_and_answers_the_same()
     {
-        using var browser = _factory.NewBrowser();
+        using var factory = ScryApiFactory.WithPostmark();
+        using var browser = factory.NewBrowser();
 
         using var answer = await browser.SendAsync(HttpMethod.Post, "/auth/link", new { email = "nobody@acme.test" });
 
         answer.StatusCode.ShouldBe(HttpStatusCode.Accepted);
-        Browser.MailTo(_factory.MailDirectory, "nobody@acme.test").ShouldBeEmpty();
+        Browser.PostmarkTo(factory.Postmark, "nobody@acme.test").ShouldBeEmpty();
     }
 
     [Test]
@@ -209,16 +211,17 @@ public sealed class AccountTests
     [Test]
     public async Task Invites_a_user_by_mail()
     {
-        using var admin = await _factory.SignedInAsync(Admin, admin: true);
+        using var factory = ScryApiFactory.WithPostmark();
+        using var admin = await factory.SignedInAsync(Admin, admin: true);
 
         var invited = await admin.SendAsync<JsonElement>(HttpMethod.Post, "/users", new { email = "New@Acme.test", isAdmin = false });
 
         invited.GetProperty("user").GetProperty("email").GetString().ShouldBe("new@acme.test");
         invited.GetProperty("user").GetProperty("hasPassword").GetBoolean().ShouldBeFalse();
         invited.GetProperty("link").ValueKind.ShouldBe(JsonValueKind.Null);
-        var mail = Browser.MailTo(_factory.MailDirectory, "new@acme.test").Single();
-        mail.Subject.ShouldBe("You're invited to Scry");
-        using var newcomer = _factory.NewBrowser();
+        var mail = Browser.PostmarkTo(factory.Postmark, "new@acme.test").Single();
+        mail.GetProperty("Subject").GetString().ShouldBe("You're invited to Scry");
+        using var newcomer = factory.NewBrowser();
         (await newcomer.SendAsync(HttpMethod.Post, "/auth/link/redeem", new { token = Browser.LinkToken(mail) })).StatusCode.ShouldBe(HttpStatusCode.OK);
         (await admin.SendAsync(HttpMethod.Post, "/users", new { email = "new@acme.test" })).StatusCode.ShouldBe(HttpStatusCode.Conflict);
     }
@@ -319,6 +322,7 @@ public sealed class AccountTests
         browser.Cookies.GetCookies(new Uri("http://localhost/auth/refresh"))[RefreshCookieName]?.Value
         ?? throw new InvalidOperationException("No refresh cookie.");
 
+#if DEBUG
     [Test]
     public async Task A_saved_Postmark_token_wins_over_mail_files_and_turning_it_off_returns_to_them()
     {
@@ -338,6 +342,7 @@ public sealed class AccountTests
         Browser.MailTo(factory.MailDirectory, Admin).ShouldBeEmpty();
         back.GetProperty("mail").GetProperty("transport").GetString().ShouldBe("Files");
     }
+#endif
 
     [Test]
     public async Task Outside_Development_a_mail_folder_is_ignored_and_the_log_says_so()
