@@ -12,6 +12,7 @@ import {
   removeSource,
   runNexusSync,
   signInAgain,
+  signInAgainThroughNexus,
   syncSource,
   type Connector,
   type NexusConnector,
@@ -23,11 +24,13 @@ import { leaveFor } from '../browser'
 import { ConnectorGrid } from '../components/ConnectorGrid'
 import { Modal } from '../components/Modal'
 import { SchwabForm } from '../components/SchwabForm'
+import { SignInStatus } from '../components/SignInStatus'
 import { Slideout } from '../components/Slideout'
 import { TableView } from '../components/TableView'
 import { Tooltip } from '../components/Tooltip'
 import { UploadForm } from '../components/UploadForm'
 import type { TableSettings } from '../dashboard'
+import { finishesRenewal, forgetRenewal, offersSignIn, rememberRenewal, signInOf } from '../signIn'
 import { useWorkspace } from '../workspace'
 
 const PREVIEW_ROWS = 50
@@ -85,6 +88,7 @@ function arrivalOf(search: string): { error: string | null; notice: string | nul
   const params = new URLSearchParams(search)
   const error = params.get('error')
   if (error === 'cancelled') return { error: null, notice: 'Connecting through Nexus was cancelled.' }
+  if (finishesRenewal(params.get('connection'))) return { error, notice: 'Signed in again. Its tables sync again.' }
   if (params.has('connection')) return { error, notice: 'Connected through Nexus. Its tables are syncing in.' }
   return { error, notice: null }
 }
@@ -182,6 +186,7 @@ export function SourcesPage() {
     const params = new URLSearchParams(window.location.search)
     if (params.has('error') || params.has('connection')) {
       window.history.replaceState(window.history.state, '', window.location.pathname)
+      forgetRenewal()
     }
   }, [])
 
@@ -277,6 +282,17 @@ export function SourcesPage() {
     }
   }
 
+  async function renewThroughNexus(sync: NexusSync) {
+    setError(null)
+    try {
+      const page = await signInAgainThroughNexus(sync.connectionId)
+      rememberRenewal(sync.connectionId)
+      leaveFor(page.url)
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+
   const origin = (source: Source) => {
     if (pushed(source)) return source.pushedBy ? `pushed with the key ${source.pushedBy}, ${source.pushKeyPrefix}…` : 'pushed by a revoked key'
     if (source.fileName) return source.fileName
@@ -312,6 +328,7 @@ export function SourcesPage() {
           {sources.map((source) => {
             const nexusSync = syncOf(source)
             const state = nexusSync && syncState(nexusSync)
+            const signIn = source.kind === 'Nexus' ? signInOf(source, nexusSync) : null
             return (
               <li key={source.id}>
                 <div className="card-head">
@@ -377,7 +394,14 @@ export function SourcesPage() {
                 </p>
                 {source.origin && <p className="muted">From {source.origin}.</p>}
                 {state && <p className={state.failed ? 'error' : 'muted'}>{state.text}</p>}
-                {nexusSync?.needsSignIn && <p className="error">Its connection in Nexus needs a new sign-in. Sign in again in Nexus.</p>}
+                {signIn && <SignInStatus signIn={signIn} />}
+                {nexusSync && offersSignIn(signIn) && (
+                  <p>
+                    <button type="button" className="secondary" onClick={() => renewThroughNexus(nexusSync)}>
+                      Sign in again
+                    </button>
+                  </p>
+                )}
                 {source.kind === 'Nexus' && !nexusSync && <p className="muted">No Nexus sync writes it now.</p>}
                 {source.error && <p className="error">{source.error}</p>}
                 {source.status === 'SignInNeeded' && (

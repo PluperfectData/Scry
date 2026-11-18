@@ -36,6 +36,7 @@ public sealed class NexusController(
     CurrentWorkspace workspace,
     NexusApi nexus,
     NexusPairings pairings,
+    NexusSignIns signIns,
     ConnectionSecrets secrets,
     Instance instance,
     OperatorLog log) : ControllerBase
@@ -199,10 +200,25 @@ public sealed class NexusController(
             link => nexus.OpenConnectAsync(link.NexusUrl, AppKey(link), request.Connector ?? string.Empty, link.DestinationId, SourcesPage, ct),
             ct);
 
-    /// <summary>The syncs that fill the link's destination, each with how its last run went.</summary>
+    /// <summary>
+    /// The syncs that fill the link's destination, each with how its last run went and its connection's sign-in, which
+    /// the sources list is given from then on.
+    /// </summary>
     [HttpGet("syncs")]
     public Task<ActionResult<List<NexusSync>>> Syncs(CancellationToken ct) =>
-        WithLinkAsync(async link => (await nexus.ListSyncsAsync(link.NexusUrl, AppKey(link), ct)).Where(s => s.DestinationId == link.DestinationId).ToList(), ct);
+        WithLinkAsync(
+            async link =>
+            {
+                var syncs = await nexus.ListSyncsAsync(link.NexusUrl, AppKey(link), ct);
+                signIns.Keep(link, syncs);
+                return syncs.Where(s => s.DestinationId == link.DestinationId).ToList();
+            },
+            ct);
+
+    /// <summary>Opens Nexus's connect page to sign one of its connections in again, coming back to the Sources page.</summary>
+    [HttpPost("connections/{id:int}/sign-in")]
+    public Task<ActionResult<NexusConnectPage>> SignInAgain(int id, CancellationToken ct) =>
+        WithLinkAsync(link => nexus.OpenRenewalAsync(link.NexusUrl, AppKey(link), id, link.DestinationId, SourcesPage, ct), ct);
 
     [HttpPost("syncs/{id:int}/run")]
     public Task<ActionResult<NexusSync>> Run(int id, CancellationToken ct) =>

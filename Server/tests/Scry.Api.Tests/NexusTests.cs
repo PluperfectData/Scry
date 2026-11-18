@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
 using NUnit.Framework;
+using Scry.Api.Storage;
 using Shouldly;
 using static Scry.Api.Tests.ScryApiFactory;
 
@@ -13,6 +14,10 @@ namespace Scry.Api.Tests;
 public sealed class NexusTests
 {
     private const string Settings = "http://localhost:6160/workspaces/1/settings";
+
+    private const string Viewer = "viewer@scry.test";
+
+    private static readonly string[] OneAccount = ["…1234"];
 
     private ScryApiFactory _factory = null!;
     private HttpClient _client = null!;
@@ -167,6 +172,93 @@ public sealed class NexusTests
         var sources = await _client.GetFromJsonAsync<JsonElement>($"{InDefault}/sources");
 
         sources.EnumerateArray().Select(s => $"{s.GetProperty("name").GetString()} {s.GetProperty("kind").GetString()}").ShouldBe(["events Push", "shop_orders Nexus"]);
+    }
+
+    [Test]
+    public async Task A_Nexus_source_carries_its_connections_sign_in_for_a_viewer_too()
+    {
+        await LinkAsync();
+        await PushAsNexusAsync();
+        var ended = DateTime.UtcNow.AddHours(-1);
+        _factory.Nexus.SignIn = new
+        {
+            kind = "FixedClock",
+            signedInAt = ended.AddDays(-7),
+            endsAt = ended,
+            endingSoon = false,
+            ended = true,
+            endedAt = ended,
+            keptAliveAt = (DateTime?)null,
+            accounts = OneAccount,
+        };
+        using var viewer = await _factory.SignedInAsync(Viewer);
+        await _factory.JoinAsync(Viewer, WorkspaceRole.Viewer);
+
+        var editorView = (await _client.GetFromJsonAsync<JsonElement>($"{InDefault}/sources")).EnumerateArray().Single();
+        var viewerView = (await viewer.GetAsync<JsonElement>($"{InDefault}/sources")).EnumerateArray().Single();
+
+        var signIn = editorView.GetProperty("signIn");
+        signIn.GetProperty("provider").GetString().ShouldBe("MySQL");
+        signIn.GetProperty("kind").GetString().ShouldBe("FixedClock");
+        signIn.GetProperty("ended").GetBoolean().ShouldBeTrue();
+        signIn.GetProperty("endedAt").GetDateTime().ShouldBe(ended, TimeSpan.FromSeconds(1));
+        signIn.GetProperty("accounts").EnumerateArray().Select(a => a.GetString()).ShouldBe(["…1234"]);
+        viewerView.GetProperty("signIn").GetProperty("ended").GetBoolean().ShouldBeTrue();
+    }
+
+    [Test]
+    public async Task Keeps_Nexus_sign_ins_for_a_minute_and_asks_nothing_for_sources_Nexus_does_not_fill()
+    {
+        await LinkAsync();
+        using (var unfilled = await _client.GetAsync(new Uri($"{InDefault}/sources", UriKind.Relative)))
+        {
+            unfilled.EnsureSuccessStatusCode();
+        }
+
+        await PushAsNexusAsync();
+        (await _client.GetFromJsonAsync<JsonElement>($"{InDefault}/sources")).EnumerateArray().Single().GetProperty("signIn").ValueKind.ShouldBe(JsonValueKind.Null);
+        await _client.GetFromJsonAsync<JsonElement>($"{InDefault}/sources");
+
+        _factory.Nexus.Requests.Count(r => r.Line == "GET /syncs").ShouldBe(1);
+    }
+
+    [Test]
+    public async Task Lists_sources_without_their_sign_ins_while_Nexus_does_not_answer()
+    {
+        await LinkAsync();
+        await PushAsNexusAsync();
+        _factory.Nexus.Down = true;
+
+        var sources = await _client.GetFromJsonAsync<JsonElement>($"{InDefault}/sources");
+
+        sources.EnumerateArray().Single().GetProperty("signIn").ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
+    [Test]
+    public async Task Opens_Nexus_connect_page_to_sign_a_connection_in_again_for_editors_alone()
+    {
+        await LinkAsync();
+        using var viewer = await _factory.SignedInAsync(Viewer);
+        await _factory.JoinAsync(Viewer, WorkspaceRole.Viewer);
+
+        using var opened = await _client.PostAsync(new Uri($"{InDefault}/nexus/connections/4/sign-in", UriKind.Relative), null);
+        using var refused = await viewer.SendAsync(HttpMethod.Post, $"{InDefault}/nexus/connections/4/sign-in");
+
+        opened.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await opened.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("url").GetString().ShouldBe($"{FakeNexus.Url}/connect#nxc_the-token");
+        var session = _factory.Nexus.Requests.Single(r => r.Line == "POST /connect-sessions").Body!.Value;
+        session.GetProperty("connectionId").GetInt32().ShouldBe(4);
+        session.GetProperty("destinationId").GetInt32().ShouldBe(7);
+        session.GetProperty("returnUrl").GetString().ShouldBe("http://localhost:6160/workspaces/1/sources");
+        refused.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+    }
+
+    // Makes shop_orders as Nexus does, with the push key the link made.
+    private async Task PushAsNexusAsync()
+    {
+        using var asNexus = _factory.CreateClient();
+        asNexus.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _factory.Nexus.Claimed!.Value.GetProperty("pushKey").GetString());
+        (await asNexus.PutAsJsonAsync("/ingest/sources/shop_orders", new { columns = new object[] { new { name = "id", type = "Int64" } } })).StatusCode.ShouldBe(HttpStatusCode.OK);
     }
 
     private async Task LinkAsync()

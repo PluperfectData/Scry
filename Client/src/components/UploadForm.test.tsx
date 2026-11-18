@@ -20,6 +20,7 @@ const uploaded: Source = {
   syncedAt: '2026-11-13T12:00:00Z',
   status: 'Ready',
   error: null,
+  signIn: null,
 }
 
 beforeEach(() => jest.clearAllMocks())

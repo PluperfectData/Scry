@@ -10,7 +10,7 @@
 | `POST /workspaces`, `PATCH /workspaces/{id}` | For admins: makes a workspace from `{"name"}`, or renames one |
 | `DELETE /workspaces/{id}` | For admins: from `{"name"}`, which must be the workspace's name, removes the workspace with its dashboards, sources, push keys, and Nexus link, and deletes its folder. Nexus is asked to revoke the link's app key. A source syncing in it answers 409. |
 | `PUT`, `DELETE /workspaces/{id}/members/{userId}` | For admins: from `{"role"}`, adds a user to the workspace or changes their role, or takes them out |
-| `GET /workspaces/{workspaceId}/sources` | Lists sources: name, the file or the connection's stream the rows come from, columns and their types, row count, sync time, and `status` (`Ready`, `Syncing`, `Failed`, or `SignInNeeded`) with any `error` |
+| `GET /workspaces/{workspaceId}/sources` | Lists sources: name, the file or the connection's stream the rows come from, columns and their types, row count, sync time, and `status` (`Ready`, `Syncing`, `Failed`, or `SignInNeeded`) with any `error`. A source Nexus fills carries its connection's `signIn`: the `provider`, its `kind`, `signedInAt`, `endsAt`, `endingSoon`, `ended`, `endedAt`, and the labels of its `accounts`, as Nexus last said within the minute. Without an answer from Nexus within 5 seconds, it is null. |
 | `POST /workspaces/{workspaceId}/sources` | Form fields `name`, `file`, and optional `delimiter`. Syncs the file through Nexus into a table named `name`. |
 | `POST /workspaces/{workspaceId}/sources/{id}/sync` | Copies a connection's stream into its source again. An uploaded file answers 400; upload it again instead. A source syncing in the background answers 409. |
 | `GET /workspaces/{workspaceId}/sources/{id}/uses` | Each chart that reads the source, directly or through a join, as `{dashboardId, dashboardName, chartTitle, chartKind}` |
@@ -44,8 +44,9 @@
 | `DELETE /workspaces/{workspaceId}/nexus` | Unlinks: Nexus revokes Scry's app key, Scry revokes Nexus's push key, and the link goes. The sources Nexus sent stay. |
 | `GET /workspaces/{workspaceId}/nexus/connectors` | The connectors Nexus reads through, such as MySQL, which the Sources page offers under Through Nexus. One the link's workspace cannot connect yet, such as Schwab without a sign-in app, says why on its tile and cannot be picked. |
 | `POST /workspaces/{workspaceId}/nexus/connect` | From `{"connector"}`, opens Nexus's connect page for it, into the link's destination and coming back to the Sources page, and answers `{"url"}`. Nexus adds `connection` to the return address once connected, or `error=cancelled`. |
-| `GET /workspaces/{workspaceId}/nexus/syncs` | The syncs that fill the link's destination: the connection and stream each reads, its table, and how its last run went |
+| `GET /workspaces/{workspaceId}/nexus/syncs` | The syncs that fill the link's destination: the connection and stream each reads, its table, how its last run went, and its connection's `signIn` |
 | `POST /workspaces/{workspaceId}/nexus/syncs/{id}/run` | Runs one of those syncs now |
+| `POST /workspaces/{workspaceId}/nexus/connections/{id}/sign-in` | Opens Nexus's connect page to sign that connection in again, coming back to the Sources page, and answers `{"url"}` |
 | `GET /install` | Where the instance stands: `installed`, `stage` (`Database`, `Address`, `Admin`, or `Done`), whether the page is `local` and `allowed` to use the installer, whether Scry can send `mail`, and, when it is allowed, the database without its password and both addresses |
 | `POST /install/database` | From `{"host", "port", "name", "user", "password"}`, opens the database, makes it when it is missing and the user may, applies the migrations, and keeps it only once that works. Answers 409 once a database is set. |
 | `POST /install/addresses` | From `{"clientOrigin", "apiOrigin"}`, keeps the client's address and the API's. On an instance already set up, it changes them. |

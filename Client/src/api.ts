@@ -62,6 +62,28 @@ export interface Source {
   status: SourceStatus
   /** Why the last sync failed, when it did. */
   error: string | null
+  /** The sign-in of the Nexus connection that fills it; null for every other source. */
+  signIn: SourceSignIn | null
+}
+
+/** How a Nexus connection's sign-in ends: never on its own, on a clock its provider sets, or without calls that keep it. */
+export type SignInKind = 'Lasting' | 'FixedClock' | 'KeptAlive'
+
+/** A Nexus connection's sign-in, as Nexus says. `endsAt` is when a fixed clock ends it; once `ended`, Nexus syncs nothing from it. */
+export interface NexusSignIn {
+  kind: SignInKind
+  signedInAt: string | null
+  endsAt: string | null
+  endingSoon: boolean
+  ended: boolean
+  endedAt: string | null
+  keptAliveAt: string | null
+  accounts: string[]
+}
+
+/** A source's Nexus sign-in, with the provider it signs in to, such as Charles Schwab. */
+export interface SourceSignIn extends NexusSignIn {
+  provider: string
 }
 
 /** One setting a Nexus connector asks for. */
@@ -332,9 +354,11 @@ export interface NexusConnector {
 /** A sync at Nexus into the link's destination: what it reads, the table it fills, and how its last run went. */
 export interface NexusSync {
   id: number
+  connectionId: number
   connectionName: string
   connectorName: string
-  needsSignIn: boolean
+  /** Its connection's sign-in; null for one that does not sign in. */
+  signIn: NexusSignIn | null
   stream: string
   table: string
   mode: 'FullRefresh' | 'Incremental'
@@ -349,6 +373,10 @@ export const connectThroughNexus = (connector: string) => request<{ url: string 
 
 export const listNexusSyncs = () => request<NexusSync[]>(inWorkspace('/nexus/syncs'))
 export const runNexusSync = (id: number) => request<NexusSync>(inWorkspace(`/nexus/syncs/${id}/run`), { method: 'POST' })
+
+/** Opens Nexus's connect page to sign one of its connections in again, which comes back to the Sources page. */
+export const signInAgainThroughNexus = (connectionId: number) =>
+  request<{ url: string }>(inWorkspace(`/nexus/connections/${connectionId}/sign-in`), { method: 'POST' })
 
 /** Starts a sign-in that renews the one a Schwab source's connection holds. */
 export const signInAgain = (id: number) => request<{ url: string }>(inWorkspace(`/sources/${id}/sign-in`), { method: 'POST' })

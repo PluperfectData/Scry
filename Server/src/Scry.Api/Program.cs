@@ -75,6 +75,7 @@ builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<SchwabSignIns>();
 builder.Services.AddHttpClient(NexusApi.HttpClientName);
 builder.Services.AddSingleton<NexusApi>();
+builder.Services.AddScoped<NexusSignIns>();
 builder.Services.AddSingleton<NexusPairings>();
 builder.Services.AddScoped<SourceSync>();
 builder.Services.AddSingleton<PendingSyncs>();

@@ -5,7 +5,7 @@ import 'react-resizable/css/styles.css'
 import { Link, useParams } from 'react-router'
 import { editDashboard, getDashboard, listSources, saveDashboard, type Dashboard, type Source } from '../api'
 import { ChartForm } from '../components/ChartForm'
-import { ChartWidget } from '../components/ChartWidget'
+import { ChartWidget, type Stale } from '../components/ChartWidget'
 import { DashboardForm } from '../components/DashboardForm'
 import { PencilIcon } from '../components/PencilIcon'
 import { Slideout } from '../components/Slideout'
@@ -24,6 +24,7 @@ import {
 import { useFullscreen } from '../fullscreen'
 import { DEFAULT_PRESENTATION, PresentationContext, type PresentationSettings } from '../presentation'
 import { useNotices } from '../notices'
+import { staleNote } from '../signIn'
 import { useWorkspace } from '../workspace'
 
 const SAVE_DELAY_MS = 600
@@ -200,9 +201,14 @@ function DashboardGrid({
   onRemove?: (widgetId: string) => void
 }) {
   const { width, containerRef, mounted } = useContainerWidth()
+  const { base, canEdit } = useWorkspace()
   const [dragging, setDragging] = useState(false)
-  const known = new Set(sources.map((source) => source.id))
-  const gone = (widget: Widget) => !known.has(widget.sourceId) || (widget.join !== null && !known.has(widget.join.sourceId))
+  const byId = new Map(sources.map((source) => [source.id, source]))
+  const gone = (widget: Widget) => !byId.has(widget.sourceId) || (widget.join !== null && !byId.has(widget.join.sourceId))
+  const staleOf = (widget: Widget): Stale | undefined => {
+    const ended = [widget.sourceId, widget.join?.sourceId].map((id) => (id === undefined ? undefined : byId.get(id))).find((s) => s?.signIn?.ended)
+    return ended?.signIn ? { text: staleNote(ended, ended.signIn), sourcesPath: canEdit ? `${base}/sources` : null } : undefined
+  }
 
   return (
     <div
@@ -233,6 +239,7 @@ function DashboardGrid({
               <ChartWidget
                 widget={widget}
                 sourceGone={gone(widget)}
+                stale={staleOf(widget)}
                 onEdit={onEdit && (() => onEdit(widget))}
                 onRemove={onRemove && (() => onRemove(widget.id))}
               />

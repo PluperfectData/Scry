@@ -29,6 +29,12 @@ public sealed class FakeNexus : HttpMessageHandler
     /// <summary>A refusal the next claim answers with, in place of the app key.</summary>
     public string? FailClaim { get; set; }
 
+    /// <summary>The sign-in of the connection whose sync fills <c>shop_orders</c>, as Nexus answers one; null for none.</summary>
+    public object? SignIn { get; set; }
+
+    /// <summary>Whether Nexus is out of reach, so every request fails as an unanswered one does.</summary>
+    public bool Down { get; set; }
+
     public JsonElement? Opened => Requests.FirstOrDefault(r => r.Line == "POST /pairings").Body;
 
     public JsonElement? Claimed => Requests.FirstOrDefault(r => r.Line.EndsWith("/claim", StringComparison.Ordinal)).Body;
@@ -38,6 +44,10 @@ public sealed class FakeNexus : HttpMessageHandler
         var line = $"{request.Method} {request.RequestUri!.AbsolutePath}";
         JsonElement? body = request.Content is null ? null : JsonDocument.Parse(await request.Content.ReadAsStringAsync(cancellationToken)).RootElement.Clone();
         Requests.Enqueue((line, body, request.Headers.Authorization?.ToString()));
+        if (Down)
+        {
+            throw new HttpRequestException("No answer.");
+        }
 
         switch (line)
         {
@@ -71,10 +81,10 @@ public sealed class FakeNexus : HttpMessageHandler
                 return Json(HttpStatusCode.Created, new { url = $"{Url}/connect#nxc_the-token", expiresAt = DateTime.UtcNow.AddMinutes(10) });
 
             case "GET /syncs":
-                return Json(HttpStatusCode.OK, new[] { Sync(11, 7, "shop_orders", "Ready"), Sync(12, 8, "elsewhere", "Ready") });
+                return Json(HttpStatusCode.OK, new[] { Sync(11, 7, "shop_orders", "Ready", SignIn), Sync(12, 8, "elsewhere", "Ready", null) });
 
             case "POST /syncs/11/run":
-                return Json(HttpStatusCode.Accepted, Sync(11, 7, "shop_orders", "Queued"));
+                return Json(HttpStatusCode.Accepted, Sync(11, 7, "shop_orders", "Queued", SignIn));
 
             case "POST /syncs/99/run":
                 return new HttpResponseMessage(HttpStatusCode.NotFound);
@@ -85,13 +95,13 @@ public sealed class FakeNexus : HttpMessageHandler
     }
 
     // A sync as Nexus's app routes show one, with fields Scry does not read.
-    private static object Sync(int id, int destinationId, string table, string status) => new
+    private static object Sync(int id, int destinationId, string table, string status, object? signIn) => new
     {
         id,
         connectionId = 4,
         connectionName = "Shop",
         connectorName = "MySQL",
-        needsSignIn = false,
+        signIn,
         destinationId,
         destinationUrl = "http://localhost:6161/ingest",
         appName = "Scry at localhost:6161",

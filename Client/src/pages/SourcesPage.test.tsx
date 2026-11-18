@@ -11,14 +11,17 @@ import {
   removeSource,
   runNexusSync,
   signInAgain,
+  signInAgainThroughNexus,
   syncSource,
   type Connector,
   type NexusLink,
+  type NexusSignIn,
   type NexusSync,
   type Source,
 } from '../api'
 import { leaveFor } from '../browser'
 import type { TableSettings } from '../dashboard'
+import { when } from '../signIn'
 import { SourcesPage } from './SourcesPage'
 
 jest.mock('react-router', () => jest.requireActual('../../jest/router').reactRouterMock())
@@ -39,6 +42,7 @@ jest.mock('../api', () => ({
   listNexusSyncs: jest.fn(),
   connectThroughNexus: jest.fn(),
   runNexusSync: jest.fn(),
+  signInAgainThroughNexus: jest.fn(),
 }))
 
 jest.mock('../browser', () => ({ leaveFor: jest.fn() }))
@@ -76,6 +80,7 @@ const mockUpload: Source = {
   syncedAt: '2026-11-13T12:00:00Z',
   status: 'Ready',
   error: null,
+  signIn: null,
 }
 
 const mockTable: Source = {
@@ -93,6 +98,7 @@ const mockTable: Source = {
   syncedAt: '2026-11-15T12:00:00Z',
   status: 'Ready',
   error: null,
+  signIn: null,
 }
 
 const unlinked: NexusLink = { linked: false, nexusUrl: null, appName: null, workspaceName: null, pushKeyName: null, pushKeyPrefix: null, linkedAt: null }
@@ -114,6 +120,7 @@ const connectors: Connector[] = [
 
 beforeEach(() => {
   jest.clearAllMocks()
+  sessionStorage.clear()
   jest.mocked(listSources).mockResolvedValue([])
   jest.mocked(listConnectors).mockResolvedValue(connectors)
   jest.mocked(getNexusLink).mockResolvedValue(unlinked)
@@ -321,9 +328,10 @@ const shopOrders: Source = {
 
 const ordersSync: NexusSync = {
   id: 11,
+  connectionId: 4,
   connectionName: 'Shop',
   connectorName: 'MySQL',
-  needsSignIn: false,
+  signIn: null,
   stream: 'shop.orders',
   table: 'shop_orders',
   mode: 'FullRefresh',
@@ -386,17 +394,69 @@ it("shows a Nexus source's sync, and runs it through Nexus", async () => {
   expect(screen.getByRole('button', { name: 'Nexus is syncing shop_orders…' })).toBeDisabled()
 })
 
-it("says when a Nexus source's sync failed or its connection needs a new sign-in", async () => {
+// A Charles Schwab sign-in that Schwab ended an hour ago.
+const ended = (): NexusSignIn => ({
+  kind: 'FixedClock',
+  signedInAt: '2026-11-11T14:14:00Z',
+  endsAt: '2026-11-18T14:14:00Z',
+  endingSoon: false,
+  ended: true,
+  endedAt: '2026-11-18T14:14:00Z',
+  keptAliveAt: null,
+  accounts: ['…1234'],
+})
+
+it("says when a Nexus source's sync failed or its connection's sign-in ended, and signs it in again through Nexus", async () => {
   jest.mocked(listSources).mockResolvedValue([shopOrders, { ...shopOrders, id: 31, name: 'old_orders' }])
   jest.mocked(getNexusLink).mockResolvedValue(linked)
   jest.mocked(listNexusSyncs).mockResolvedValue([
-    { ...ordersSync, status: 'Failed', needsSignIn: true, lastRun: { ...ordersSync.lastRun!, status: 'Failed', rows: 0, error: 'Could not reach db.test.' } },
+    {
+      ...ordersSync,
+      connectorName: 'Charles Schwab',
+      signIn: ended(),
+      status: 'Failed',
+      lastRun: { ...ordersSync.lastRun!, status: 'Failed', rows: 0, error: 'Its connection needs a new sign-in. Sign in again first.' },
+    },
   ])
+  jest.mocked(signInAgainThroughNexus).mockResolvedValue({ url: 'http://localhost:6165/connect#nxc_renew' })
   render(<SourcesPage />)
 
-  expect(await screen.findByText(/^Nexus's last sync failed, .+: Could not reach db\.test\.$/)).toBeInTheDocument()
-  expect(screen.getByText('Its connection in Nexus needs a new sign-in. Sign in again in Nexus.')).toBeInTheDocument()
+  expect(await screen.findByText(/^Nexus's last sync failed, .+: Its connection needs a new sign-in\. Sign in again first\.$/)).toBeInTheDocument()
+  expect(
+    screen.getByText(`Its Charles Schwab sign-in in Nexus ended ${when('2026-11-18T14:14:00Z')}. Nexus syncs nothing from it until someone signs in again.`),
+  ).toHaveClass('error')
+  expect(screen.getByText('Reads the account …1234.')).toBeInTheDocument()
   expect(screen.getByText('No Nexus sync writes it now.')).toBeInTheDocument()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Sign in again' }))
+
+  expect(signInAgainThroughNexus).toHaveBeenCalledWith(4)
+  expect(leaveFor).toHaveBeenCalledWith('http://localhost:6165/connect#nxc_renew')
+  expect(sessionStorage.getItem('scry-renewing')).toBe('4')
+})
+
+it("offers a fixed clock's Sign in again early, and shows the list's sign-in before Nexus's syncs arrive", async () => {
+  const endsAt = new Date(Date.now() + 3 * 86_400_000).toISOString()
+  jest.mocked(listSources).mockResolvedValue([
+    { ...shopOrders, signIn: { ...ended(), ended: false, endedAt: null, endsAt, provider: 'Charles Schwab' } },
+  ])
+  jest.mocked(getNexusLink).mockResolvedValue(linked)
+  jest.mocked(listNexusSyncs).mockResolvedValue([{ ...ordersSync, connectorName: 'Charles Schwab', signIn: { ...ended(), ended: false, endedAt: null, endsAt } }])
+  render(<SourcesPage />)
+
+  expect(
+    await screen.findByText(`Signed in to Charles Schwab in Nexus ${when('2026-11-11T14:14:00Z')}. Charles Schwab ends it ${when(endsAt)}, in 3 days.`),
+  ).toHaveClass('muted')
+  expect(await screen.findByRole('button', { name: 'Sign in again' })).toBeInTheDocument()
+})
+
+it('says a renewal through Nexus went through on coming back', async () => {
+  sessionStorage.setItem('scry-renewing', '4')
+  window.history.pushState({}, '', '/sources?connection=4')
+  render(<SourcesPage />)
+
+  expect(await screen.findByText('Signed in again. Its tables sync again.')).toBeInTheDocument()
+  expect(sessionStorage.getItem('scry-renewing')).toBeNull()
 })
 
 it("names the Nexus sync that would bring a removed source back", async () => {

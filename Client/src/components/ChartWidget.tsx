@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router'
 import {
   getBoxes,
   getCandles,
@@ -41,6 +42,7 @@ import { loadMap } from '../maps'
 import { usePresentation, xPositions } from '../presentation'
 import { useTheme } from '../theme'
 import { Chart, type XSlide } from './Chart'
+import { LevelIcon } from './LevelIcon'
 import { PivotView } from './PivotView'
 import { TableView } from './TableView'
 import { Tooltip } from './Tooltip'
@@ -119,15 +121,26 @@ interface Loaded {
   error: string | null
 }
 
-/** A chart on a dashboard. `sourceGone` says its source, or the source it joins, was removed. */
+/** Why a chart's data stopped updating, and, for an editor, the page where they sign in again. */
+export interface Stale {
+  text: string
+  sourcesPath: string | null
+}
+
+/**
+ * A chart on a dashboard. `sourceGone` says its source, or the source it joins, was removed, and `stale` that one of
+ * them stopped updating when its Nexus sign-in ended.
+ */
 export function ChartWidget({
   widget,
   sourceGone = false,
+  stale,
   onEdit,
   onRemove,
 }: {
   widget: Widget
   sourceGone?: boolean
+  stale?: Stale
   onEdit?: () => void
   onRemove?: () => void
 }) {
@@ -244,6 +257,15 @@ export function ChartWidget({
           )}
         </div>
       </header>
+      {stale && !sourceGone && (
+        <p className="stale-note warning with-icon">
+          <LevelIcon level="Warning" />
+          <span>
+            {stale.text}{' '}
+            {stale.sourcesPath ? <Link to={stale.sourcesPath}>Sign in again on the Sources page.</Link> : 'An editor can sign in again.'}
+          </span>
+        </p>
+      )}
       {sourceGone ? (
         <p className="error">Its source was removed.{onEdit && ' Edit this chart to pick another.'}</p>
       ) : settings.kind === 'table' ? (

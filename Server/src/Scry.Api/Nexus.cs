@@ -2,6 +2,8 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.Extensions.Caching.Memory;
+using Scry.Api.Controllers;
+using Scry.Api.Storage;
 
 namespace Scry.Api;
 
@@ -47,20 +49,83 @@ public sealed record NexusConnectPage(string Url, DateTime ExpiresAt);
 public sealed record NexusRun(string Status, DateTime StartedAt, DateTime? EndedAt, long Rows, string? Error);
 
 /// <summary>
+/// A Nexus connection's sign-in. <paramref name="Kind"/> is <c>Lasting</c>, <c>FixedClock</c>, or <c>KeptAlive</c>;
+/// <paramref name="EndsAt"/> is when a fixed clock ends it, and <paramref name="EndingSoon"/> whether that is near.
+/// Once <paramref name="Ended"/>, Nexus syncs nothing from it until someone signs in again.
+/// </summary>
+public sealed record NexusSignIn(
+    string Kind,
+    DateTime? SignedInAt,
+    DateTime? EndsAt,
+    bool EndingSoon,
+    bool Ended,
+    DateTime? EndedAt,
+    DateTime? KeptAliveAt,
+    IReadOnlyList<string> Accounts);
+
+/// <summary>
 /// A sync at Nexus: the connection and stream it reads, the table it fills, and how its last run went.
-/// <paramref name="Status"/> is <c>Ready</c>, <c>Queued</c>, <c>Running</c>, or <c>Failed</c>.
+/// <paramref name="Status"/> is <c>Ready</c>, <c>Queued</c>, <c>Running</c>, or <c>Failed</c>. <paramref name="SignIn"/>
+/// is its connection's, null for one that does not sign in.
 /// </summary>
 public sealed record NexusSync(
     int Id,
+    int ConnectionId,
     string ConnectionName,
     string ConnectorName,
-    bool NeedsSignIn,
+    NexusSignIn? SignIn,
     int? DestinationId,
     string Stream,
     string Table,
     string Mode,
     string Status,
     NexusRun? LastRun);
+
+/// <summary>
+/// The sign-ins of the Nexus connections that fill a workspace's sources, by table, read from Nexus's syncs and kept for
+/// a minute, so a dashboard does not call Nexus each time it loads. A Nexus that does not answer leaves them out.
+/// </summary>
+public sealed class NexusSignIns(NexusApi nexus, ConnectionSecrets secrets, IMemoryCache cache)
+{
+    private static readonly TimeSpan Kept = TimeSpan.FromMinutes(1);
+
+    private static readonly TimeSpan Patience = TimeSpan.FromSeconds(5);
+
+    private static readonly IReadOnlyDictionary<string, SourceSignIn> None = new Dictionary<string, SourceSignIn>();
+
+    public async Task<IReadOnlyDictionary<string, SourceSignIn>> ByTableAsync(NexusLink link, CancellationToken ct)
+    {
+        if (cache.TryGetValue(Key(link.WorkspaceId), out IReadOnlyDictionary<string, SourceSignIn>? kept) && kept is not null)
+        {
+            return kept;
+        }
+
+        using var patience = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        patience.CancelAfter(Patience);
+        try
+        {
+            return Keep(link, await nexus.ListSyncsAsync(link.NexusUrl, secrets.UnprotectText(link.AppKey), patience.Token));
+        }
+        catch (Exception ex) when (ex is NexusException || (ex is OperationCanceledException && !ct.IsCancellationRequested))
+        {
+            cache.Set(Key(link.WorkspaceId), None, Kept);
+            return None;
+        }
+    }
+
+    /// <summary>Keeps what a fresh read of the link's syncs says, and answers it by table.</summary>
+    public IReadOnlyDictionary<string, SourceSignIn> Keep(NexusLink link, IEnumerable<NexusSync> syncs)
+    {
+        IReadOnlyDictionary<string, SourceSignIn> byTable = syncs
+            .Where(sync => sync.DestinationId == link.DestinationId && sync.SignIn is not null)
+            .GroupBy(sync => sync.Table, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => SourceSignIn.Of(group.First()), StringComparer.Ordinal);
+        cache.Set(Key(link.WorkspaceId), byTable, Kept);
+        return byTable;
+    }
+
+    private static string Key(int workspaceId) => $"nexus-sign-ins:{workspaceId}";
+}
 
 /// <summary>Every call Scry makes to a Nexus instance.</summary>
 public sealed class NexusApi(IHttpClientFactory http)
@@ -91,6 +156,10 @@ public sealed class NexusApi(IHttpClientFactory http)
 
     public Task<NexusSync> RunSyncAsync(string nexusUrl, string appKey, int id, CancellationToken ct) =>
         SendAsync<NexusSync>(nexusUrl, HttpMethod.Post, $"/syncs/{id}/run", appKey, null, ct);
+
+    /// <summary>Opens a connect page that signs <paramref name="connectionId"/> in again, returning to <paramref name="returnUrl"/>.</summary>
+    public Task<NexusConnectPage> OpenRenewalAsync(string nexusUrl, string appKey, int connectionId, int destinationId, string returnUrl, CancellationToken ct) =>
+        SendAsync<NexusConnectPage>(nexusUrl, HttpMethod.Post, "/connect-sessions", appKey, new { connectionId, destinationId, returnUrl }, ct);
 
     private async Task<T> SendAsync<T>(string nexusUrl, HttpMethod method, string path, string? appKey, object? body, CancellationToken ct)
     {

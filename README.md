@@ -150,6 +150,9 @@ flowchart LR
   approves the link, and no keys are copied by hand.
 - **Connect from Scry.** The Sources page then offers Nexus's connectors. Picking one opens Nexus's connect page, and
   once you're done, the tables sync into Scry.
+- **See a sign-in's clock.** When a provider ends a sign-in on a clock, as Schwab does after 7 days, the Sources page
+  says when, warns once it is near, and offers Sign in again. A chart whose data stopped when its sign-in ended says
+  so, for viewers too.
 - **Or don't.** Scry works without Nexus. CSV uploads and the push API need nothing else.
 
 ## Documentation

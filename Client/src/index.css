@@ -439,6 +439,40 @@ h1 {
   color: var(--success);
 }
 
+.warning {
+  color: var(--warning);
+}
+
+/* A status line led by its level's icon. */
+.with-icon {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+}
+
+.with-icon svg {
+  flex: none;
+  width: 1rem;
+  height: 1rem;
+  margin-top: 0.2em;
+}
+
+/* A chart's note that its data stopped updating, kept short beside the chart. */
+.stale-note {
+  margin: 0 0 0.4rem;
+  font-size: 0.85rem;
+}
+
+:fullscreen .stale-note {
+  font-size: 0.75rem;
+}
+
+@media (display-mode: fullscreen) {
+  .stale-note {
+    font-size: 0.75rem;
+  }
+}
+
 .form {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));

@@ -34,11 +34,38 @@ public enum SourceKind
     Nexus,
 }
 
+/// <summary>
+/// The sign-in of the Nexus connection that fills a source: the <paramref name="Provider"/> it signs in to, such as
+/// Charles Schwab, and what Nexus says of it.
+/// </summary>
+public sealed record SourceSignIn(
+    string Provider,
+    string Kind,
+    DateTime? SignedInAt,
+    DateTime? EndsAt,
+    bool EndingSoon,
+    bool Ended,
+    DateTime? EndedAt,
+    DateTime? KeptAliveAt,
+    IReadOnlyList<string> Accounts)
+{
+    public static SourceSignIn Of(NexusSync sync) => new(
+        sync.ConnectorName,
+        sync.SignIn!.Kind,
+        sync.SignIn.SignedInAt,
+        sync.SignIn.EndsAt,
+        sync.SignIn.EndingSoon,
+        sync.SignIn.Ended,
+        sync.SignIn.EndedAt,
+        sync.SignIn.KeptAliveAt,
+        sync.SignIn.Accounts);
+}
+
 /// <summary>A source: an uploaded file, with its <paramref name="FileName"/>; a connection's stream, with the
 /// <paramref name="Connector"/> that reads it and its <paramref name="Stream"/> name there; or rows pushed with the key
 /// named <paramref name="PushedBy"/> and starting <paramref name="PushKeyPrefix"/>, both null once that key is revoked,
 /// from the <paramref name="Origin"/> its pusher gave. <paramref name="Status"/> and <paramref name="Error"/> say how
-/// its last sync went.</summary>
+/// its last sync went, and <paramref name="SignIn"/> is the sign-in of the Nexus connection that fills it.</summary>
 public sealed record SourceView(
     int Id,
     string Name,
@@ -53,10 +80,11 @@ public sealed record SourceView(
     long RowCount,
     DateTime? SyncedAt,
     SourceStatus Status,
-    string? Error)
+    string? Error,
+    SourceSignIn? SignIn = null)
 {
     /// <summary>The source as the API shows it. <paramref name="linkKeyId"/> is the push key Nexus writes with, if Scry is linked.</summary>
-    public static SourceView From(Source source, int? linkKeyId) => new(
+    public static SourceView From(Source source, int? linkKeyId, SourceSignIn? signIn = null) => new(
         source.Id,
         source.Name,
         source.Pushed
@@ -72,7 +100,8 @@ public sealed record SourceView(
         source.RowCount,
         source.SyncedAt,
         source.Status,
-        source.Error);
+        source.Error,
+        signIn);
 }
 
 /// <summary>A chart that reads a source: its dashboard, its title, and its kind, such as <c>line</c>.</summary>
@@ -126,28 +155,34 @@ public sealed class SourceJoin
 [ApiController]
 [Route("workspaces/{workspaceId:int}/sources")]
 [InWorkspace]
-public sealed class SourcesController(ScryDbContext db, CurrentWorkspace workspace, SourceSync sync, OperatorLog log) : ControllerBase
+public sealed class SourcesController(ScryDbContext db, CurrentWorkspace workspace, SourceSync sync, NexusSignIns signIns, OperatorLog log) : ControllerBase
 {
+    /// <summary>The workspace's sources, each Nexus source with its connection's sign-in.</summary>
     [HttpGet]
     [ForViewers]
-    public async Task<IEnumerable<SourceView>> List(CancellationToken ct)
-    {
-        var linkKey = await LinkKeyAsync(ct);
-        return (await InWorkspace().AsNoTracking().Include(source => source.Connection).Include(source => source.IngestKey).OrderBy(source => source.Name).ToListAsync(ct))
-            .Select(source => SourceView.From(source, linkKey));
-    }
+    public async Task<IEnumerable<SourceView>> List(CancellationToken ct) =>
+        await ViewsAsync(await InWorkspace().AsNoTracking().Include(source => source.Connection).Include(source => source.IngestKey).OrderBy(source => source.Name).ToListAsync(ct), ct);
 
     [HttpGet("{id:int}")]
     [ForViewers]
     public async Task<ActionResult<SourceView>> Get(int id, CancellationToken ct) =>
         await InWorkspace().Include(source => source.Connection).Include(source => source.IngestKey).FirstOrDefaultAsync(source => source.Id == id, ct) is { } source
-            ? SourceView.From(source, await LinkKeyAsync(ct))
+            ? (await ViewsAsync([source], ct))[0]
             : NotFound();
 
     private IQueryable<Source> InWorkspace() => db.Sources.Where(source => source.WorkspaceId == workspace.Id);
 
-    private Task<int?> LinkKeyAsync(CancellationToken ct) =>
-        db.NexusLinks.Where(link => link.WorkspaceId == workspace.Id).Select(link => link.IngestKeyId).FirstOrDefaultAsync(ct);
+    // Nexus is asked only when a source here is one it fills.
+    private async Task<List<SourceView>> ViewsAsync(List<Source> sources, CancellationToken ct)
+    {
+        var link = await db.NexusLinks.AsNoTracking().FirstOrDefaultAsync(l => l.WorkspaceId == workspace.Id, ct);
+        var fromNexus = link?.IngestKeyId is { } key ? sources.Where(source => source.IngestKeyId == key).ToList() : [];
+        var byTable = link is not null && fromNexus.Count > 0 ? await signIns.ByTableAsync(link, ct) : null;
+        return [.. sources.Select(source => SourceView.From(
+            source,
+            link?.IngestKeyId,
+            byTable is not null && fromNexus.Contains(source) ? byTable.GetValueOrDefault(source.Name) : null))];
+    }
 
     /// <summary>Copies a connection's stream into DuckDB again. An uploaded file syncs once, when it is uploaded.</summary>
     [HttpPost("{id:int}/sync")]

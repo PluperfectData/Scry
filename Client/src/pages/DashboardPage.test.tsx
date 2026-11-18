@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ApiError, editDashboard, getDashboard, listSources, saveDashboard, type Dashboard, type Source } from '../api'
 import type { Widget } from '../dashboard'
+import { when } from '../signIn'
 import { DashboardPage } from './DashboardPage'
 
 jest.mock('react-router', () => jest.requireActual('../../jest/router').reactRouterMock())
@@ -26,10 +27,21 @@ jest.mock('react-grid-layout', () => ({
   useContainerWidth: () => ({ width: 1200, containerRef: { current: null }, mounted: true }),
 }))
 
-// A chart is a button that opens it for editing, when the page offers that, and says when its source is gone.
+// A chart is a button that opens it for editing, when the page offers that, and says when its source is gone or stale.
 jest.mock('../components/ChartWidget', () => ({
-  ChartWidget: ({ widget, sourceGone, onEdit }: { widget: Widget; sourceGone?: boolean; onEdit?: () => void }) => {
-    const label = `${widget.title}${sourceGone ? ', its source gone' : ''}`
+  ChartWidget: ({
+    widget,
+    sourceGone,
+    stale,
+    onEdit,
+  }: {
+    widget: Widget
+    sourceGone?: boolean
+    stale?: { text: string; sourcesPath: string | null }
+    onEdit?: () => void
+  }) => {
+    const note = stale ? `, stale: ${stale.text} (${stale.sourcesPath ?? 'no link'})` : ''
+    const label = `${widget.title}${sourceGone ? ', its source gone' : ''}${note}`
     return onEdit ? jest.requireActual('react').createElement('button', { type: 'button', onClick: onEdit }, `Edit ${label}`) : label
   },
 }))
@@ -69,6 +81,7 @@ const orders: Source = {
   syncedAt: '2026-11-13T12:00:00Z',
   status: 'Ready',
   error: null,
+  signIn: null,
 }
 
 const sales = (widgets: Widget[], layouts: Dashboard['layouts']): Dashboard => ({
@@ -90,6 +103,27 @@ beforeEach(() => {
   routerState.params = { id: '3' }
   jest.mocked(listSources).mockResolvedValue([orders])
   jest.mocked(saveDashboard).mockImplementation(async (dashboard) => ({ ...sales([], {}), ...dashboard }))
+})
+
+it("notes on each chart whose source's Nexus sign-in ended when its data last arrived, linking an editor to Sources", async () => {
+  const endedAt = '2026-11-18T14:14:00Z'
+  jest.mocked(listSources).mockResolvedValue([
+    {
+      ...orders,
+      kind: 'Nexus',
+      signIn: { provider: 'Charles Schwab', kind: 'FixedClock', signedInAt: null, endsAt: endedAt, endingSoon: false, ended: true, endedAt, keptAliveAt: null, accounts: [] },
+    },
+  ])
+  jest.mocked(getDashboard).mockResolvedValue(sales([byDay], {}))
+  const note = `This data was last updated ${when(orders.syncedAt!)}. Its Charles Schwab sign-in ended ${when(endedAt)}.`
+
+  const { unmount } = render(<DashboardPage />)
+  expect(await screen.findByRole('button', { name: `Edit Sum of amount by day, stale: ${note} (/workspaces/1/sources)` })).toBeInTheDocument()
+  unmount()
+
+  openWorkspace.current = opened('Viewer')
+  render(<DashboardPage />)
+  expect(await screen.findByText(`Sum of amount by day, stale: ${note} (no link)`)).toBeInTheDocument()
 })
 
 it('adds a chart from the slideout, below everything else in every layout', async () => {
