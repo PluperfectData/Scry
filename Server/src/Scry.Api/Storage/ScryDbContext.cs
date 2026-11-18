@@ -18,8 +18,6 @@ public sealed class ScryDbContext(DbContextOptions<ScryDbContext> options) : DbC
 
     public DbSet<Source> Sources => Set<Source>();
 
-    public DbSet<Connection> Connections => Set<Connection>();
-
     public DbSet<Dashboard> Dashboards => Set<Dashboard>();
 
     public DbSet<IngestKey> IngestKeys => Set<IngestKey>();
@@ -100,12 +98,8 @@ public sealed class ScryDbContext(DbContextOptions<ScryDbContext> options) : DbC
             source.Property(s => s.Name).HasMaxLength(Source.MaxNameLength);
             source.Property(s => s.FileName).HasMaxLength(255);
             source.Property(s => s.StoredFile).HasMaxLength(64);
-            source.Property(s => s.Stream).HasMaxLength(255);
             source.Property(s => s.Origin).HasMaxLength(Source.MaxOriginLength);
             source.Property(s => s.SyncedAt).HasConversion(Utc);
-            source.Property(s => s.Status).HasConversion<string>().HasMaxLength(16);
-            source.Property(s => s.Error).HasMaxLength(1000);
-            source.HasOne(s => s.Connection).WithMany().HasForeignKey(s => s.ConnectionId).OnDelete(DeleteBehavior.Restrict);
             source.HasOne(s => s.IngestKey).WithMany().HasForeignKey(s => s.IngestKeyId).OnDelete(DeleteBehavior.SetNull);
             source.HasOne<Workspace>().WithMany().HasForeignKey(s => s.WorkspaceId).OnDelete(DeleteBehavior.Restrict);
         });
@@ -131,14 +125,6 @@ public sealed class ScryDbContext(DbContextOptions<ScryDbContext> options) : DbC
             key.Property(k => k.Prefix).HasMaxLength(16);
             key.Property(k => k.CreatedAt).HasConversion(Utc);
             key.HasOne<Workspace>().WithMany().HasForeignKey(k => k.WorkspaceId).OnDelete(DeleteBehavior.Restrict);
-        });
-
-        modelBuilder.Entity<Connection>(connection =>
-        {
-            connection.ToTable("connections");
-            connection.Property(c => c.Connector).HasMaxLength(32);
-            connection.Property(c => c.CreatedAt).HasConversion(Utc);
-            connection.HasOne<Workspace>().WithMany().HasForeignKey(c => c.WorkspaceId).OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<Dashboard>(dashboard =>

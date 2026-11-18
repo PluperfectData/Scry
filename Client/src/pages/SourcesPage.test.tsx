@@ -10,9 +10,7 @@ import {
   listSourceUses,
   removeSource,
   runNexusSync,
-  signInAgain,
   signInAgainThroughNexus,
-  syncSource,
   type Connector,
   type NexusLink,
   type NexusSignIn,
@@ -33,8 +31,6 @@ jest.mock('../api', () => ({
   ...jest.requireActual('../api'),
   listSources: jest.fn(),
   listConnectors: jest.fn(),
-  signInAgain: jest.fn(),
-  syncSource: jest.fn(),
   listSourceUses: jest.fn(),
   removeSource: jest.fn(),
   getNexusLink: jest.fn(),
@@ -46,10 +42,6 @@ jest.mock('../api', () => ({
 }))
 
 jest.mock('../browser', () => ({ leaveFor: jest.fn() }))
-
-jest.mock('../components/SchwabForm', () => ({
-  SchwabForm: () => jest.requireActual('react').createElement('p', null, 'The Schwab form'),
-}))
 
 // The upload form is its own unit; here it adds one source when its button is pressed.
 jest.mock('../components/UploadForm', () => ({
@@ -73,31 +65,23 @@ const mockUpload: Source = {
   pushKeyPrefix: null,
   origin: null,
   fileName: 'Q3 Orders.csv',
-  connector: null,
-  stream: null,
   columns: [{ name: 'day', type: 'Date' }, { name: 'amount', type: 'Int64' }],
   rowCount: 3,
   syncedAt: '2026-11-13T12:00:00Z',
-  status: 'Ready',
-  error: null,
   signIn: null,
 }
 
-const mockTable: Source = {
+const mockPushed: Source = {
   id: 9,
-  name: 'schwab_quotes',
-  kind: 'Connection',
+  name: 'events',
+  kind: 'Push',
   pushedBy: null,
   pushKeyPrefix: null,
   origin: null,
   fileName: null,
-  connector: 'schwab',
-  stream: 'quotes',
   columns: [{ name: 'amount', type: 'Int64' }],
   rowCount: 2,
   syncedAt: '2026-11-15T12:00:00Z',
-  status: 'Ready',
-  error: null,
   signIn: null,
 }
 
@@ -114,8 +98,7 @@ const linked: NexusLink = {
 }
 
 const connectors: Connector[] = [
-  { id: 'csv', name: 'CSV', description: 'Reads a delimited text file.', fields: [], needs: [] },
-  { id: 'schwab', name: 'Charles Schwab', description: 'Reads a Schwab sign-in.', fields: [], needs: [] },
+  { id: 'csv', name: 'CSV', description: 'Reads a delimited text file.', fields: [] },
 ]
 
 beforeEach(() => {
@@ -152,7 +135,7 @@ it('goes back from a form to every connector', async () => {
   await userEvent.click(screen.getByRole('button', { name: 'All connectors' }))
 
   const slideout = screen.getByRole('dialog', { name: 'Add a source' })
-  expect(within(slideout).getAllByRole('button', { name: /^(CSV|Charles Schwab)/ })).toHaveLength(2)
+  expect(within(slideout).getAllByRole('button', { name: /^(CSV|Push API)/ })).toHaveLength(2)
   expect(screen.queryByRole('button', { name: 'Upload the orders file' })).not.toBeInTheDocument()
 })
 
@@ -169,79 +152,10 @@ it("previews a source's rows in a window over the page", async () => {
   expect(screen.queryByText('Rows of source 7, 50 a page, all columns')).not.toBeInTheDocument()
 })
 
-it('syncs a Schwab source again, but offers no sync for an uploaded file', async () => {
-  jest.mocked(listSources).mockResolvedValue([mockUpload, mockTable])
-  jest.mocked(syncSource).mockResolvedValue({ ...mockTable, rowCount: 5 })
-  render(<SourcesPage />)
-
-  const syncButtons = await screen.findAllByRole('button', { name: /^Sync .* now$/ })
-  expect(syncButtons.map((button) => button.getAttribute('aria-label'))).toEqual(['Sync schwab_quotes now'])
-  await userEvent.click(syncButtons[0])
-
-  expect(syncSource).toHaveBeenCalledWith(9)
-  expect(await screen.findByText(/^Charles Schwab stream quotes: 5 rows/)).toBeInTheDocument()
-})
-
-const schwabBalances: Source = {
-  ...mockTable,
-  id: 12,
-  name: 'schwab_balances',
-  connector: 'schwab',
-  stream: 'balances',
-}
-
-it('opens the Schwab form from its tile', async () => {
-  render(<SourcesPage />)
-
-  await pick(/^Charles Schwab/)
-
-  expect(within(screen.getByRole('dialog', { name: 'Add Charles Schwab' })).getByText('The Schwab form')).toBeInTheDocument()
-})
-
-it('shows a source syncing in the background, and reads the list again until it is done', async () => {
-  jest.useFakeTimers()
-  try {
-    jest
-      .mocked(listSources)
-      .mockResolvedValueOnce([{ ...schwabBalances, status: 'Syncing', syncedAt: null, rowCount: 0, columns: [] }])
-      .mockResolvedValue([{ ...schwabBalances, rowCount: 2 }])
-    render(<SourcesPage />)
-
-    expect(await screen.findByText('Charles Schwab stream balances: syncing…')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /^Sync .* now$/ })).not.toBeInTheDocument()
-
-    expect(await screen.findByText(/^Charles Schwab stream balances: 2 rows/, {}, { timeout: 5000 })).toBeInTheDocument()
-  } finally {
-    jest.useRealTimers()
-  }
-})
-
-it('offers a new sign-in in place of the sync icon once Schwab ends one', async () => {
-  const ended = 'Schwab ended the sign-in, which it does every 7 days. Sign in to Schwab again.'
-  jest.mocked(listSources).mockResolvedValue([{ ...schwabBalances, status: 'SignInNeeded', error: ended }])
-  jest.mocked(signInAgain).mockResolvedValue({ url: 'https://api.schwabapi.com/v1/oauth/authorize?state=abc' })
-  render(<SourcesPage />)
-
-  expect(await screen.findByText(ended)).toBeInTheDocument()
-  expect(screen.queryByRole('button', { name: /^Sync .* now$/ })).not.toBeInTheDocument()
-  await userEvent.click(screen.getByRole('button', { name: 'Sign in again' }))
-
-  expect(signInAgain).toHaveBeenCalledWith(12)
-  expect(leaveFor).toHaveBeenCalledWith('https://api.schwabapi.com/v1/oauth/authorize?state=abc')
-})
-
-it('says why a sign-in failed when Schwab sends the browser back, then clears it from the address', async () => {
-  window.history.pushState({}, '', `/sources?error=${encodeURIComponent('Schwab did not sign you in: access_denied.')}`)
-  render(<SourcesPage />)
-
-  expect(await screen.findByText('Schwab did not sign you in: access_denied.')).toBeInTheDocument()
-  expect(window.location.search).toBe('')
-})
-
 it('says which key pushes a pushed source and where its rows come from, and offers it no sync', async () => {
   jest.mocked(listSources).mockResolvedValue([
-    { ...mockTable, id: 20, name: 'trades', kind: 'Push', connector: null, stream: null, pushedBy: 'Nexus at localhost:6163', pushKeyPrefix: 'scry_ab12', origin: 'Nexus workspace Acme, connection Shop (MySQL), stream shop.orders', rowCount: 3 },
-    { ...mockTable, id: 21, name: 'events', kind: 'Push', connector: null, stream: null, pushedBy: null, syncedAt: null, rowCount: 0 },
+    { ...mockPushed, id: 20, name: 'trades', kind: 'Push', pushedBy: 'Nexus at localhost:6163', pushKeyPrefix: 'scry_ab12', origin: 'Nexus workspace Acme, connection Shop (MySQL), stream shop.orders', rowCount: 3 },
+    { ...mockPushed, id: 21, name: 'events', kind: 'Push', pushedBy: null, syncedAt: null, rowCount: 0 },
   ])
   render(<SourcesPage />)
 
@@ -256,8 +170,8 @@ it('offers the push API beside CSV, pointing to Settings and the reference', asy
 
   await userEvent.click(screen.getByRole('button', { name: 'Add source' }))
   const grid = screen.getByRole('dialog', { name: 'Add a source' })
-  const tiles = await within(grid).findAllByRole('button', { name: /^(CSV|Push API|Charles Schwab)/ })
-  expect(tiles.map((tile) => tile.querySelector('.connector-name')?.textContent)).toEqual(['CSV', 'Push API', 'Charles Schwab'])
+  const tiles = await within(grid).findAllByRole('button', { name: /^(CSV|Push API)/ })
+  expect(tiles.map((tile) => tile.querySelector('.connector-name')?.textContent)).toEqual(['CSV', 'Push API'])
   await userEvent.click(tiles[1])
 
   const panel = screen.getByRole('dialog', { name: 'Push API' })
@@ -288,12 +202,10 @@ it('removes a source after a confirm that names the charts reading it', async ()
 
 it('keeps a source when the confirm is declined, and warns that its next push makes it again', async () => {
   const pushed: Source = {
-    ...mockTable,
+    ...mockPushed,
     id: 20,
     name: 'trades',
     kind: 'Push',
-    connector: null,
-    stream: null,
     pushedBy: 'Nexus at localhost:6163',
     pushKeyPrefix: 'scry_ab12',
     origin: 'Nexus workspace Acme, connection Shop (MySQL), stream shop.orders',
@@ -314,12 +226,10 @@ it('keeps a source when the confirm is declined, and warns that its next push ma
 })
 
 const shopOrders: Source = {
-  ...mockTable,
+  ...mockPushed,
   id: 30,
   name: 'shop_orders',
   kind: 'Nexus',
-  connector: null,
-  stream: null,
   pushedBy: 'Nexus at localhost:6163',
   pushKeyPrefix: 'scry_ab12',
   origin: 'Nexus workspace Acme, connection Shop (MySQL), stream shop.orders',

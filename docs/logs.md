@@ -12,7 +12,6 @@ happened to:
 - the push API's sources made, columns added, replacements, and commits with their row counts, by the key, and each
   write it refused, as a warning. A batch on its own writes nothing.
 - the Nexus link made, refused, or removed, and a Nexus sync run from the Sources page
-- each Schwab sign-in and sync, with its rows or its error
 - users, settings, and the installer, which belong to the whole instance
 
 An admin sees every entry. Anyone else sees the entries of the workspaces they edit, and a viewer sees none. Each

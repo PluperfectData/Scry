@@ -3,7 +3,6 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
-using System.Web;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -134,37 +133,6 @@ public sealed class OperatorLogTests
             (EntryLevel.Warning, "Push key Other was refused writing to source events, which another key made.", "key Other"),
         ]);
         entries.ShouldAllBe(e => e.WorkspaceId == 1 && e.SourceId != null);
-    }
-
-    [Test]
-    public async Task A_Schwab_sync_writes_how_it_went_and_who_signed_in()
-    {
-        using var started = await _client.PostAsJsonAsync($"{InDefault}/schwab/sign-in", new
-        {
-            settings = new Dictionary<string, string?> { ["startDate"] = "2026-01-01" },
-            streams = new[] { new { table = "balances", name = "schwab_balances" } },
-        });
-        var url = new Uri((await started.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("url").GetString()!);
-        using var back = await _client.GetAsync(new Uri($"/schwab/callback?code=c&state={HttpUtility.ParseQueryString(url.Query)["state"]}", UriKind.Relative));
-        var id = await SettledAsync();
-        _factory.Schwab.AccountsReply = (HttpStatusCode.Unauthorized, "{}");
-        _factory.Schwab.TokenReply = (HttpStatusCode.BadRequest, """{"error":"invalid_grant"}""");
-        (await _client.PostAsync(new Uri($"{InDefault}/sources/{id}/sync", UriKind.Relative), null)).StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-
-        var entries = await EntriesAsync();
-
-        entries[0].ShouldSatisfyAllConditions(
-            e => e.Text.ShouldBe("Signing in to Schwab added schwab_balances, each syncing in the background."),
-            e => e.Actor.ShouldBe(OwnerEmail));
-        entries[1].ShouldSatisfyAllConditions(
-            e => e.Text.ShouldStartWith("Source schwab_balances synced from "),
-            e => e.Text.ShouldEndWith(", and holds 1 row."),
-            e => e.Actor.ShouldBeNull(),
-            e => e.SourceId.ShouldBe(id));
-        entries[2].ShouldSatisfyAllConditions(
-            e => e.Level.ShouldBe(EntryLevel.Warning),
-            e => e.Text.ShouldStartWith("Source schwab_balances needs a new sign-in before it syncs again: Schwab ended the sign-in"),
-            e => e.Actor.ShouldBe(OwnerEmail));
     }
 
     [Test]
@@ -305,22 +273,5 @@ public sealed class OperatorLogTests
         var client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", key);
         return client;
-    }
-
-    // The background worker syncs on its own time, so this waits for the source to stop syncing.
-    private async Task<int> SettledAsync()
-    {
-        for (var attempt = 0; attempt < 100; attempt++)
-        {
-            var source = (await _client.GetFromJsonAsync<JsonElement>($"{InDefault}/sources")).EnumerateArray().Single();
-            if (source.GetProperty("status").GetString() != "Syncing")
-            {
-                return source.GetProperty("id").GetInt32();
-            }
-
-            await Task.Delay(100);
-        }
-
-        throw new TimeoutException("The source was still syncing after 10 seconds.");
     }
 }

@@ -32,17 +32,4 @@ These settings have no page:
 
 | Setting | Default |
 |---|---|
-| `Scry:DataDirectory` | `data`, beside the API. Each workspace's DuckDB file and uploads, under `workspaces`, `instance.json`, and `keys`, the keys that encrypt stored connections and the database password, live here. |
-| `Schwab:AppKey`, `Schwab:AppSecret` | The key and secret of your Schwab app. Without both, the Schwab form says to set them. |
-| `Schwab:CallbackUrl` | `https://127.0.0.1:6162/schwab/callback`, which must match the app's callback on Schwab's developer portal exactly |
-
-To add Schwab sources, set the app's key and secret, and register `https://127.0.0.1:6162/schwab/callback` as the
-app's callback on Schwab's developer portal:
-
-```bash
-dotnet user-secrets set Schwab:AppKey "<app key>" --project Server/src/Scry.Api
-```
-
-```bash
-dotnet user-secrets set Schwab:AppSecret "<app secret>" --project Server/src/Scry.Api
-```
+| `Scry:DataDirectory` | `data`, beside the API. Each workspace's DuckDB file and uploads, under `workspaces`, `instance.json`, and `keys`, the keys that encrypt the Nexus links' app keys and the database password, live here. |

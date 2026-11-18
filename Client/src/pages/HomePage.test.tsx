@@ -8,9 +8,6 @@ import { HomePage } from './HomePage'
 jest.mock('react-router', () => jest.requireActual('../../jest/router').reactRouterMock())
 const { navigate } = jest.requireActual('../../jest/router')
 
-const mockNotify = jest.fn()
-jest.mock('../notices', () => ({ useNotices: () => ({ notify: mockNotify }) }))
-
 jest.mock('../api', () => ({ ...jest.requireActual('../api'), makeWorkspace: jest.fn() }))
 
 const member: Me = { signedIn: true, id: 2, email: 'rowan@acme.test', isAdmin: false, hasPassword: true }
@@ -65,11 +62,4 @@ it('tells a member in no workspace that an admin adds them', () => {
 
   expect(screen.getByText('You are in no workspace yet. An admin adds you to one.')).toBeInTheDocument()
   expect(screen.queryByLabelText('New workspace')).not.toBeInTheDocument()
-})
-
-it('shows why a sign-in came back here, since its workspace is unknown', () => {
-  window.history.replaceState(null, '', '/?error=This%20sign-in%20ran%20out%20of%20time.')
-  renderWith(member, null)
-
-  expect(mockNotify).toHaveBeenCalledWith('This sign-in ran out of time.', { tone: 'error', seconds: null, id: 'home-arrival' })
 })

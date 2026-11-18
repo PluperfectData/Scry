@@ -80,9 +80,6 @@ public sealed class ScryApiFactory : WebApplicationFactory<Program>
     /// <summary>Postmark's API, for a factory that does not write mail to files.</summary>
     internal FakePostmark Postmark { get; } = new();
 
-    /// <summary>Schwab's API as the Schwab connector and sign-in reach it in tests.</summary>
-    public FakeSchwabApi Schwab { get; } = new();
-
     /// <summary>A Nexus instance as Scry's link reaches it in tests.</summary>
     public FakeNexus Nexus { get; } = new();
 
@@ -167,14 +164,11 @@ public sealed class ScryApiFactory : WebApplicationFactory<Program>
 
         builder.UseSetting($"{ScrySettings.Section}:{nameof(ScrySettings.DataDirectory)}", DataDirectory);
         builder.UseSetting("Mail:PickupDirectory", _mailToFiles ? MailDirectory : string.Empty);
-        builder.UseSetting($"{SchwabApp.Section}:{nameof(SchwabApp.AppKey)}", "app-key");
-        builder.UseSetting($"{SchwabApp.Section}:{nameof(SchwabApp.AppSecret)}", "app-secret");
 
         builder.ConfigureTestServices(services =>
         {
             services.RemoveAll<IDatabaseHost>();
             services.AddSingleton<IDatabaseHost>(Database);
-            services.AddHttpClient(SchwabConnector.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => Schwab);
             services.AddHttpClient(NexusApi.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => Nexus);
             services.AddHttpClient(InstanceMailer.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => Postmark);
             services.AddSingleton<IStartupFilter, PretendLocal>();

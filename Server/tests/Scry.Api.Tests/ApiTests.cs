@@ -575,36 +575,6 @@ public sealed class ApiTests
         (await _client.GetAsync(new Uri($"{InDefault}/sources/999/uses", UriKind.Relative))).StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
-    [Test]
-    public async Task A_connection_goes_with_its_last_source_and_a_syncing_source_stays()
-    {
-        int quotes, movers, connectionId;
-        using (var scope = _factory.Services.CreateScope())
-        {
-            var db = scope.ServiceProvider.GetRequiredService<ScryDbContext>();
-            var connection = new Connection { WorkspaceId = 1, Connector = "schwab", Settings = "{}", CreatedAt = DateTime.UtcNow };
-            var first = new Source { WorkspaceId = 1, Name = "quotes", Connection = connection, Stream = "quotes", Columns = "[]" };
-            var second = new Source { WorkspaceId = 1, Name = "movers", Connection = connection, Stream = "movers", Columns = "[]", Status = SourceStatus.Syncing };
-            db.Sources.AddRange(first, second);
-            await db.SaveChangesAsync();
-            (quotes, movers, connectionId) = (first.Id, second.Id, connection.Id);
-        }
-
-        using var busy = await _client.DeleteAsync(new Uri($"{InDefault}/sources/{movers}", UriKind.Relative));
-        busy.StatusCode.ShouldBe(HttpStatusCode.Conflict);
-        (await _client.DeleteAsync(new Uri($"{InDefault}/sources/{quotes}", UriKind.Relative))).StatusCode.ShouldBe(HttpStatusCode.NoContent);
-        (await ConnectionCountAsync(connectionId)).ShouldBe(1);
-
-        using (var scope = _factory.Services.CreateScope())
-        {
-            var db = scope.ServiceProvider.GetRequiredService<ScryDbContext>();
-            await db.Sources.Where(s => s.Id == movers).ExecuteUpdateAsync(set => set.SetProperty(s => s.Status, SourceStatus.Ready));
-        }
-
-        (await _client.DeleteAsync(new Uri($"{InDefault}/sources/{movers}", UriKind.Relative))).StatusCode.ShouldBe(HttpStatusCode.NoContent);
-        (await ConnectionCountAsync(connectionId)).ShouldBe(0);
-    }
-
     private async Task SaveWidgetsAsync(int dashboard, string name, object[] widgets)
     {
         using var saved = await _client.PutAsJsonAsync($"{InDefault}/dashboards/{dashboard}", new { name, layouts = new { }, widgets });
@@ -616,12 +586,6 @@ public sealed class ApiTests
         var rows = await _factory.Services.GetRequiredService<WorkspaceStore>().For("default")
             .QueryAsync($"SELECT count(*) FROM information_schema.tables WHERE table_name = '{name}'", 1, CancellationToken.None);
         return Convert.ToInt64(rows[0][0], CultureInfo.InvariantCulture);
-    }
-
-    private async Task<int> ConnectionCountAsync(int id)
-    {
-        using var scope = _factory.Services.CreateScope();
-        return await scope.ServiceProvider.GetRequiredService<ScryDbContext>().Connections.CountAsync(c => c.Id == id);
     }
 
     private static long Milliseconds(int year, int month, int day) =>

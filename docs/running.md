@@ -18,8 +18,7 @@ npm --prefix Client install
 npm --prefix Client run dev
 ```
 
-The API listens on `http://localhost:6161`, and on `https://127.0.0.1:6162` for Schwab's callback, with the .NET
-development certificate. The client listens on `http://localhost:6160` and reads the API's address from
+The API listens on `http://localhost:6161`. The client listens on `http://localhost:6160` and reads the API's address from
 `VITE_API_URL`, set in `Client/.env.development`.
 
 ## The installer

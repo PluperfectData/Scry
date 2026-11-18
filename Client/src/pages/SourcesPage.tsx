@@ -11,9 +11,7 @@ import {
   listSourceUses,
   removeSource,
   runNexusSync,
-  signInAgain,
   signInAgainThroughNexus,
-  syncSource,
   type Connector,
   type NexusConnector,
   type NexusLink,
@@ -23,7 +21,6 @@ import {
 import { leaveFor } from '../browser'
 import { ConnectorGrid } from '../components/ConnectorGrid'
 import { Modal } from '../components/Modal'
-import { SchwabForm } from '../components/SchwabForm'
 import { SignInStatus } from '../components/SignInStatus'
 import { Slideout } from '../components/Slideout'
 import { TableView } from '../components/TableView'
@@ -41,7 +38,6 @@ const PUSH: Connector = {
   name: 'Push API',
   description: 'Rows a script or another service sends with a key.',
   fields: [],
-  needs: [],
 }
 
 /** Databases and services come through Nexus, so while Scry is unlinked this tile goes to Settings to link it. */
@@ -50,24 +46,19 @@ const LINK_NEXUS: Connector = {
   name: 'Link Nexus',
   description: 'Databases and services come through Nexus. Link it on Settings to add them here.',
   fields: [],
-  needs: [],
 }
 
-const asConnector = (connector: NexusConnector): Connector => ({ ...connector, fields: [], needs: [] })
+const asConnector = (connector: NexusConnector): Connector => ({ ...connector, fields: [] })
 
-// How often the list is read again while a source syncs in the background.
+// How often the list is read again while Nexus syncs.
 const POLL_MS = 2000
 
 const pushed = (source: Source) => source.kind === 'Push' || source.kind === 'Nexus'
 
 const progress = (source: Source) =>
-  source.status === 'Syncing'
-    ? 'syncing…'
-    : source.syncedAt === null
-      ? pushed(source)
-        ? 'no rows pushed yet'
-        : 'not synced yet'
-      : `${source.rowCount.toLocaleString()} rows, synced ${new Date(source.syncedAt).toLocaleString()}`
+  source.syncedAt === null
+    ? 'no rows pushed yet'
+    : `${source.rowCount.toLocaleString()} rows, synced ${new Date(source.syncedAt).toLocaleString()}`
 
 const running = (sync: NexusSync) => sync.status === 'Queued' || sync.status === 'Running'
 
@@ -83,14 +74,13 @@ function syncState(sync: NexusSync): { text: string; failed: boolean } {
     : { text: `Nexus's last sync sent ${run.rows.toLocaleString()} rows, ${when}.`, failed: false }
 }
 
-/** What a page's address says on coming back here: a sign-in's failure, or how connecting through Nexus went. */
-function arrivalOf(search: string): { error: string | null; notice: string | null } {
+/** What the address says on coming back from Nexus's connect page: how connecting, or signing in again, went. */
+function arrivalOf(search: string): string | null {
   const params = new URLSearchParams(search)
-  const error = params.get('error')
-  if (error === 'cancelled') return { error: null, notice: 'Connecting through Nexus was cancelled.' }
-  if (finishesRenewal(params.get('connection'))) return { error, notice: 'Signed in again. Its tables sync again.' }
-  if (params.has('connection')) return { error, notice: 'Connected through Nexus. Its tables are syncing in.' }
-  return { error, notice: null }
+  if (params.get('error') === 'cancelled') return 'Connecting through Nexus was cancelled.'
+  if (finishesRenewal(params.get('connection'))) return 'Signed in again. Its tables sync again.'
+  if (params.has('connection')) return 'Connected through Nexus. Its tables are syncing in.'
+  return null
 }
 
 const SyncIcon = ({ spinning }: { spinning: boolean }) => (
@@ -150,10 +140,9 @@ const previewOf = (source: Source): TableSettings => ({
 export function SourcesPage() {
   const navigate = useNavigate()
   const { base } = useWorkspace()
-  const [arrival] = useState(() => arrivalOf(window.location.search))
+  const [notice] = useState(() => arrivalOf(window.location.search))
   const [sources, setSources] = useState<Source[] | null>(null)
-  const [error, setError] = useState<string | null>(arrival.error)
-  const notice = arrival.notice
+  const [error, setError] = useState<string | null>(null)
   const [previewing, setPreviewing] = useState<TableSettings | null>(null)
   const [connectors, setConnectors] = useState<Connector[]>([])
   const [link, setLink] = useState<NexusLink | null>(null)
@@ -162,7 +151,6 @@ export function SourcesPage() {
   const [adding, setAdding] = useState(false)
   // The connector picked from the grid, whose form the slideout shows in place of the grid.
   const [picked, setPicked] = useState<Connector | null>(null)
-  const [syncing, setSyncing] = useState<number | null>(null)
 
   useEffect(() => {
     listSources()
@@ -190,22 +178,19 @@ export function SourcesPage() {
     }
   }, [])
 
-  const anySyncing = sources?.some((source) => source.status === 'Syncing') ?? false
   const nexusBusy = nexusSyncs.some(running)
   useEffect(() => {
-    if (!anySyncing && !nexusBusy) return
+    if (!nexusBusy) return
     const timer = setInterval(() => {
       listSources()
         .then(setSources)
         .catch((e: Error) => setError(e.message))
-      if (nexusBusy) {
-        listNexusSyncs()
-          .then(setNexusSyncs)
-          .catch((e: Error) => setError(e.message))
-      }
+      listNexusSyncs()
+        .then(setNexusSyncs)
+        .catch((e: Error) => setError(e.message))
     }, POLL_MS)
     return () => clearInterval(timer)
-  }, [anySyncing, nexusBusy])
+  }, [nexusBusy])
 
   const syncOf = (source: Source) => (source.kind === 'Nexus' ? nexusSyncs.find((s) => s.table === source.name) : undefined)
 
@@ -224,22 +209,6 @@ export function SourcesPage() {
   function added(list: Source[]) {
     keep(list)
     close()
-  }
-
-  // A failed sync is recorded on its source, so the card shows it; anything else shows over the list.
-  async function sync(source: Source) {
-    setSyncing(source.id)
-    setError(null)
-    try {
-      keep([await syncSource(source.id)])
-    } catch (e) {
-      const list = await listSources().catch(() => null)
-      if (list) setSources(list)
-      const recorded = list?.find((s) => s.id === source.id)
-      if (recorded?.status !== 'Failed' && recorded?.status !== 'SignInNeeded') setError((e as Error).message)
-    } finally {
-      setSyncing(null)
-    }
   }
 
   async function remove(source: Source) {
@@ -273,15 +242,6 @@ export function SourcesPage() {
     }
   }
 
-  async function renew(source: Source) {
-    setError(null)
-    try {
-      leaveFor((await signInAgain(source.id)).url)
-    } catch (e) {
-      setError((e as Error).message)
-    }
-  }
-
   async function renewThroughNexus(sync: NexusSync) {
     setError(null)
     try {
@@ -295,9 +255,7 @@ export function SourcesPage() {
 
   const origin = (source: Source) => {
     if (pushed(source)) return source.pushedBy ? `pushed with the key ${source.pushedBy}, ${source.pushKeyPrefix}…` : 'pushed by a revoked key'
-    if (source.fileName) return source.fileName
-    const name = connectors.find((c) => c.id === source.connector)?.name ?? source.connector
-    return `${name} ${source.connector === 'schwab' ? 'stream' : 'table'} ${source.stream}`
+    return source.fileName
   }
 
   return (
@@ -338,19 +296,6 @@ export function SourcesPage() {
                     </button>
                   </h2>
                   <div className="widget-actions">
-                    {source.connector && source.status !== 'Syncing' && source.status !== 'SignInNeeded' && (
-                      <Tooltip label={syncing === source.id ? 'Syncing…' : 'Sync now'}>
-                        <button
-                          type="button"
-                          className="widget-action"
-                          onClick={() => sync(source)}
-                          disabled={syncing === source.id}
-                          aria-label={syncing === source.id ? `Syncing ${source.name}…` : `Sync ${source.name} now`}
-                        >
-                          <SyncIcon spinning={syncing === source.id} />
-                        </button>
-                      </Tooltip>
-                    )}
                     {nexusSync && (
                       <Tooltip label={running(nexusSync) ? 'Nexus is syncing it' : 'Sync now through Nexus'}>
                         <button
@@ -371,22 +316,20 @@ export function SourcesPage() {
                         </svg>
                       </Link>
                     </Tooltip>
-                    {source.status !== 'Syncing' && (
-                      <Tooltip label="Remove source">
-                        <button type="button" className="widget-action" onClick={() => remove(source)} aria-label={`Remove ${source.name}`}>
-                          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                            <path
-                              d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                          </svg>
-                        </button>
-                      </Tooltip>
-                    )}
+                    <Tooltip label="Remove source">
+                      <button type="button" className="widget-action" onClick={() => remove(source)} aria-label={`Remove ${source.name}`}>
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                          <path
+                            d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      </button>
+                    </Tooltip>
                   </div>
                 </div>
                 <p className="muted">
@@ -403,14 +346,6 @@ export function SourcesPage() {
                   </p>
                 )}
                 {source.kind === 'Nexus' && !nexusSync && <p className="muted">No Nexus sync writes it now.</p>}
-                {source.error && <p className="error">{source.error}</p>}
-                {source.status === 'SignInNeeded' && (
-                  <p>
-                    <button type="button" className="secondary" onClick={() => renew(source)}>
-                      Sign in again
-                    </button>
-                  </p>
-                )}
                 <p className="columns">{source.columns.map((column) => `${column.name} (${column.type})`).join(', ')}</p>
               </li>
             )
@@ -467,10 +402,8 @@ export function SourcesPage() {
                   <Link to="/docs/push-api">Read the push API reference</Link>
                 </p>
               </div>
-            ) : picked.id === 'csv' ? (
-              <UploadForm onUploaded={(source) => added([source])} onCancel={close} />
             ) : (
-              <SchwabForm connector={picked} onCancel={close} />
+              <UploadForm onUploaded={(source) => added([source])} onCancel={close} />
             )}
           </>
         )}

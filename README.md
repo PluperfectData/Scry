@@ -103,12 +103,10 @@ npm run build --prefix Pluperfect.Jwt/client
 ### 3. Start the API
 
 ```bash
-dotnet dev-certs https
 dotnet run --project Pluperfect.Data/Scry/Server/src/Scry.Api
 ```
 
-The first line makes the .NET development certificate, if this machine has none yet. The API uses it for the https
-address that Charles Schwab's sign-in returns to. The API itself listens on `http://localhost:6161`.
+The API listens on `http://localhost:6161`.
 
 ### 4. Start the client
 
@@ -187,7 +185,7 @@ dashboards, in MySQL, and each workspace's rows in a DuckDB file of its own. Tha
 open-source packages below.
 
 Scry also builds on three libraries of our own, checked out beside it:
-[Nexus](https://github.com/PluperfectData/Nexus) for reading files and Charles Schwab and for writing DuckDB,
+[Nexus](https://github.com/PluperfectData/Nexus) for reading files and writing DuckDB,
 [Pluperfect.Jwt](https://github.com/mnwachukwu/Pluperfect.Jwt) for sessions, and
 [Pluperfect.Mail](https://github.com/mnwachukwu/Pluperfect.Mail) for mail. Each lists the packages it uses, and their
 licenses, in its own README.

@@ -22,39 +22,6 @@ namespace Scry.Api.Storage.Migrations
 
             MySqlModelBuilderExtensions.AutoIncrementColumns(modelBuilder);
 
-            modelBuilder.Entity("Scry.Api.Storage.Connection", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("Connector")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("varchar(32)");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("Settings")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("Tokens")
-                        .HasColumnType("longtext");
-
-                    b.Property<int>("WorkspaceId")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("WorkspaceId");
-
-                    b.ToTable("connections", (string)null);
-                });
-
             modelBuilder.Entity("Scry.Api.Storage.Dashboard", b =>
                 {
                     b.Property<int>("Id")
@@ -297,19 +264,9 @@ namespace Scry.Api.Storage.Migrations
                         .IsRequired()
                         .HasColumnType("longtext");
 
-                    b.Property<int?>("ConnectionId")
-                        .HasColumnType("int");
-
-                    b.Property<string>("Error")
-                        .HasMaxLength(1000)
-                        .HasColumnType("varchar(1000)");
-
                     b.Property<string>("FileName")
                         .HasMaxLength(255)
                         .HasColumnType("varchar(255)");
-
-                    b.Property<bool>("Incremental")
-                        .HasColumnType("tinyint(1)");
 
                     b.Property<int?>("IngestKeyId")
                         .HasColumnType("int");
@@ -335,21 +292,9 @@ namespace Scry.Api.Storage.Migrations
                     b.Property<long>("RowCount")
                         .HasColumnType("bigint");
 
-                    b.Property<string>("State")
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("varchar(16)");
-
                     b.Property<string>("StoredFile")
                         .HasMaxLength(64)
                         .HasColumnType("varchar(64)");
-
-                    b.Property<string>("Stream")
-                        .HasMaxLength(255)
-                        .HasColumnType("varchar(255)");
 
                     b.Property<DateTime?>("SyncedAt")
                         .HasColumnType("datetime(6)");
@@ -358,8 +303,6 @@ namespace Scry.Api.Storage.Migrations
                         .HasColumnType("int");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("ConnectionId");
 
                     b.HasIndex("IngestKeyId");
 
@@ -457,15 +400,6 @@ namespace Scry.Api.Storage.Migrations
                     b.ToTable("workspace_members", (string)null);
                 });
 
-            modelBuilder.Entity("Scry.Api.Storage.Connection", b =>
-                {
-                    b.HasOne("Scry.Api.Storage.Workspace", null)
-                        .WithMany()
-                        .HasForeignKey("WorkspaceId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-                });
-
             modelBuilder.Entity("Scry.Api.Storage.Dashboard", b =>
                 {
                     b.HasOne("Scry.Api.Storage.Workspace", null)
@@ -519,11 +453,6 @@ namespace Scry.Api.Storage.Migrations
 
             modelBuilder.Entity("Scry.Api.Storage.Source", b =>
                 {
-                    b.HasOne("Scry.Api.Storage.Connection", "Connection")
-                        .WithMany()
-                        .HasForeignKey("ConnectionId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
                     b.HasOne("Scry.Api.Storage.IngestKey", "IngestKey")
                         .WithMany()
                         .HasForeignKey("IngestKeyId")
@@ -534,8 +463,6 @@ namespace Scry.Api.Storage.Migrations
                         .HasForeignKey("WorkspaceId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
-
-                    b.Navigation("Connection");
 
                     b.Navigation("IngestKey");
                 });

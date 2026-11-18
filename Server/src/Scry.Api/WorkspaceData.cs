@@ -1,5 +1,4 @@
 using System.Diagnostics.CodeAnalysis;
-using System.Text.Json;
 using DuckDB.NET.Data;
 using Nexus;
 using Nexus.Csv;
@@ -7,8 +6,8 @@ using Nexus.DuckDb;
 
 namespace Scry.Api;
 
-/// <summary>A synced table's columns and row count, and the connector's last checkpoint.</summary>
-public sealed record SyncResult(IReadOnlyList<ColumnInfo> Columns, long RowCount, JsonElement? State);
+/// <summary>A synced table's columns and row count.</summary>
+public sealed record SyncResult(IReadOnlyList<ColumnInfo> Columns, long RowCount);
 
 /// <summary>A workspace's files: its uploads and its DuckDB file. Every DuckDB access takes the file's one lock.</summary>
 public sealed partial class WorkspaceData : IDisposable
@@ -46,7 +45,7 @@ public sealed partial class WorkspaceData : IDisposable
     }
 
     /// <summary>Reads a CSV file through Nexus and replaces <paramref name="table"/> with it.</summary>
-    public Task<SyncResult> SyncCsvAsync(string table, string fileName, string storedPath, string? delimiter, CancellationToken ct)
+    public async Task<SyncResult> SyncCsvAsync(string table, string fileName, string storedPath, string? delimiter, CancellationToken ct)
     {
         var config = new ConnectorConfig(
             new Dictionary<string, string?>
@@ -58,63 +57,22 @@ public sealed partial class WorkspaceData : IDisposable
             {
                 [CsvSource.FileSetting] = new(fileName, _ => Task.FromResult<Stream>(File.OpenRead(storedPath))),
             });
-        return SyncAsync(new CsvSource(), config, table, table, ct);
-    }
-
-    /// <summary>
-    /// Reads all of <paramref name="stream"/> from <paramref name="source"/> through Nexus and replaces
-    /// <paramref name="table"/> with it.
-    /// </summary>
-    public Task<SyncResult> SyncAsync(ISourceConnector source, ConnectorConfig config, string stream, string table, CancellationToken ct) =>
-        SyncAsync(source, config, stream, table, SyncMode.FullRefresh, null, null, ct);
-
-    /// <summary>
-    /// Reads <paramref name="stream"/> from <paramref name="source"/> through Nexus into <paramref name="table"/>. A full
-    /// refresh replaces the table; an incremental read starts from <paramref name="state"/> and merges into it by the
-    /// stream's primary key. Tokens the connector refreshes go to <paramref name="saveTokens"/> as they come.
-    /// </summary>
-    public async Task<SyncResult> SyncAsync(
-        ISourceConnector source,
-        ConnectorConfig config,
-        string stream,
-        string table,
-        SyncMode mode,
-        JsonElement? state,
-        Func<OAuthTokens, Task>? saveTokens,
-        CancellationToken ct)
-    {
         var destinationConfig = new ConnectorConfig(
             new Dictionary<string, string?> { [DuckDbDestination.PathSetting] = Database });
 
         StreamSpec? spec = null;
-        JsonElement? checkpoint = null;
         long rows;
 
-        // The table is named for the Scry source, not for the stream, which may be a database's schema.table.
-        async IAsyncEnumerable<SyncMessage> Renamed(IAsyncEnumerable<SyncMessage> messages)
+        async IAsyncEnumerable<SyncMessage> Watched(IAsyncEnumerable<SyncMessage> messages)
         {
             await foreach (var message in messages)
             {
-                switch (message)
+                if (message is SchemaMessage schema && schema.Stream.Name == table)
                 {
-                    case SchemaMessage schema when schema.Stream.Name == stream:
-                        spec = schema.Stream with { Name = table };
-                        yield return new SchemaMessage(spec);
-                        break;
-                    case RecordBatch batch when batch.Stream == stream:
-                        yield return batch with { Stream = table };
-                        break;
-                    case StateCheckpoint read when read.Stream == stream:
-                        yield return read with { Stream = table };
-                        break;
-                    case CredentialsRefreshed refreshed when saveTokens is not null:
-                        await saveTokens(refreshed.Tokens);
-                        yield return message;
-                        break;
-                    default:
-                        yield return message;
-                        break;
+                    spec = schema.Stream;
                 }
+
+                yield return message;
             }
         }
 
@@ -122,26 +80,16 @@ public sealed partial class WorkspaceData : IDisposable
         try
         {
             Directory.CreateDirectory(Root);
-            var request = new ReadRequest(
-                [new StreamSelection(stream, mode)],
-                state is { } saved ? new Dictionary<string, JsonElement> { [stream] = saved } : null);
-            var read = source.ReadAsync(config, request, ct);
+            var read = new CsvSource().ReadAsync(config, new ReadRequest([new StreamSelection(table, SyncMode.FullRefresh)]), ct);
             var write = new DuckDbDestination().WriteAsync(
                 destinationConfig,
-                new WriteRequest(new Dictionary<string, WriteMode>
-                {
-                    [table] = mode == SyncMode.Incremental ? WriteMode.Upsert : WriteMode.Overwrite,
-                }),
-                Renamed(read),
+                new WriteRequest(new Dictionary<string, WriteMode> { [table] = WriteMode.Overwrite }),
+                Watched(read),
                 ct);
 
-            // The destination yields each checkpoint once it has committed the rows before it.
-            await foreach (var message in write)
+            // The destination writes the rows as its messages are read.
+            await foreach (var _ in write)
             {
-                if (message is StateCheckpoint committed)
-                {
-                    checkpoint = committed.State.Clone();
-                }
             }
 
             rows = spec is null ? 0 : await CountAsync(table, ct);
@@ -151,11 +99,10 @@ public sealed partial class WorkspaceData : IDisposable
             _lock.Release();
         }
 
-        var written = spec ?? throw new InvalidOperationException($"The source sent no schema for {stream}.");
-        return new SyncResult(written.Columns.Select(column => new ColumnInfo(column.Name, column.Type)).ToList(), rows, checkpoint);
+        var written = spec ?? throw new InvalidOperationException($"The file sent no schema for {table}.");
+        return new SyncResult(written.Columns.Select(column => new ColumnInfo(column.Name, column.Type)).ToList(), rows);
     }
 
-    // An incremental sync adds to the table, so the rows it read are not the rows it holds.
     [SuppressMessage("Security", "CA2100", Justification = "A source name holds only lowercase letters, digits, and underscores.")]
     private async Task<long> CountAsync(string table, CancellationToken ct)
     {

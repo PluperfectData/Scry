@@ -1,7 +1,6 @@
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router'
 import { WorkspaceForm } from '../components/WorkspaceForm'
-import { useNotices } from '../notices'
 import { useSession } from '../session'
 import { currentOf, useWorkspaces, workspacePath } from '../workspace'
 
@@ -9,14 +8,7 @@ import { currentOf, useWorkspaces, workspacePath } from '../workspace'
 export function HomePage() {
   const { me } = useSession()
   const { workspaces, error, refresh } = useWorkspaces()
-  const { notify } = useNotices()
   const navigate = useNavigate()
-
-  // A Schwab sign-in Scry lost track of comes back here with its reason, since its workspace is unknown.
-  useEffect(() => {
-    const arrival = new URLSearchParams(window.location.search).get('error')
-    if (arrival) notify(arrival, { tone: 'error', seconds: null, id: 'home-arrival' })
-  }, [notify])
 
   const open = currentOf(workspaces, null)
   useEffect(() => {

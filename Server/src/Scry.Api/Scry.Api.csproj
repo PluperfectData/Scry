@@ -21,7 +21,6 @@
     <ProjectReference Include="..\..\..\..\Nexus\Server\src\Nexus.Abstractions\Nexus.Abstractions.csproj" />
     <ProjectReference Include="..\..\..\..\Nexus\Server\src\Nexus.Csv\Nexus.Csv.csproj" />
     <ProjectReference Include="..\..\..\..\Nexus\Server\src\Nexus.DuckDb\Nexus.DuckDb.csproj" />
-    <ProjectReference Include="..\..\..\..\Nexus\Server\src\Nexus.Schwab\Nexus.Schwab.csproj" />
   </ItemGroup>
 
   <!-- Sibling checkouts beside Pluperfect.Data, five levels up, not packages. -->

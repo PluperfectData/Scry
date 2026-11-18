@@ -6,7 +6,6 @@ using System.Text;
 using System.Text.Json;
 using System.Web;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 using NUnit.Framework;
 using Scry.Api.Storage;
 using Shouldly;
@@ -174,25 +173,6 @@ public sealed class WorkspaceTests
     }
 
     [Test]
-    public async Task A_Schwab_sign_in_lands_its_sources_in_the_workspace_it_started_in()
-    {
-        var finance = await MakeAsync("Finance");
-        using var started = await _client.PostAsJsonAsync($"{finance.Path}/schwab/sign-in", new
-        {
-            settings = new Dictionary<string, string?> { ["startDate"] = "2026-01-01" },
-            streams = new[] { new { table = "balances", name = "schwab_balances" } },
-        });
-        var url = new Uri((await started.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("url").GetString()!);
-
-        using var back = await _client.GetAsync(new Uri($"/schwab/callback?code=c&state={HttpUtility.ParseQueryString(url.Query)["state"]}", UriKind.Relative));
-
-        back.Headers.Location.ShouldBe(new Uri($"{ClientOrigin}{finance.Path}/sources"));
-        (await NamesAsync($"{finance.Path}/sources")).ShouldBe(["schwab_balances"]);
-        (await NamesAsync($"{InDefault}/sources")).ShouldBeEmpty();
-        await SettledAsync(finance.Path);
-    }
-
-    [Test]
     public async Task Removing_a_workspace_takes_its_name_and_deletes_its_rows_and_its_folder()
     {
         var finance = await MakeAsync("Finance");
@@ -219,24 +199,6 @@ public sealed class WorkspaceTests
         (await db.IngestKeys.CountAsync(k => k.WorkspaceId == finance.Id)).ShouldBe(0);
         (await db.WorkspaceMembers.CountAsync(m => m.WorkspaceId == finance.Id)).ShouldBe(0);
         (await NamesAsync($"{InDefault}/sources")).ShouldBe(["orders"]);
-    }
-
-    [Test]
-    public async Task A_workspace_is_not_removed_while_one_of_its_sources_syncs()
-    {
-        var finance = await MakeAsync("Finance");
-        var source = await UploadAsync(finance.Path, "orders", Orders);
-        using (var scope = _factory.Services.CreateScope())
-        {
-            await scope.ServiceProvider.GetRequiredService<ScryDbContext>().Sources
-                .Where(s => s.Id == source)
-                .ExecuteUpdateAsync(set => set.SetProperty(s => s.Status, SourceStatus.Syncing));
-        }
-
-        using var refused = await RemoveAsync(finance.Id, "Finance");
-
-        refused.StatusCode.ShouldBe(HttpStatusCode.Conflict);
-        Directory.Exists(Path.Combine(_factory.DataDirectory, "workspaces", finance.Folder)).ShouldBeTrue();
     }
 
     [Test]
@@ -317,22 +279,5 @@ public sealed class WorkspaceTests
     {
         using var started = await _client.PostAsJsonAsync($"{workspace}/nexus/pairing", new { nexusUrl = FakeNexus.Url });
         started.StatusCode.ShouldBe(HttpStatusCode.OK, await started.Content.ReadAsStringAsync());
-    }
-
-    // The background worker syncs on its own time, and the factory's directory goes only once it is done.
-    private async Task SettledAsync(string workspace)
-    {
-        for (var attempt = 0; attempt < 100; attempt++)
-        {
-            var sources = await _client.GetFromJsonAsync<JsonElement>($"{workspace}/sources");
-            if (sources.EnumerateArray().All(s => s.GetProperty("status").GetString() != "Syncing"))
-            {
-                return;
-            }
-
-            await Task.Delay(100);
-        }
-
-        throw new TimeoutException("A source was still syncing after 10 seconds.");
     }
 }

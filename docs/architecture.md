@@ -28,7 +28,7 @@ Scry builds against three other repositories, which it takes by relative path, s
 ```text
 any-folder/
 ├── Pluperfect.Data/
-│   ├── Nexus/         github.com/PluperfectData/Nexus: the connectors Scry reads files and Schwab through
+│   ├── Nexus/         github.com/PluperfectData/Nexus: the connectors Scry reads files and writes DuckDB through
 │   └── Scry/          this repository
 ├── Pluperfect.Jwt/    github.com/mnwachukwu/Pluperfect.Jwt: sessions
 └── Pluperfect.Mail/   github.com/mnwachukwu/Pluperfect.Mail: mail

@@ -19,7 +19,6 @@ public sealed partial class Installation(
     Instance instance,
     IDatabaseHost database,
     IServiceScopeFactory scopes,
-    PendingSyncs syncs,
     InstallCode code,
     ILogger<Installation> logger) : IDisposable
 {
@@ -92,11 +91,8 @@ public sealed partial class Installation(
             _problem = null;
             if (moved)
             {
-                // Queued syncs name sources in the database left behind.
-                syncs.Forget();
                 _hasAdmin = false;
                 _ready = true;
-                await RequeueAsync(ct);
             }
 
             return null;
@@ -172,14 +168,6 @@ public sealed partial class Installation(
         }
 
         _ready = true;
-        await RequeueAsync(ct);
-    }
-
-    // A sync that a restart, or a change of database, cut off starts again.
-    private async Task RequeueAsync(CancellationToken ct)
-    {
-        await using var scope = scopes.CreateAsyncScope();
-        await syncs.RequeueAsync(scope.ServiceProvider.GetRequiredService<ScryDbContext>(), ct);
     }
 
     // An instance keeps at least one admin, so once one is seen the answer holds until the database changes.

@@ -20,7 +20,7 @@ public sealed class FakeNexus : HttpMessageHandler
     public const string PairingId = "p-1";
 
     /// <summary>Why the link's workspace cannot connect Charles Schwab yet, as Nexus says when it has no Schwab app.</summary>
-    public const string NotReady = "This workspace has no Charles Schwab app yet. Add it under Sign-in apps on the workspace page in Nexus.";
+    public const string NotReady = "This workspace has no Charles Schwab app yet. Add it under Providers on the workspace page in Nexus.";
 
     private string? _verifierHash;
 

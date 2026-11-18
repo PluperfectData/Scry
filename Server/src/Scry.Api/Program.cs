@@ -37,7 +37,7 @@ builder.Services.AddSerilog(
 builder.Services.AddSingleton(settings);
 builder.Services.AddSingleton(TimeProvider.System);
 
-// The keys that encrypt stored connections and the instance's database password live with the workspace's files,
+// The keys that encrypt the Nexus links' app keys and the instance's database password live with the workspace's files,
 // outside the database they protect.
 builder.Services.AddDataProtection()
     .SetApplicationName("Scry")
@@ -63,24 +63,16 @@ builder.Services.AddScoped<OperatorLog>();
 builder.Services.AddScoped<LogPruning>();
 builder.Services.AddHostedService<LogPruner>();
 
-builder.Services.AddSingleton(builder.Configuration.GetSection(SchwabApp.Section).Get<SchwabApp>() ?? new SchwabApp());
 builder.Services.AddSingleton<WorkspaceStore>();
 builder.Services.AddScoped<WorkspaceAccess>();
 builder.Services.AddScoped<CurrentWorkspace>();
-builder.Services.AddHttpClient(SchwabConnector.HttpClientName);
-builder.Services.AddSingleton<SchwabConnector>();
-builder.Services.AddSingleton<SourceConnectors>();
-builder.Services.AddSingleton<ConnectionSecrets>();
+builder.Services.AddSingleton<Secrets>();
 builder.Services.AddMemoryCache();
-builder.Services.AddSingleton<SchwabSignIns>();
 builder.Services.AddHttpClient(NexusApi.HttpClientName);
 builder.Services.AddSingleton<NexusApi>();
 builder.Services.AddScoped<NexusSignIns>();
 builder.Services.AddSingleton<NexusPairings>();
-builder.Services.AddScoped<SourceSync>();
-builder.Services.AddSingleton<PendingSyncs>();
 builder.Services.AddScoped<IngestKeys>();
-builder.Services.AddHostedService<SyncWorker>();
 
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddSingleton<SignInThrottle>();
@@ -119,8 +111,8 @@ builder.Services.AddAntiforgery(options =>
 builder.Services.AddSingleton<ClientOriginFilter>();
 builder.Services.AddScoped<BearerAwareAntiforgery>();
 
-// Deny by default: a route is open to anyone only with [AllowAnonymous], as the installer, the sign-in routes, the
-// push API, and the Schwab callback are.
+// Deny by default: a route is open to anyone only with [AllowAnonymous], as the installer, the sign-in routes, and the
+// push API are.
 builder.Services.AddAuthorizationBuilder()
     .SetFallbackPolicy(new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build())
     .AddPolicy(ScryClaims.AdminPolicy, policy => policy.RequireAuthenticatedUser().RequireClaim(ScryClaims.Admin, ScryClaims.True));

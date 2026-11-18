@@ -37,7 +37,7 @@ public sealed class NexusController(
     NexusApi nexus,
     NexusPairings pairings,
     NexusSignIns signIns,
-    ConnectionSecrets secrets,
+    Secrets secrets,
     Instance instance,
     OperatorLog log) : ControllerBase
 {

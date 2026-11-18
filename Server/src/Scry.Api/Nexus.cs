@@ -85,7 +85,7 @@ public sealed record NexusSync(
 /// The sign-ins of the Nexus connections that fill a workspace's sources, by table, read from Nexus's syncs and kept for
 /// a minute, so a dashboard does not call Nexus each time it loads. A Nexus that does not answer leaves them out.
 /// </summary>
-public sealed class NexusSignIns(NexusApi nexus, ConnectionSecrets secrets, IMemoryCache cache)
+public sealed class NexusSignIns(NexusApi nexus, Secrets secrets, IMemoryCache cache)
 {
     private static readonly TimeSpan Kept = TimeSpan.FromMinutes(1);
 

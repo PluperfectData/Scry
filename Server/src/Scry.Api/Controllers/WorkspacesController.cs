@@ -31,7 +31,7 @@ public sealed class WorkspacesController(
     WorkspaceAccess access,
     WorkspaceStore store,
     NexusApi nexus,
-    ConnectionSecrets secrets,
+    Secrets secrets,
     OperatorLog log,
     TimeProvider time) : ControllerBase
 {
@@ -121,11 +121,6 @@ public sealed class WorkspacesController(
             return Problem($"Type the workspace's name, {workspace.Name}, to remove it.", statusCode: StatusCodes.Status400BadRequest);
         }
 
-        if (await db.Sources.AnyAsync(s => s.WorkspaceId == id && s.Status == SourceStatus.Syncing, ct))
-        {
-            return Problem("A source in this workspace is syncing. Wait for it to end, then remove the workspace.", statusCode: StatusCodes.Status409Conflict);
-        }
-
         if (await db.NexusLinks.AsNoTracking().FirstOrDefaultAsync(l => l.WorkspaceId == id, ct) is { } link)
         {
             try
@@ -138,12 +133,11 @@ public sealed class WorkspacesController(
             }
         }
 
-        // Sources first, since they point at the connections and keys.
+        // Sources first, since they point at the keys.
         await using (var transaction = await db.Database.BeginTransactionAsync(ct))
         {
             await db.Sources.Where(s => s.WorkspaceId == id).ExecuteDeleteAsync(ct);
             await db.NexusLinks.Where(l => l.WorkspaceId == id).ExecuteDeleteAsync(ct);
-            await db.Connections.Where(c => c.WorkspaceId == id).ExecuteDeleteAsync(ct);
             await db.IngestKeys.Where(k => k.WorkspaceId == id).ExecuteDeleteAsync(ct);
             await db.Dashboards.Where(d => d.WorkspaceId == id).ExecuteDeleteAsync(ct);
             await db.Workspaces.Where(w => w.Id == id).ExecuteDeleteAsync(ct);

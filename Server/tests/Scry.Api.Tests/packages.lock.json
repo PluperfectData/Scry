@@ -747,12 +747,6 @@
           "Nexus.Abstractions": "[1.0.0, )"
         }
       },
-      "nexus.schwab": {
-        "type": "Project",
-        "dependencies": {
-          "Nexus.Abstractions": "[1.0.0, )"
-        }
-      },
       "pluperfect.jwt": {
         "type": "Project",
         "dependencies": {
@@ -781,7 +775,6 @@
           "Nexus.Abstractions": "[1.0.0, )",
           "Nexus.Csv": "[1.0.0, )",
           "Nexus.DuckDb": "[1.0.0, )",
-          "Nexus.Schwab": "[1.0.0, )",
           "Pluperfect.Jwt": "[1.0.0, )",
           "Pluperfect.Mail": "[1.0.0, )",
           "Pomelo.EntityFrameworkCore.MySql": "[9.0.0, )",

@@ -14,8 +14,6 @@ const orders: Source = {
   pushKeyPrefix: null,
   origin: null,
   fileName: 'orders.csv',
-  connector: null,
-  stream: null,
   columns: [
     { name: 'day', type: 'Date' },
     { name: 'region', type: 'String' },
@@ -23,8 +21,6 @@ const orders: Source = {
   ],
   rowCount: 3,
   syncedAt: '2026-11-13T12:00:00Z',
-  status: 'Ready',
-  error: null,
   signIn: null,
 }
 
@@ -36,16 +32,12 @@ const regions: Source = {
   pushKeyPrefix: null,
   origin: null,
   fileName: 'regions.csv',
-  connector: null,
-  stream: null,
   columns: [
     { name: 'code', type: 'String' },
     { name: 'name', type: 'String' },
   ],
   rowCount: 2,
   syncedAt: '2026-11-13T12:00:00Z',
-  status: 'Ready',
-  error: null,
   signIn: null,
 }
 

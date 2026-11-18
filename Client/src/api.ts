@@ -39,17 +39,12 @@ export interface Column {
   type: ColumnType
 }
 
-/** How a source's last sync went. `SignInNeeded` means the service ended the sign-in it syncs with. */
-export type SourceStatus = 'Ready' | 'Syncing' | 'Failed' | 'SignInNeeded'
-
 export interface Source {
   id: number
   name: string
-  /** Where the rows come from: an uploaded file, a connection's stream, the push API, or Nexus through the push API. */
-  kind: 'Upload' | 'Connection' | 'Push' | 'Nexus'
+  /** Where the rows come from: an uploaded file, the push API, or Nexus through the push API. */
+  kind: 'Upload' | 'Push' | 'Nexus'
   fileName: string | null
-  connector: string | null
-  stream: string | null
   /** The name and prefix of the push API key that writes to a pushed source; null once that key is revoked. */
   pushedBy: string | null
   pushKeyPrefix: string | null
@@ -57,11 +52,8 @@ export interface Source {
   origin: string | null
   columns: Column[]
   rowCount: number
-  /** When the last sync finished; null until the first one has. */
+  /** When rows last landed, by upload or by push; null until the first have. */
   syncedAt: string | null
-  status: SourceStatus
-  /** Why the last sync failed, when it did. */
-  error: string | null
   /** The sign-in of the Nexus connection that fills it; null for every other source. */
   signIn: SourceSignIn | null
 }
@@ -95,25 +87,15 @@ export interface SettingField {
   choices: string[] | null
 }
 
-/** A connector Scry reads a source through itself: CSV, or Schwab. */
+/** A connector a source can come from: CSV, which Scry reads itself, or one Nexus reads through. */
 export interface Connector {
   id: string
   name: string
   description: string
   fields: SettingField[]
-  /** The settings this connector requires that Scry lacks, by their configuration names. */
-  needs: string[]
-  /** Why it cannot be picked yet, such as a sign-in app the linked Nexus workspace has not set. */
+  /** Why it cannot be picked yet, such as a provider the linked Nexus workspace has not set up. */
   notReady?: string | null
 }
-
-/** A stream Schwab offers, by name, with its number of columns. */
-export interface StreamSummary {
-  name: string
-  columns: number
-}
-
-export type Settings = Record<string, string | null>
 
 /**
  * Chart points in x order: `[x, y]`, or `[x, open, close, low, high]` for candles. A time axis carries epoch
@@ -284,9 +266,6 @@ export const listSources = () => request<Source[]>(inWorkspace('/sources'))
 
 export const listConnectors = () => request<Connector[]>(inWorkspace('/connectors'))
 
-/** Copies a connection's stream into its source again. */
-export const syncSource = (id: number) => request<Source>(inWorkspace(`/sources/${id}/sync`), { method: 'POST' })
-
 /** A chart that reads a source, directly or through a join. */
 export interface ChartUse {
   dashboardId: number
@@ -297,13 +276,6 @@ export interface ChartUse {
 
 export const listSourceUses = (id: number) => request<ChartUse[]>(inWorkspace(`/sources/${id}/uses`))
 export const removeSource = (id: number) => request<void>(inWorkspace(`/sources/${id}`), { method: 'DELETE' })
-
-/** The streams a Schwab connection offers, by name; listing them needs no sign-in. */
-export const listSchwabStreams = () => request<StreamSummary[]>(inWorkspace('/schwab/streams'))
-
-/** Starts a Schwab sign-in for a new connection, and returns Schwab's sign-in page for the browser to go to. */
-export const startSchwabSignIn = (settings: Settings, streams: { table: string; name: string }[]) =>
-  request<{ url: string }>(inWorkspace('/schwab/sign-in'), json('POST', { settings, streams }))
 
 /** A push API key: the prefix that tells it apart, and the sources it writes. */
 export interface IngestKey {
@@ -377,9 +349,6 @@ export const runNexusSync = (id: number) => request<NexusSync>(inWorkspace(`/nex
 /** Opens Nexus's connect page to sign one of its connections in again, which comes back to the Sources page. */
 export const signInAgainThroughNexus = (connectionId: number) =>
   request<{ url: string }>(inWorkspace(`/nexus/connections/${connectionId}/sign-in`), { method: 'POST' })
-
-/** Starts a sign-in that renews the one a Schwab source's connection holds. */
-export const signInAgain = (id: number) => request<{ url: string }>(inWorkspace(`/sources/${id}/sign-in`), { method: 'POST' })
 
 export function uploadSource(name: string, file: File, delimiter: string): Promise<Source> {
   const form = new FormData()

@@ -4,9 +4,9 @@ import type { Connector } from '../api'
 import { ConnectorGrid } from './ConnectorGrid'
 
 const connectors: Connector[] = [
-  { id: 'csv', name: 'CSV', description: 'Reads a delimited text file.', fields: [], needs: [] },
-  { id: 'postgres', name: 'PostgreSQL', description: 'Reads tables from a PostgreSQL database.', fields: [], needs: [] },
-  { id: 'schwab', name: 'Charles Schwab', description: 'Reads a Schwab sign-in.', fields: [], needs: [] },
+  { id: 'csv', name: 'CSV', description: 'Reads a delimited text file.', fields: [] },
+  { id: 'postgres', name: 'PostgreSQL', description: 'Reads tables from a PostgreSQL database.', fields: [] },
+  { id: 'schwab', name: 'Charles Schwab', description: 'Reads a Schwab sign-in.', fields: [] },
 ]
 
 it('shows each connector with its description, on the tint of its kind', () => {
@@ -27,7 +27,7 @@ it('shows each connector with its description, on the tint of its kind', () => {
 
 it('says why a connector is not ready yet, and does not pick it', async () => {
   const onPick = jest.fn()
-  const notReady = 'This workspace has no Charles Schwab app yet. Add it under Sign-in apps on the workspace page in Nexus.'
+  const notReady = 'This workspace has no Charles Schwab app yet. Add it under Providers on the workspace page in Nexus.'
   render(<ConnectorGrid connectors={[{ ...connectors[2], notReady }]} onPick={onPick} />)
 
   const tile = screen.getByRole('button', { name: /Charles Schwab/ })

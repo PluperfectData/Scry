@@ -24,9 +24,6 @@ public enum SourceKind
     /// <summary>An uploaded file.</summary>
     Upload,
 
-    /// <summary>A stream of a connection, such as a database table.</summary>
-    Connection,
-
     /// <summary>Rows sent through the push API.</summary>
     Push,
 
@@ -61,26 +58,21 @@ public sealed record SourceSignIn(
         sync.SignIn.Accounts);
 }
 
-/// <summary>A source: an uploaded file, with its <paramref name="FileName"/>; a connection's stream, with the
-/// <paramref name="Connector"/> that reads it and its <paramref name="Stream"/> name there; or rows pushed with the key
-/// named <paramref name="PushedBy"/> and starting <paramref name="PushKeyPrefix"/>, both null once that key is revoked,
-/// from the <paramref name="Origin"/> its pusher gave. <paramref name="Status"/> and <paramref name="Error"/> say how
-/// its last sync went, and <paramref name="SignIn"/> is the sign-in of the Nexus connection that fills it.</summary>
+/// <summary>A source: an uploaded file, with its <paramref name="FileName"/>; or rows pushed with the key named
+/// <paramref name="PushedBy"/> and starting <paramref name="PushKeyPrefix"/>, both null once that key is revoked, from the
+/// <paramref name="Origin"/> its pusher gave. <paramref name="SignIn"/> is the sign-in of the Nexus connection that fills
+/// it.</summary>
 public sealed record SourceView(
     int Id,
     string Name,
     SourceKind Kind,
     string? FileName,
-    string? Connector,
-    string? Stream,
     string? PushedBy,
     string? PushKeyPrefix,
     string? Origin,
     IReadOnlyList<ColumnInfo> Columns,
     long RowCount,
     DateTime? SyncedAt,
-    SourceStatus Status,
-    string? Error,
     SourceSignIn? SignIn = null)
 {
     /// <summary>The source as the API shows it. <paramref name="linkKeyId"/> is the push key Nexus writes with, if Scry is linked.</summary>
@@ -89,18 +81,14 @@ public sealed record SourceView(
         source.Name,
         source.Pushed
             ? source.IngestKeyId is not null && source.IngestKeyId == linkKeyId ? SourceKind.Nexus : SourceKind.Push
-            : source.ConnectionId is null ? SourceKind.Upload : SourceKind.Connection,
+            : SourceKind.Upload,
         source.FileName,
-        source.Connection?.Connector,
-        source.Stream,
         source.IngestKey?.Name,
         source.IngestKey?.Prefix,
         source.Origin,
         ColumnInfo.Deserialize(source.Columns),
         source.RowCount,
         source.SyncedAt,
-        source.Status,
-        source.Error,
         signIn);
 }
 
@@ -149,24 +137,24 @@ public sealed class SourceJoin
 }
 
 /// <summary>
-/// A workspace's sources. Its viewers read the list and query charts, which its dashboards need; its editors upload,
-/// sync, and remove sources.
+/// A workspace's sources. Its viewers read the list and query charts, which its dashboards need; its editors upload and
+/// remove sources.
 /// </summary>
 [ApiController]
 [Route("workspaces/{workspaceId:int}/sources")]
 [InWorkspace]
-public sealed class SourcesController(ScryDbContext db, CurrentWorkspace workspace, SourceSync sync, NexusSignIns signIns, OperatorLog log) : ControllerBase
+public sealed class SourcesController(ScryDbContext db, CurrentWorkspace workspace, NexusSignIns signIns, OperatorLog log) : ControllerBase
 {
     /// <summary>The workspace's sources, each Nexus source with its connection's sign-in.</summary>
     [HttpGet]
     [ForViewers]
     public async Task<IEnumerable<SourceView>> List(CancellationToken ct) =>
-        await ViewsAsync(await InWorkspace().AsNoTracking().Include(source => source.Connection).Include(source => source.IngestKey).OrderBy(source => source.Name).ToListAsync(ct), ct);
+        await ViewsAsync(await InWorkspace().AsNoTracking().Include(source => source.IngestKey).OrderBy(source => source.Name).ToListAsync(ct), ct);
 
     [HttpGet("{id:int}")]
     [ForViewers]
     public async Task<ActionResult<SourceView>> Get(int id, CancellationToken ct) =>
-        await InWorkspace().Include(source => source.Connection).Include(source => source.IngestKey).FirstOrDefaultAsync(source => source.Id == id, ct) is { } source
+        await InWorkspace().Include(source => source.IngestKey).FirstOrDefaultAsync(source => source.Id == id, ct) is { } source
             ? (await ViewsAsync([source], ct))[0]
             : NotFound();
 
@@ -184,41 +172,6 @@ public sealed class SourcesController(ScryDbContext db, CurrentWorkspace workspa
             byTable is not null && fromNexus.Contains(source) ? byTable.GetValueOrDefault(source.Name) : null))];
     }
 
-    /// <summary>Copies a connection's stream into DuckDB again. An uploaded file syncs once, when it is uploaded.</summary>
-    [HttpPost("{id:int}/sync")]
-    public async Task<ActionResult<SourceView>> Sync(int id, CancellationToken ct)
-    {
-        if (await InWorkspace().Include(s => s.Connection).FirstOrDefaultAsync(s => s.Id == id, ct) is not { } source)
-        {
-            return NotFound();
-        }
-
-        if (source.Connection is null || source.Stream is null)
-        {
-            return Problem(
-                source.Pushed
-                    ? "A pushed source gets its rows through the push API, so Scry has nothing to sync."
-                    : "An uploaded file syncs once, when it is uploaded. Upload it again to refresh it.",
-                statusCode: StatusCodes.Status400BadRequest);
-        }
-
-        if (source.Status == SourceStatus.Syncing)
-        {
-            return Problem($"{source.Name} is syncing already.", statusCode: StatusCodes.Status409Conflict);
-        }
-
-        try
-        {
-            await sync.RunAsync(source, ct);
-        }
-        catch (ConnectorException ex)
-        {
-            return this.ConnectorProblem(ex);
-        }
-
-        return SourceView.From(source, null);
-    }
-
     /// <summary>Each chart that reads the source, directly or through a join, on the workspace's dashboards.</summary>
     [HttpGet("{id:int}/uses")]
     public async Task<ActionResult<IEnumerable<ChartUse>>> Uses(int id, CancellationToken ct)
@@ -232,10 +185,7 @@ public sealed class SourcesController(ScryDbContext db, CurrentWorkspace workspa
         return dashboards.SelectMany(d => ChartUse.Reading(d.Widgets, id).Select(chart => chart with { DashboardId = d.Id, DashboardName = d.Name })).ToList();
     }
 
-    /// <summary>
-    /// Removes the source, its tables, an upload's stored file, and a connection no other source uses. Charts that read
-    /// it stay, and ask for another source.
-    /// </summary>
+    /// <summary>Removes the source, its tables, and an upload's stored file. Charts that read it stay, and ask for another source.</summary>
     [HttpDelete("{id:int}")]
     public async Task<IActionResult> Remove(int id, CancellationToken ct)
     {
@@ -244,20 +194,11 @@ public sealed class SourcesController(ScryDbContext db, CurrentWorkspace workspa
             return NotFound();
         }
 
-        if (source.Status == SourceStatus.Syncing)
-        {
-            return Problem($"{source.Name} is syncing. Wait for it to end, then remove it.", statusCode: StatusCodes.Status409Conflict);
-        }
-
         db.Sources.Remove(source);
         log.Info(
             source.StoredFile is null ? $"Source {source.Name} was removed, with its table." : $"Source {source.Name} was removed, with its table and its uploaded file.",
             LogPlace.In(workspace.Id));
         await db.SaveChangesAsync(ct);
-        if (source.ConnectionId is { } connectionId && !await db.Sources.AnyAsync(s => s.ConnectionId == connectionId, ct))
-        {
-            await db.Connections.Where(c => c.Id == connectionId).ExecuteDeleteAsync(ct);
-        }
 
         // The row goes first: a table left by a failure here is replaced by the next source of its name.
         await workspace.Data.DropSourceAsync(source.Name, CancellationToken.None);

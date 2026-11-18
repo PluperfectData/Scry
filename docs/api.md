@@ -8,18 +8,13 @@
 | `GET /workspaces` | The workspaces the user is in, each with `role`, `Editor` or `Viewer`. An admin gets every one, as an editor. |
 | `GET /workspaces/{id}` | One of them, with its `members` and their roles for an admin, and `null` for anyone else |
 | `POST /workspaces`, `PATCH /workspaces/{id}` | For admins: makes a workspace from `{"name"}`, or renames one |
-| `DELETE /workspaces/{id}` | For admins: from `{"name"}`, which must be the workspace's name, removes the workspace with its dashboards, sources, push keys, and Nexus link, and deletes its folder. Nexus is asked to revoke the link's app key. A source syncing in it answers 409. |
+| `DELETE /workspaces/{id}` | For admins: from `{"name"}`, which must be the workspace's name, removes the workspace with its dashboards, sources, push keys, and Nexus link, and deletes its folder. Nexus is asked to revoke the link's app key. |
 | `PUT`, `DELETE /workspaces/{id}/members/{userId}` | For admins: from `{"role"}`, adds a user to the workspace or changes their role, or takes them out |
-| `GET /workspaces/{workspaceId}/sources` | Lists sources: name, the file or the connection's stream the rows come from, columns and their types, row count, sync time, and `status` (`Ready`, `Syncing`, `Failed`, or `SignInNeeded`) with any `error`. A source Nexus fills carries its connection's `signIn`: the `provider`, its `kind`, `signedInAt`, `endsAt`, `endingSoon`, `ended`, `endedAt`, and the labels of its `accounts`, as Nexus last said within the minute. Without an answer from Nexus within 5 seconds, it is null. |
+| `GET /workspaces/{workspaceId}/sources` | Lists sources: name, `kind` (`Upload`, `Push`, or `Nexus`), the file or the push key the rows come from, columns and their types, row count, and when rows last landed. A source Nexus fills carries its connection's `signIn`: the `provider`, its `kind`, `signedInAt`, `endsAt`, `endingSoon`, `ended`, `endedAt`, and the labels of its `accounts`, as Nexus last said within the minute. Without an answer from Nexus within 5 seconds, it is null. |
 | `POST /workspaces/{workspaceId}/sources` | Form fields `name`, `file`, and optional `delimiter`. Syncs the file through Nexus into a table named `name`. |
-| `POST /workspaces/{workspaceId}/sources/{id}/sync` | Copies a connection's stream into its source again. An uploaded file answers 400; upload it again instead. A source syncing in the background answers 409. |
 | `GET /workspaces/{workspaceId}/sources/{id}/uses` | Each chart that reads the source, directly or through a join, as `{dashboardId, dashboardName, chartTitle, chartKind}` |
-| `DELETE /workspaces/{workspaceId}/sources/{id}` | Removes the source with its table, an upload's stored file, and a connection no other source uses. Charts that read it stay and ask for another source. A source syncing answers 409. A key that can push to a removed source makes it again on its next push. |
-| `POST /workspaces/{workspaceId}/sources/{id}/sign-in` | For a Schwab source, starts a sign-in that renews its connection's, and answers `{"url"}`: Schwab's sign-in page |
-| `GET /workspaces/{workspaceId}/schwab/streams` | Lists the streams a Schwab connection offers. Needs no sign-in. |
-| `POST /workspaces/{workspaceId}/schwab/sign-in` | From `{"settings", "streams": [{"table": "balances", "name": "..."}]}`, checks the names and answers `{"url"}`: Schwab's sign-in page, which returns to the callback |
-| `GET /schwab/callback?code=&state=` | Where Schwab sends the browser after its sign-in. Keeps the tokens encrypted, queues each picked stream to copy in the background, and sends the browser to the workspace's Sources page, with `error` when the sign-in failed. A sign-in Scry does not know goes back to the client's `/`, with its `error`. |
-| `GET /workspaces/{workspaceId}/connectors` | Lists the connectors Scry reads through itself, CSV and then Schwab: id, name, description, and the settings each asks for. Databases and other services come through Nexus. |
+| `DELETE /workspaces/{workspaceId}/sources/{id}` | Removes the source with its table and an upload's stored file. Charts that read it stay and ask for another source. A key that can push to a removed source makes it again on its next push. |
+| `GET /workspaces/{workspaceId}/connectors` | Lists the connectors Scry reads through itself, CSV alone: id, name, description, and the settings it asks for. Databases and services come through Nexus. |
 | `GET /workspaces/{workspaceId}/sources/{id}/series?x=&y=&aggregate=` | `[x, y]`: `y` aggregated per value of `x`, in `x` order, for bar, pictorial bar, line, area, pie, funnel, and region map charts |
 | `GET /workspaces/{workspaceId}/sources/{id}/links?from=&to=&y=&aggregate=` | `[from, to, y]`: `y` aggregated per pair of ends, both as text, for Sankey, network graph, and chord charts. A row whose ends match is left out. |
 | `GET /workspaces/{workspaceId}/sources/{id}/values?columns=` | `[value, ...]`: 1 to 12 number columns, repeated, one row per source row with all of them filled in, for parallel coordinates and flow maps |
@@ -42,7 +37,7 @@
 | `POST /workspaces/{workspaceId}/nexus/pairing` | From `{"nexusUrl"}`, opens a pairing at that Nexus and answers `{"approveUrl"}`, the page where its admin approves Scry |
 | `GET /workspaces/{workspaceId}/nexus/callback?pairing=` | Where Nexus sends the admin back. Makes a push key named for that Nexus, such as "Nexus at localhost:6163", claims the pairing with it for Nexus's app key, keeps the link, and sends the browser to the workspace's Settings page, with `error` when linking failed. Scry pairs as "Scry at" its own host and the workspace's name, such as "Scry at localhost:6161, workspace Default". |
 | `DELETE /workspaces/{workspaceId}/nexus` | Unlinks: Nexus revokes Scry's app key, Scry revokes Nexus's push key, and the link goes. The sources Nexus sent stay. |
-| `GET /workspaces/{workspaceId}/nexus/connectors` | The connectors Nexus reads through, such as MySQL, which the Sources page offers under Through Nexus. One the link's workspace cannot connect yet, such as Schwab without a sign-in app, says why on its tile and cannot be picked. |
+| `GET /workspaces/{workspaceId}/nexus/connectors` | The connectors Nexus reads through, such as MySQL, which the Sources page offers under Through Nexus. One the link's workspace cannot connect yet, such as Schwab before its provider is set up, says why on its tile and cannot be picked. |
 | `POST /workspaces/{workspaceId}/nexus/connect` | From `{"connector"}`, opens Nexus's connect page for it, into the link's destination and coming back to the Sources page, and answers `{"url"}`. Nexus adds `connection` to the return address once connected, or `error=cancelled`. |
 | `GET /workspaces/{workspaceId}/nexus/syncs` | The syncs that fill the link's destination: the connection and stream each reads, its table, how its last run went, and its connection's `signIn` |
 | `POST /workspaces/{workspaceId}/nexus/syncs/{id}/run` | Runs one of those syncs now |
@@ -83,8 +78,7 @@ the link's push key is listed with `kind` `Nexus`.
   (`left`), the other (`right`), or both (`full`). Joined, columns are named for their source, as `orders.amount`,
   and source order is this source's, then the other's.
 - Errors are problem details, with a `detail` safe to show.
-- Every route needs a signed-in user but `/health`, the installer, the sign-in routes under `/auth`, the push API, and
-  Schwab's callback, which carries its own `state`.
+- Every route needs a signed-in user but `/health`, the installer, the sign-in routes under `/auth`, and the push API.
 - A workspace's routes answer 404 to a user outside it. A viewer gets 403 on all but its dashboards, its list of
   sources, and the chart and row queries its dashboards make.
 - The push API's routes take a key as `Authorization: Bearer <key>`, and no session. A key writes into its own
