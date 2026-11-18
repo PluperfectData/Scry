@@ -29,6 +29,13 @@ it('links by sending the admin to Nexus to approve', async () => {
   expect(leaveFor).toHaveBeenCalledWith('http://localhost:6165/pair?id=p-123')
 })
 
+it('starts the address at the one Scry is configured with', async () => {
+  jest.mocked(getNexusLink).mockResolvedValue({ ...unlinked, nexusUrl: 'http://nexus-api:6163' })
+  render(<NexusLinkSection />)
+
+  expect(await screen.findByDisplayValue('http://nexus-api:6163')).toBe(screen.getByLabelText('Nexus address'))
+})
+
 it('says why Nexus could not be reached', async () => {
   jest.mocked(getNexusLink).mockResolvedValue(unlinked)
   jest.mocked(startNexusPairing).mockRejectedValue(new ApiError(502, 'Nexus did not answer at http://localhost:6163.'))

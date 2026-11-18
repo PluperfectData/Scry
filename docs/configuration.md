@@ -33,3 +33,5 @@ These settings have no page:
 | Setting | Default |
 |---|---|
 | `Scry:DataDirectory` | `data`, beside the API. Each workspace's DuckDB file and uploads, under `workspaces`, `instance.json`, and `keys`, the keys that encrypt the Nexus links' app keys and the database password, live here. |
+| `Scry:NexusUrl` | None. The Nexus address the Link Nexus form starts with, where Scry's server reaches Nexus at another address than a browser does. Docker's `compose.linked.yaml` sets `http://nexus-api:6163`. |
+| `Scry:IngestOrigin` | `Scry:ApiOrigin`. The address Scry gives Nexus to push rows to, where Nexus reaches the API at another address than a browser does. Docker's `compose.linked.yaml` sets `http://scry-api:6161`. |

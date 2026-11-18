@@ -17,6 +17,12 @@ public sealed class ScrySettings
     /// <summary>This API's own origin, which Scry gives Nexus for its push API and its pairing callback.</summary>
     public string? ApiOrigin { get; set; }
 
+    /// <summary>The Nexus address Scry's server reaches, which the Link Nexus form starts with.</summary>
+    public string? NexusUrl { get; set; }
+
+    /// <summary>The origin Nexus pushes rows to, where it reaches this API at another address than browsers do.</summary>
+    public string? IngestOrigin { get; set; }
+
     /// <summary>The address mail comes from, on a domain the mail transport may send as.</summary>
     public string? MailFrom { get; set; }
 

@@ -7,7 +7,10 @@ using Scry.Api.Storage;
 
 namespace Scry.Api.Controllers;
 
-/// <summary>Scry's link to Nexus, with the push key Nexus sends rows with, or <c>Linked: false</c>.</summary>
+/// <summary>
+/// Scry's link to Nexus, with the push key Nexus sends rows with, or <c>Linked: false</c> with the Nexus address the
+/// Link Nexus form starts with, when configuration sets one.
+/// </summary>
 public sealed record NexusLinkView(
     bool Linked,
     string? NexusUrl,
@@ -45,7 +48,7 @@ public sealed class NexusController(
     public async Task<NexusLinkView> Get(CancellationToken ct) =>
         await Link().AsNoTracking().Include(l => l.IngestKey).FirstOrDefaultAsync(ct) is { } link
             ? new NexusLinkView(true, link.NexusUrl, link.AppName, link.WorkspaceName, link.IngestKey?.Name, link.IngestKey?.Prefix, link.LinkedAt)
-            : new NexusLinkView(false, null, null, null, null, null, null);
+            : new NexusLinkView(false, instance.NexusUrl, null, null, null, null, null);
 
     /// <summary>Opens a pairing at the Nexus instance named, and answers the page where its admin approves it.</summary>
     [HttpPost("pairing")]
@@ -71,7 +74,7 @@ public sealed class NexusController(
                 new
                 {
                     appName = $"Scry at {new Uri(api).Authority}, workspace {workspace.Workspace.Name}",
-                    ingestUrl = $"{api}/ingest",
+                    ingestUrl = $"{instance.Ingest}/ingest",
                     callbackUrl = $"{api}/workspaces/{workspace.Id}/nexus/callback",
                     connectReturnUrl = SourcesPage,
                     verifierHash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(verifier))),

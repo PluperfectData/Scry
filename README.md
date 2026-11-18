@@ -8,6 +8,7 @@
 
 [![API](https://github.com/PluperfectData/Scry/actions/workflows/api.yml/badge.svg)](https://github.com/PluperfectData/Scry/actions/workflows/api.yml)
 [![Client](https://github.com/PluperfectData/Scry/actions/workflows/client.yml/badge.svg)](https://github.com/PluperfectData/Scry/actions/workflows/client.yml)
+[![Docker](https://github.com/PluperfectData/Scry/actions/workflows/docker.yml/badge.svg)](https://github.com/PluperfectData/Scry/actions/workflows/docker.yml)
 
 </div>
 
@@ -60,16 +61,57 @@ access: they open the dashboards, full screen included, and can't change anythin
 
 ## Quick start
 
-You'll run Scry's API and its web client on your own machine, then set Scry up in the browser.
+Scry installs three ways. Each runs it on one computer at `http://localhost:6160`, then sets it up in the browser,
+and each can set up [Nexus](https://github.com/PluperfectData/Nexus) beside it.
 
-### What you need
+| Way | For | Needs |
+|---|---|---|
+| [On Windows](#on-windows) | Using Scry on a Windows computer | Windows 10 or 11 |
+| [In Docker](#in-docker) | Running Scry in containers, on any computer | Docker Desktop, or Docker on Linux |
+| [From the command line](#from-the-command-line) | Working on Scry's code | .NET 10, Node.js 24, MySQL 8.4, and Git |
+
+All three use the same addresses, so run one at a time.
+
+Every way starts from the code at `Pluperfect.Data/Scry` in a folder of your choice. Clone it with
+`git clone https://github.com/PluperfectData/Scry.git Pluperfect.Data/Scry`, or download the ZIP from GitHub and
+extract it there.
+
+### On Windows
+
+Right-click `install.ps1` in the Scry folder, and choose **Run with PowerShell**. It:
+
+1. installs what's missing (.NET 10, Node.js, MySQL, and Git) through winget, and fetches Nexus and the two
+   libraries Scry builds against
+2. asks whether to install Nexus too
+3. builds Scry
+4. puts a **Scry** shortcut on the desktop, then starts Scry with a database server of its own and opens it
+
+The installer page opens at Mail, since Scry already knows its database and addresses. Then make yourself the admin.
+[Installing on Windows](docs/installing.md) has the detail.
+
+### In Docker
+
+Start Docker Desktop, or Docker on Linux. Then, in the Scry folder:
+
+- **Windows:** double-click `Scry Docker.cmd`.
+- **macOS or Linux:** run `sh scry-docker.sh`.
+
+The launcher fetches Nexus and the libraries Scry builds against, and asks whether to start Nexus too, linked to
+Scry. Then it builds and starts Scry with MySQL beside it, prints the installer's address with its install code, and
+opens Scry. The first build takes several minutes. [Running Scry in Docker](docs/docker.md) has the detail.
+
+### From the command line
+
+You'll run Scry's API and its web client from their code, then set Scry up in the browser.
+
+#### What you need
 
 - [.NET SDK 10](https://dotnet.microsoft.com/download/dotnet/10.0), version 10.0.302 or later
 - [Node.js 24](https://nodejs.org/)
 - [MySQL 8.4](https://dev.mysql.com/downloads/mysql/), with a user that can create Scry's database
 - [Git](https://git-scm.com/)
 
-### 1. Get the code
+#### 1. Get the code
 
 Scry builds against three other repositories, which it expects to find beside it. Clone all four into one folder:
 
@@ -91,7 +133,7 @@ your-folder/
 └── Pluperfect.Mail/
 ```
 
-### 2. Build the sign-in library
+#### 2. Build the sign-in library
 
 Scry's client signs in through Pluperfect.Jwt's client, which is built once:
 
@@ -100,7 +142,7 @@ npm install --prefix Pluperfect.Jwt/client
 npm run build --prefix Pluperfect.Jwt/client
 ```
 
-### 3. Start the API
+#### 3. Start the API
 
 ```bash
 dotnet run --project Pluperfect.Data/Scry/Server/src/Scry.Api
@@ -108,7 +150,7 @@ dotnet run --project Pluperfect.Data/Scry/Server/src/Scry.Api
 
 The API listens on `http://localhost:6161`.
 
-### 4. Start the client
+#### 4. Start the client
 
 In a second terminal, from the same folder:
 
@@ -117,7 +159,7 @@ npm install --prefix Pluperfect.Data/Scry/Client
 npm run dev --prefix Pluperfect.Data/Scry/Client
 ```
 
-### 5. Set it up
+#### 5. Set it up
 
 Open `http://localhost:6160/install`. The installer asks, in turn, for:
 
@@ -158,6 +200,7 @@ flowchart LR
 The [documentation](docs/README.md) covers each part in depth, with a contents page to find your way around. Good
 places to start:
 
+- [Installing on Windows](docs/installing.md) and [Running Scry in Docker](docs/docker.md): the other two ways in
 - [Running Scry](docs/running.md): the installer, and setting up an instance from another machine
 - [Users and workspaces](docs/users-and-workspaces.md): invites, signing in, and who may change what
 - [The API](docs/api.md): every route, including the push API for sending rows from your own code

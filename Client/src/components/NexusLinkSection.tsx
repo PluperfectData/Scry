@@ -16,7 +16,10 @@ export function NexusLinkSection() {
 
   useEffect(() => {
     getNexusLink()
-      .then(setLink)
+      .then((found) => {
+        setLink(found)
+        if (!found.linked && found.nexusUrl) setNexusUrl(found.nexusUrl)
+      })
       .catch((e: Error) => setError(e.message))
     const search = new URLSearchParams(window.location.search)
     if (search.has('linked') || search.has('error')) {

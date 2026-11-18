@@ -1,0 +1,7 @@
+# Scry beside Nexus in Docker, where each reaches the other by its service's name. compose.both.yaml adds this to
+# compose.yaml. Scry's link form starts with Nexus's address, and Scry tells Nexus where to push rows.
+services:
+  scry-api:
+    environment:
+      Scry__NexusUrl: http://nexus-api:6163
+      Scry__IngestOrigin: http://scry-api:6161

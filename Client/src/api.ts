@@ -298,6 +298,7 @@ export const revokeKey = (id: number) => request<void>(inWorkspace(`/keys/${id}`
 /** The workspace's link to Nexus, made by pairing, or `linked: false`. */
 export interface NexusLink {
   linked: boolean
+  /** The linked Nexus's address, or, unlinked, the one Scry's configuration starts the Link Nexus form with. */
   nexusUrl: string | null
   appName: string | null
   workspaceName: string | null

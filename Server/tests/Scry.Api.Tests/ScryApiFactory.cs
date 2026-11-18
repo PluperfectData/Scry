@@ -47,6 +47,8 @@ public sealed class ScryApiFactory : WebApplicationFactory<Program>
         "Mail:ServerToken",
         $"{ScrySettings.Section}:{nameof(ScrySettings.ClientOrigin)}",
         $"{ScrySettings.Section}:{nameof(ScrySettings.ApiOrigin)}",
+        $"{ScrySettings.Section}:{nameof(ScrySettings.NexusUrl)}",
+        $"{ScrySettings.Section}:{nameof(ScrySettings.IngestOrigin)}",
         $"{ScrySettings.Section}:{nameof(ScrySettings.MailFrom)}",
         $"{ScrySettings.Section}:{nameof(ScrySettings.MailFromName)}",
     ];

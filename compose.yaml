@@ -1,0 +1,64 @@
+# Scry in Docker: the API, the site, and MySQL, on this computer only, at the addresses development uses.
+# "Scry Docker.cmd" on Windows or scry-docker.sh on macOS and Linux builds and starts it. compose.both.yaml runs it
+# beside Nexus. Setting SCRY_VERSION to a release, such as 0.2.0, and running "docker compose pull" uses that
+# release's published images instead of building.
+name: pluperfect-data
+services:
+  scry-db:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: scry
+      MYSQL_USER: scry
+      MYSQL_PASSWORD: ${SCRY_DB_PASSWORD:?The launcher sets SCRY_DB_PASSWORD in .env; run it first}
+      MYSQL_RANDOM_ROOT_PASSWORD: "yes"
+    volumes:
+      - scry-database:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  scry-api:
+    image: ghcr.io/pluperfectdata/scry-api:${SCRY_VERSION:-local}
+    build:
+      context: .
+      target: api
+      additional_contexts:
+        nexus: ../Nexus
+        jwt: ../../Pluperfect.Jwt
+        mail: ../../Pluperfect.Mail
+    restart: unless-stopped
+    depends_on:
+      scry-db:
+        condition: service_healthy
+    environment:
+      ConnectionStrings__Scry: Server=scry-db;Port=3306;Database=scry;User ID=scry;Password=${SCRY_DB_PASSWORD}
+      Scry__ClientOrigin: http://localhost:6160
+      Scry__ApiOrigin: http://localhost:6161
+    ports:
+      - "127.0.0.1:6161:6161"
+    volumes:
+      - scry-data:/data
+
+  scry-web:
+    image: ghcr.io/pluperfectdata/scry-web:${SCRY_VERSION:-local}
+    build:
+      context: .
+      target: web
+      additional_contexts:
+        nexus: ../Nexus
+        jwt: ../../Pluperfect.Jwt
+        mail: ../../Pluperfect.Mail
+    restart: unless-stopped
+    depends_on:
+      - scry-api
+    ports:
+      - "127.0.0.1:6160:6160"
+
+volumes:
+  scry-database:
+    name: scry-database
+  scry-data:
+    name: scry-data

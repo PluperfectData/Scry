@@ -267,6 +267,11 @@ public sealed class Instance(
     /// <summary>This API's public origin, once the instance knows it.</summary>
     public string Api => ApiOrigin ?? throw new InvalidOperationException("Scry has no API address yet. Set one at /install.");
 
+    public string? NexusUrl => Given(settings.NexusUrl)?.TrimEnd('/');
+
+    /// <summary>The origin Nexus pushes rows to: the configured one, or this API's own.</summary>
+    public string Ingest => Given(settings.IngestOrigin)?.TrimEnd('/') ?? Api;
+
     public string? ServerToken => Given(mail.ServerToken) ?? file.ServerToken;
 
     public bool ServerTokenConfigured => Given(mail.ServerToken) is not null;

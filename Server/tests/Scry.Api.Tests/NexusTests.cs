@@ -268,6 +268,26 @@ public sealed class NexusTests
         back.Headers.Location!.OriginalString.ShouldBe($"{Settings}?linked=1");
     }
 
+    [Test]
+    public async Task A_configured_Nexus_address_starts_the_form_and_a_configured_push_address_goes_to_Nexus()
+    {
+        (await _client.GetFromJsonAsync<JsonElement>($"{InDefault}/nexus")).GetProperty("nexusUrl").ValueKind.ShouldBe(JsonValueKind.Null);
+
+        using var configured = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.UseSetting("Scry:NexusUrl", "http://nexus-api:6163/");
+            builder.UseSetting("Scry:IngestOrigin", "http://scry-api:6161/");
+        });
+        using var client = configured.SignedIn();
+        (await client.GetFromJsonAsync<JsonElement>($"{InDefault}/nexus")).GetProperty("nexusUrl").GetString().ShouldBe("http://nexus-api:6163");
+        using var started = await client.PostAsJsonAsync($"{InDefault}/nexus/pairing", new { nexusUrl = FakeNexus.Url });
+        started.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var opened = _factory.Nexus.Opened!.Value;
+        opened.GetProperty("ingestUrl").GetString().ShouldBe("http://scry-api:6161/ingest");
+        opened.GetProperty("callbackUrl").GetString().ShouldBe("http://localhost:6161/workspaces/1/nexus/callback");
+    }
+
     private async Task<JsonElement> PairAsync()
     {
         using var started = await _client.PostAsJsonAsync($"{InDefault}/nexus/pairing", new { nexusUrl = FakeNexus.Url + "/" });
