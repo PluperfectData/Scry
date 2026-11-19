@@ -537,19 +537,36 @@ export interface InstallView {
   mailSettings: MailSettings | null
 }
 
-export type MailTransport = 'None' | 'Postmark' | 'Files'
+export type MailTransport = 'None' | 'Postmark' | 'Mailpit'
+
+/** How the pages chose to send mail; null until one is chosen. */
+export type MailChoice = 'Postmark' | 'Mailpit' | 'Off'
 
 /** How the instance sends mail. A field set by Scry's configuration cannot be changed here. */
 export interface MailSettings {
   transport: MailTransport
+  choice: MailChoice | null
+  /** Whether configuration fixes the transport, as a Postmark token and sender there do. */
+  transportConfigured: boolean
   tokenSet: boolean
   tokenConfigured: boolean
   from: string | null
   fromConfigured: boolean
   fromName: string
   fromNameConfigured: boolean
-  /** The folder mail is written to instead of sent, when configuration names one. */
-  folder: string | null
+  mailpitUrl: string | null
+  mailpitConfigured: boolean
+  /** Where a person reads mail sent to Mailpit. */
+  mailpitInbox: string | null
+}
+
+/** What the mail form saves. A blank token or Mailpit address keeps the one stored. */
+export interface MailChange {
+  transport: 'Postmark' | 'Mailpit'
+  serverToken: string
+  from: string
+  fromName: string
+  mailpitUrl: string
 }
 
 /** The instance's addresses, mail, and database. A value set by Scry's configuration cannot be changed here. */
@@ -569,7 +586,8 @@ export interface InstanceSettings {
 export interface TestMail {
   sentTo: string
   transport: MailTransport
-  folder: string | null
+  /** Mailpit's page, where a test mail sent to Mailpit can be read. */
+  inbox: string | null
 }
 
 // The installer checks who calls it itself, so it goes around the session's client: a refused code is not a signed-out
@@ -595,8 +613,7 @@ export const installAddresses = (code: string | null, addresses: Addresses) =>
 /** The first admin; the password may be blank once mail works, to sign in by mailed links. */
 export const installAdmin = (code: string | null, email: string, password: string) =>
   install<Me>(code, '/install/admin', 'POST', { email, password })
-export const installMail = (code: string | null, serverToken: string, from: string, fromName: string) =>
-  install<InstallView>(code, '/install/mail', 'PUT', { serverToken, from, fromName })
+export const installMail = (code: string | null, mail: MailChange) => install<InstallView>(code, '/install/mail', 'PUT', mail)
 export const installMailOff = (code: string | null) => install<InstallView>(code, '/install/mail', 'DELETE')
 export const installTestMail = (code: string | null, to: string) => install<TestMail>(code, '/install/mail/test', 'POST', { to })
 export const askForInstallCode = () => install<void>(null, '/install/code', 'POST')
@@ -604,14 +621,13 @@ export const askForInstallCode = () => install<void>(null, '/install/code', 'POS
 export const getInstanceSettings = () => request<InstanceSettings>('/settings')
 export const saveAddresses = (addresses: Addresses) => request<InstanceSettings>('/settings/addresses', json('PUT', addresses))
 export const saveDatabase = (database: DatabaseForm) => request<InstanceSettings>('/settings/database', json('PUT', database))
-export const saveMail = (serverToken: string, from: string, fromName: string) =>
-  request<InstanceSettings>('/settings/mail', json('PUT', { serverToken, from, fromName }))
+export const saveMail = (mail: MailChange) => request<InstanceSettings>('/settings/mail', json('PUT', mail))
 export const turnOffMail = () => request<InstanceSettings>('/settings/mail', { method: 'DELETE' })
 export const testMail = () => request<TestMail>('/settings/mail/test', { method: 'POST' })
 
 /** What the mail form does with what it is given: the Settings page's calls, or the installer's. */
 export interface MailActions {
-  save: (serverToken: string, from: string, fromName: string) => Promise<void>
+  save: (mail: MailChange) => Promise<void>
   off: () => Promise<void>
   /** The installer asks where a test mail goes, since no admin exists yet to mail. */
   test: (to: string) => Promise<TestMail>

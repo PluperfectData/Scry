@@ -10,8 +10,8 @@ see [Running Scry](running.md). To run it in containers, see [Running Scry in Do
 Put the code at `Pluperfect.Data\Scry`, as the README's [quick start](../README.md#quick-start) says. Then, on
 Windows 10 or 11, right-click `install.ps1` in that folder and choose **Run with PowerShell**. It:
 
-1. Installs whatever is missing through winget: the .NET 10 SDK, Node.js, MySQL, and Git. A MySQL 8 or later that is
-   already installed is used as it is.
+1. Installs whatever is missing through winget: the .NET 10 SDK, Node.js, MySQL, Git, and Mailpit. A MySQL 8 or
+   later that is already installed is used as it is.
 2. Fetches Nexus beside Scry, since Scry builds on its connector library, and Pluperfect.Jwt and Pluperfect.Mail
    beside `Pluperfect.Data`, when they aren't there.
 3. Asks whether to install Nexus too. Yes runs Nexus's installer as well, and starts both.
@@ -48,6 +48,7 @@ The desktop shortcut starts Scry. Its window shows what the API is doing; keep i
 |---|---|
 | `https://localhost:6160` | Scry |
 | `https://localhost:6161` | Its API |
+| `http://localhost:6162` | Mailpit, where Scry's mail waits to be read until Postmark is set up |
 
 A development copy uses the same ports, so run one or the other, not both. Scry's database server listens on
 `127.0.0.1:6166`, for Scry alone.
@@ -63,9 +64,11 @@ Everything an install keeps is in `data` in the Scry folder, which git ignores:
 | `data\secrets.json` | That server's passwords, made on the first start |
 | `data\mysql-client.cnf` | Its root password again, for the MySQL tools the shortcut runs |
 | `data\api` | What the API keeps: its settings in `instance.json`, its keys, each workspace's DuckDB file and uploads, and its logs |
-| `data\install.json` | Where the installer found .NET and MySQL |
+| `data\install.json` | Where the installer found .NET, MySQL, and Mailpit |
+| `data\mailpit.db` | The mail Mailpit keeps |
 | `data\certificate.pem`, `data\certificate.key` | The development certificate and its key, which the site and the API serve with |
 | `data\logs\mysql.log` | The database server's log |
+| `data\logs\mailpit.log` | Mailpit's log |
 
 ## Removing it
 

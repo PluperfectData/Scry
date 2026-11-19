@@ -114,6 +114,7 @@ You'll run Scry's API and its web client from their code, then set Scry up in th
 - [Node.js 24](https://nodejs.org/)
 - [MySQL 8.4](https://dev.mysql.com/downloads/mysql/), with a user that can create Scry's database
 - [Git](https://git-scm.com/)
+- [Mailpit](https://mailpit.axllent.org/), which shows the mail Scry sends while you work on it
 
 #### 1. Get the code
 
@@ -148,6 +149,14 @@ npm run build --prefix Pluperfect.Jwt/client
 
 #### 3. Start the API
 
+Start Mailpit first, in a terminal of its own. It keeps the mail Scry sends, and shows it at `http://localhost:8025`:
+
+```bash
+mailpit
+```
+
+Then, in another terminal, from the same folder:
+
 ```bash
 dotnet run --project Pluperfect.Data/Scry/Server/src/Scry.Api
 ```
@@ -156,7 +165,7 @@ The API listens on `http://localhost:6161`.
 
 #### 4. Start the client
 
-In a second terminal, from the same folder:
+In a third terminal, from the same folder:
 
 ```bash
 npm install --prefix Pluperfect.Data/Scry/Client
@@ -170,8 +179,8 @@ Open `http://localhost:6160/install`. The installer asks, in turn, for:
 1. **Your database:** the MySQL server's address, a name for the database, and the user. Scry makes the database and
    its tables.
 2. **The addresses** people open Scry at, already filled in for your machine.
-3. **Mail**, which you can skip. On your own machine, Scry writes each mail to a file in
-   `Pluperfect.Data/Scry/Server/src/Scry.Api/data/mail` instead of sending it.
+3. **Mail**, already going to Mailpit, so the first admin may skip the password. Choose Postmark here to send real
+   mail.
 4. **The first admin:** your email, and a password if you want one.
 
 Then make a workspace, upload a CSV file on its Sources page, and add a dashboard. [Running Scry](docs/running.md)

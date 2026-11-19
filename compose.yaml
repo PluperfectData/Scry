@@ -35,14 +35,29 @@ services:
     depends_on:
       scry-db:
         condition: service_healthy
+      scry-mail:
+        condition: service_started
     environment:
       ConnectionStrings__Scry: Server=scry-db;Port=3306;Database=scry;User ID=scry;Password=${SCRY_DB_PASSWORD}
       Scry__ClientOrigin: https://localhost:6160
       Scry__ApiOrigin: https://localhost:6161
       # Browsers reach the API only through scry-web, so its forwarding headers say who asked and over what.
       Scry__Proxied: "true"
+      # Mail goes to scry-mail until the Settings page sends it through Postmark, and is read on its published port.
+      Mail__MailpitUrl: http://scry-mail:8025
+      Scry__MailpitInbox: http://localhost:6162
     volumes:
       - scry-data:/data
+
+  scry-mail:
+    image: axllent/mailpit:v1.33
+    restart: unless-stopped
+    environment:
+      MP_DATABASE: /data/mailpit.db
+    ports:
+      - "127.0.0.1:6162:8025"
+    volumes:
+      - scry-mail:/data
 
   scry-web:
     image: ghcr.io/pluperfectdata/scry-web:${SCRY_VERSION:-local}
@@ -69,3 +84,5 @@ volumes:
     name: scry-data
   scry-caddy:
     name: scry-caddy
+  scry-mail:
+    name: scry-mail

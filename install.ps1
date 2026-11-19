@@ -116,6 +116,14 @@ try {
         if (-not $mysqlBin) { throw 'MySQL was installed but not found under C:\Program Files\MySQL.' }
     }
 
+    # Mailpit keeps the mail Scry sends, for reading on its own page, until Postmark is set up.
+    $mailpit = Get-Command mailpit -ErrorAction SilentlyContinue
+    if ($mailpit) { Write-Host 'Mailpit is installed.' }
+    else {
+        Install-Program 'axllent.mailpit' 'Mailpit'
+        $mailpit = Get-Command mailpit -ErrorAction SilentlyContinue
+    }
+
     # Scry builds on Nexus's connector library, so Nexus's checkout sits beside Scry's either way.
     Get-Checkout 'Nexus' $nexus 'https://github.com/PluperfectData/Nexus.git'
     Get-Checkout 'Pluperfect.Jwt' $jwt 'https://github.com/mnwachukwu/Pluperfect.Jwt.git'
@@ -155,6 +163,7 @@ try {
     $tools = [ordered]@{
         dotnet = (Get-Command dotnet).Source
         mysqlBin = $mysqlBin
+        mailpit = if ($mailpit) { $mailpit.Source } else { $null }
     }
     $toolsFile = Join-Path $data 'install.json'
     [IO.File]::WriteAllText("$toolsFile.tmp", ($tools | ConvertTo-Json), (New-Object Text.UTF8Encoding $false))

@@ -55,7 +55,7 @@
 | `PUT /settings/log` | For admins: from `{"days"}`, 1 to 365, sets how many days the log keeps an entry |
 | `GET /log?workspace=&source=&level=&before=&instance=` | The [Log page](logs.md)'s entries: newest first, 100 at a time, with `next` for the older ones. `level=Warning` keeps warnings and errors, and an admin's `instance=true` keeps the entries about the whole instance. |
 | `PUT /settings/addresses` | From `{"clientOrigin", "apiOrigin"}`, changes the addresses |
-| `PUT` and `DELETE /settings/mail`, `POST /settings/mail/test` | From `{"serverToken", "from", "fromName"}`, sets Postmark's token and the sender, or turns mail off, and mails the admin to check it. A blank token keeps the stored one. |
+| `PUT` and `DELETE /settings/mail`, `POST /settings/mail/test` | From `{"transport", "serverToken", "from", "fromName", "mailpitUrl"}`, sends mail through Postmark or to Mailpit, as `transport` says, or turns mail off, and mails the admin to check it. A blank token or Mailpit address keeps the stored one, and each transport keeps its settings while another is chosen. A test mail to Mailpit answers where to read it, in `inbox`. |
 | `PUT /settings/database` | From the installer's fields, moves Scry to another database once it opens and is up to date. A blank password keeps the stored one for the same server, database, and user. |
 | `GET /ingest` | Push API: names the key the request carries, by its name and prefix |
 | `PUT /ingest/sources/{name}` | Push API: makes a source from `{"columns": [{"name", "type"}], "primaryKey": [...], "origin"}`, or adds columns to one. `origin`, optional, says where the rows come from, up to 500 characters, and the Sources page shows it. |

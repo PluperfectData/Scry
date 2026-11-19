@@ -16,6 +16,7 @@ public static class InstanceReset
         ("Scry:ClientOrigin", "the client's address is fixed"),
         ("Scry:ApiOrigin", "the API's address is fixed"),
         ("Mail:ServerToken", "Postmark's token is fixed"),
+        ("Mail:MailpitUrl", "Mailpit's address is fixed"),
         ("Scry:MailFrom", "the sender is fixed"),
         ("Scry:MailFromName", "the sender's name is fixed"),
         ("Jwt:SigningKey", "the signing key is fixed"),

@@ -19,8 +19,8 @@ namespace Scry.Api.Tests;
 /// Hosts the real API over a SQLite file in a temporary data directory. An installed factory starts as the installer
 /// leaves an instance: a stored database, client address, and API address, and an owner who is an admin and signs in
 /// with <see cref="OwnerPassword"/>. It also has the workspace an instance's data moves into, Default, whose routes
-/// start <see cref="InDefault"/>. It runs as Development, so cookies go over plain http, and mail lands as files in
-/// <see cref="MailDirectory"/> unless the factory sends it to <see cref="Postmark"/>.
+/// start <see cref="InDefault"/>. It runs as Development, so cookies go over plain http, and mail goes to
+/// <see cref="Mailpit"/>, configured as Development configures a Mailpit, unless the factory sends it to <see cref="Postmark"/>.
 /// </summary>
 public sealed class ScryApiFactory : WebApplicationFactory<Program>
 {
@@ -53,14 +53,15 @@ public sealed class ScryApiFactory : WebApplicationFactory<Program>
         $"{ScrySettings.Section}:{nameof(ScrySettings.MailFromName)}",
     ];
 
-    private readonly bool _mailToFiles;
+    private readonly bool _withMailpit;
 
     private readonly bool _proxied;
 
+    /// <param name="withMailpit">Whether configuration names <see cref="Mailpit"/>, as Development's does.</param>
     /// <param name="proxied">Whether the API believes a proxy's forwarding headers, as it does behind Caddy.</param>
-    public ScryApiFactory(bool installed = true, bool mailToFiles = true, bool proxied = false)
+    public ScryApiFactory(bool installed = true, bool withMailpit = true, bool proxied = false)
     {
-        _mailToFiles = mailToFiles;
+        _withMailpit = withMailpit;
         _proxied = proxied;
         Directory.CreateDirectory(DataDirectory);
         Database = new SqliteDatabaseHost(SqliteConnectionString);
@@ -81,10 +82,10 @@ public sealed class ScryApiFactory : WebApplicationFactory<Program>
 
     public string DataDirectory { get; } = Path.Combine(Path.GetTempPath(), "scry-tests", Guid.NewGuid().ToString("N"));
 
-    public string MailDirectory => Path.Combine(DataDirectory, "mail");
-
     /// <summary>Postmark's API, for a factory that does not write mail to files.</summary>
     internal FakePostmark Postmark { get; } = new();
+
+    internal FakeMailpit Mailpit { get; } = new();
 
     /// <summary>A Nexus instance as Scry's link reaches it in tests.</summary>
     public FakeNexus Nexus { get; } = new();
@@ -148,8 +149,8 @@ public sealed class ScryApiFactory : WebApplicationFactory<Program>
     /// <summary>An installed factory whose mail goes through <see cref="Postmark"/> from the start, as a Release build's does.</summary>
     public static ScryApiFactory WithPostmark()
     {
-        var factory = new ScryApiFactory(mailToFiles: false);
-        factory.NewInstanceFile().SaveMail(FakePostmark.Token, MailSender, Instance.DefaultSenderName);
+        var factory = new ScryApiFactory(withMailpit: false);
+        factory.NewInstanceFile().SavePostmark(FakePostmark.Token, MailSender, Instance.DefaultSenderName);
         return factory;
     }
 
@@ -169,7 +170,7 @@ public sealed class ScryApiFactory : WebApplicationFactory<Program>
         }
 
         builder.UseSetting($"{ScrySettings.Section}:{nameof(ScrySettings.DataDirectory)}", DataDirectory);
-        builder.UseSetting("Mail:PickupDirectory", _mailToFiles ? MailDirectory : string.Empty);
+        builder.UseSetting("Mail:MailpitUrl", _withMailpit ? FakeMailpit.Address : string.Empty);
         builder.UseSetting($"{ScrySettings.Section}:{nameof(ScrySettings.Proxied)}", _proxied ? "true" : "false");
 
         builder.ConfigureTestServices(services =>
@@ -178,6 +179,7 @@ public sealed class ScryApiFactory : WebApplicationFactory<Program>
             services.AddSingleton<IDatabaseHost>(Database);
             services.AddHttpClient(NexusApi.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => Nexus);
             services.AddHttpClient(InstanceMailer.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => Postmark);
+            services.AddHttpClient(InstanceMailer.MailpitClientName).ConfigurePrimaryHttpMessageHandler(() => Mailpit);
             services.AddSingleton<IStartupFilter, PretendLocal>();
             services.AddSingleton<ILogEventSink>(Logs);
         });

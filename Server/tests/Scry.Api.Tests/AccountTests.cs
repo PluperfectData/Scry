@@ -229,7 +229,7 @@ public sealed class AccountTests
     [Test]
     public async Task Without_mail_an_invite_answers_its_link_to_pass_on()
     {
-        using var factory = new ScryApiFactory(mailToFiles: false);
+        using var factory = new ScryApiFactory(withMailpit: false);
         using var admin = await factory.SignedInAsync(Admin, admin: true);
 
         var invited = await admin.SendAsync<JsonElement>(HttpMethod.Post, "/users", new { email = "new@acme.test", isAdmin = false });
@@ -263,23 +263,23 @@ public sealed class AccountTests
 
         (await member.GetAsync("/users")).StatusCode.ShouldBe(HttpStatusCode.Forbidden);
         (await member.GetAsync("/settings")).StatusCode.ShouldBe(HttpStatusCode.Forbidden);
-        (await member.SendAsync(HttpMethod.Put, "/settings/mail", new { serverToken = "t", from = "scry@acme.test" })).StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        (await member.SendAsync(HttpMethod.Put, "/settings/mail", new { transport = "Postmark", serverToken = "t", from = "scry@acme.test" })).StatusCode.ShouldBe(HttpStatusCode.Forbidden);
         (await member.GetAsync($"{InDefault}/sources")).StatusCode.ShouldBe(HttpStatusCode.OK);
     }
 
     [Test]
     public async Task Mail_goes_through_the_token_the_page_stores_and_the_token_is_never_answered()
     {
-        using var factory = new ScryApiFactory(mailToFiles: false);
+        using var factory = new ScryApiFactory(withMailpit: false);
         using var admin = await factory.SignedInAsync(Admin, admin: true);
 
         var off = await admin.GetAsync<JsonElement>("/settings");
         using var noLinks = await factory.NewBrowser().SendAsync(HttpMethod.Post, "/auth/link", new { email = Admin });
-        using var tokenless = await admin.SendAsync(HttpMethod.Put, "/settings/mail", new { from = "scry@acme.test" });
+        using var tokenless = await admin.SendAsync(HttpMethod.Put, "/settings/mail", new { transport = "Postmark", from = "scry@acme.test" });
         var on = await admin.SendAsync<JsonElement>(
-            HttpMethod.Put, "/settings/mail", new { serverToken = FakePostmark.Token, from = "scry@acme.test", fromName = "Acme Scry" });
+            HttpMethod.Put, "/settings/mail", new { transport = "Postmark", serverToken = FakePostmark.Token, from = "scry@acme.test", fromName = "Acme Scry" });
         var tested = await admin.SendAsync<JsonElement>(HttpMethod.Post, "/settings/mail/test");
-        (await admin.SendAsync(HttpMethod.Put, "/settings/mail", new { serverToken = "wrong-token", from = "scry@acme.test" })).EnsureSuccessStatusCode();
+        (await admin.SendAsync(HttpMethod.Put, "/settings/mail", new { transport = "Postmark", serverToken = "wrong-token", from = "scry@acme.test" })).EnsureSuccessStatusCode();
         using var failed = await admin.SendAsync(HttpMethod.Post, "/settings/mail/test");
 
         off.GetProperty("mail").GetProperty("transport").GetString().ShouldBe("None");
@@ -322,30 +322,89 @@ public sealed class AccountTests
         browser.Cookies.GetCookies(new Uri("http://localhost/auth/refresh"))[RefreshCookieName]?.Value
         ?? throw new InvalidOperationException("No refresh cookie.");
 
-#if DEBUG
     [Test]
-    public async Task A_saved_Postmark_token_wins_over_mail_files_and_turning_it_off_returns_to_them()
+    public async Task A_configured_Mailpit_is_used_until_the_page_chooses_and_each_choice_keeps_its_settings()
     {
         using var factory = new ScryApiFactory();
         using var admin = await factory.SignedInAsync(Admin, admin: true);
 
-        var files = await admin.GetAsync<JsonElement>("/settings");
-        var postmark = await admin.SendAsync<JsonElement>(HttpMethod.Put, "/settings/mail", new { serverToken = FakePostmark.Token, from = "scry@acme.test" });
-        (await admin.SendAsync(HttpMethod.Post, "/settings/mail/test")).EnsureSuccessStatusCode();
-        var back = await admin.SendAsync<JsonElement>(HttpMethod.Delete, "/settings/mail");
+        var first = await admin.GetAsync<JsonElement>("/settings");
+        var tested = await admin.SendAsync<JsonElement>(HttpMethod.Post, "/settings/mail/test");
+        var postmark = await admin.SendAsync<JsonElement>(HttpMethod.Put, "/settings/mail", new { transport = "Postmark", serverToken = FakePostmark.Token, from = "scry@acme.test" });
+        var off = await admin.SendAsync<JsonElement>(HttpMethod.Delete, "/settings/mail");
+        var mailpit = await admin.SendAsync<JsonElement>(HttpMethod.Put, "/settings/mail", new { transport = "Mailpit" });
+        var postmarkAgain = await admin.SendAsync<JsonElement>(HttpMethod.Put, "/settings/mail", new { transport = "Postmark", from = "scry@acme.test" });
 
-        files.GetProperty("mail").GetProperty("transport").GetString().ShouldBe("Files");
-        files.GetProperty("mail").GetProperty("folder").GetString().ShouldBe(Path.GetFullPath(factory.MailDirectory));
+        first.GetProperty("mail").GetProperty("transport").GetString().ShouldBe("Mailpit");
+        first.GetProperty("mail").GetProperty("choice").ValueKind.ShouldBe(JsonValueKind.Null);
+        first.GetProperty("mail").GetProperty("mailpitConfigured").GetBoolean().ShouldBeTrue();
+        tested.GetProperty("inbox").GetString().ShouldBe(FakeMailpit.Address);
+        var sent = Browser.MailpitTo(factory.Mailpit, Admin).Single();
+        sent.GetProperty("From").GetProperty("Email").GetString().ShouldBe("scry@localhost");
+        sent.GetProperty("From").GetProperty("Name").GetString().ShouldBe("Scry");
         postmark.GetProperty("mail").GetProperty("transport").GetString().ShouldBe("Postmark");
-        postmark.GetProperty("mail").GetProperty("folder").GetString().ShouldBe(Path.GetFullPath(factory.MailDirectory));
-        factory.Postmark.Sent.Single().GetProperty("To").GetString().ShouldBe(Admin);
-        Browser.MailTo(factory.MailDirectory, Admin).ShouldBeEmpty();
-        back.GetProperty("mail").GetProperty("transport").GetString().ShouldBe("Files");
+        off.GetProperty("mail").GetProperty("transport").GetString().ShouldBe("None");
+        off.GetProperty("mail").GetProperty("choice").GetString().ShouldBe("Off");
+        mailpit.GetProperty("mail").GetProperty("transport").GetString().ShouldBe("Mailpit");
+        postmarkAgain.GetProperty("mail").GetProperty("transport").GetString().ShouldBe("Postmark");
+        postmarkAgain.GetProperty("mail").GetProperty("tokenSet").GetBoolean().ShouldBeTrue();
+        await using var db = factory.NewContext();
+        (await db.LogEntries.OrderBy(e => e.Id).Select(e => e.Text).Where(t => t.StartsWith("Mail ")).ToListAsync()).ShouldBe(
+        [
+            "Mail was set to go through Postmark, from Scry at scry@acme.test, with a new server token.",
+            "Mail was turned off.",
+            $"Mail was set to go to Mailpit at {FakeMailpit.Address}.",
+            "Mail was set to go through Postmark, from Scry at scry@acme.test.",
+        ]);
     }
-#endif
 
     [Test]
-    public async Task Outside_Development_a_mail_folder_is_ignored_and_the_log_says_so()
+    public async Task The_page_names_a_Mailpit_where_configuration_names_none()
+    {
+        using var factory = new ScryApiFactory(withMailpit: false);
+        using var admin = await factory.SignedInAsync(Admin, admin: true);
+
+        using var unchosen = await admin.SendAsync(HttpMethod.Put, "/settings/mail", new { mailpitUrl = FakeMailpit.Address });
+        using var nowhere = await admin.SendAsync(HttpMethod.Put, "/settings/mail", new { transport = "Mailpit", mailpitUrl = "mailpit.test:8025" });
+        var chosen = await admin.SendAsync<JsonElement>(HttpMethod.Put, "/settings/mail", new { transport = "Mailpit", mailpitUrl = FakeMailpit.Address + "/" });
+        using var asked = await factory.NewBrowser().SendAsync(HttpMethod.Post, "/auth/link", new { email = Admin });
+
+        (await Browser.DetailAsync(unchosen)).ShouldBe("Choose how mail goes: through Postmark, or to Mailpit.");
+        (await Browser.DetailAsync(nowhere)).ShouldBe("Enter Mailpit's address, such as http://localhost:8025.");
+        chosen.GetProperty("mail").GetProperty("transport").GetString().ShouldBe("Mailpit");
+        chosen.GetProperty("mail").GetProperty("mailpitUrl").GetString().ShouldBe(FakeMailpit.Address);
+        chosen.GetProperty("mail").GetProperty("mailpitConfigured").GetBoolean().ShouldBeFalse();
+        asked.StatusCode.ShouldBe(HttpStatusCode.Accepted);
+        Browser.LinkToken(Browser.MailpitTo(factory.Mailpit, Admin).Single()).ShouldNotBeEmpty();
+    }
+
+    [Test]
+    public async Task A_Postmark_token_and_sender_in_configuration_fix_the_transport()
+    {
+        using var factory = new ScryApiFactory();
+        await factory.AddUserAsync(Admin, Browser.Password, admin: true);
+        using var configured = factory.WithWebHostBuilder(builder =>
+        {
+            builder.UseSetting("Mail:ServerToken", FakePostmark.Token);
+            builder.UseSetting("Scry:MailFrom", "ops@acme.test");
+        });
+        var cookies = new CookieContainer();
+        using var admin = new Browser(configured.CreateDefaultClient(new Uri("http://localhost/"), new Microsoft.AspNetCore.Mvc.Testing.Handlers.CookieContainerHandler(cookies)), cookies);
+        (await admin.SignInAsync(Admin, Browser.Password)).EnsureSuccessStatusCode();
+
+        var view = await admin.GetAsync<JsonElement>("/settings");
+        using var toMailpit = await admin.SendAsync(HttpMethod.Put, "/settings/mail", new { transport = "Mailpit" });
+        using var off = await admin.SendAsync(HttpMethod.Delete, "/settings/mail");
+
+        view.GetProperty("mail").GetProperty("transport").GetString().ShouldBe("Postmark");
+        view.GetProperty("mail").GetProperty("transportConfigured").GetBoolean().ShouldBeTrue();
+        toMailpit.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        off.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        (await Browser.DetailAsync(off)).ShouldBe("Mail goes through Postmark, as Scry's configuration sets it, in Mail:ServerToken and Scry:MailFrom.");
+    }
+
+    [Test]
+    public async Task Mailpit_works_outside_Development_too()
     {
         using var factory = new ScryApiFactory();
         using var production = factory.WithWebHostBuilder(builder => builder.UseEnvironment("Production"));
@@ -353,8 +412,6 @@ public sealed class AccountTests
 
         var view = await client.GetFromJsonAsync<JsonElement>("/install");
 
-        view.GetProperty("mail").GetBoolean().ShouldBeFalse();
-        factory.Logs.Lines.ShouldContain(line =>
-            line.StartsWith("Mail:PickupDirectory is set, but Scry writes mail to files only in a Debug build running as Development.", StringComparison.Ordinal));
+        view.GetProperty("mail").GetBoolean().ShouldBeTrue();
     }
 }

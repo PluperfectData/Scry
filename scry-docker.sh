@@ -106,8 +106,10 @@ install_code scry-api Scry
 
 echo
 echo "Scry is running at https://localhost:6160. Docker keeps it running; docker compose stop stops it."
+echo "Scry's Mailpit, which keeps the mail Scry sends until Postmark is set up, is at http://localhost:6162."
 open_page https://localhost:6160
 if [ "$file" = compose.both.yaml ]; then
   echo "Nexus is running at https://localhost:6165."
+  echo "Nexus's Mailpit, which keeps the mail Nexus sends until Postmark is set up, is at http://localhost:6168."
   open_page https://localhost:6165
 fi

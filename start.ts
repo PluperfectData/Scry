@@ -1,8 +1,8 @@
-// Starts Scry on this computer, with its own MySQL server, the API, and the site, and opens it in the browser. The
-// Scry shortcut that install.ps1 puts on the desktop runs it. Ctrl+C, or closing the window, stops all three.
+// Starts Scry on this computer, with its own MySQL server and Mailpit, the API, and the site, and opens it in the
+// browser. The Scry shortcut that install.ps1 puts on the desktop runs it. Ctrl+C, or closing the window, stops them all.
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import { randomBytes, X509Certificate } from 'node:crypto'
-import { createReadStream, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { createServer, get } from 'node:https'
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path'
 import { stdin } from 'node:process'
@@ -13,6 +13,7 @@ const SITE_PORT = 6160
 const API_PORT = 6161
 const DATABASE_PORT = 6166
 const DATABASE = 'scry'
+const MAILPIT_PORT = 6162
 const SITE = `https://localhost:${SITE_PORT}`
 const API = `https://localhost:${API_PORT}`
 
@@ -27,7 +28,7 @@ const certificateFile = join(data, 'certificate.pem')
 const certificateKeyFile = join(data, 'certificate.key')
 
 /** The programs the installer found, so this does not search for them again. */
-type Tools = { dotnet: string; mysqlBin: string }
+type Tools = { dotnet: string; mysqlBin: string; mailpit: string | null }
 
 type Secrets = { rootPassword: string; databasePassword: string }
 
@@ -111,6 +112,21 @@ async function startDatabase(tools: Tools, passwords: Secrets): Promise<void> {
   if (!made.ok) throw new Error(`The database server did not accept Scry's database and user:\n${made.output}`)
 }
 
+/** Mailpit, which keeps the mail Scry sends for reading on its own page, with its inbox in data/mailpit.db. */
+function startMailpit(tools: Tools): ChildProcess | null {
+  if (!tools.mailpit) {
+    console.warn('Mailpit is not installed, so Scry sends no mail until its Settings page sets up Postmark. Run install.ps1 again to install it.')
+    return null
+  }
+  const mailpit = spawn(tools.mailpit, ['--listen', `127.0.0.1:${MAILPIT_PORT}`, '--smtp', '127.0.0.1:0', '--database', join(data, 'mailpit.db')], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  const log = createWriteStream(join(logs, 'mailpit.log'), { flags: 'a' })
+  mailpit.stdout?.pipe(log)
+  mailpit.stderr?.pipe(log)
+  return mailpit
+}
+
 function stopDatabase(tools: Tools): void {
   run(join(tools.mysqlBin, 'mysqladmin.exe'), [`--defaults-extra-file=${clientFile}`, 'shutdown'])
 }
@@ -171,6 +187,7 @@ async function main(): Promise<void> {
   mkdirSync(logs, { recursive: true })
   const passwords = secrets()
   await startDatabase(tools, passwords)
+  const mailpit = startMailpit(tools)
 
   const api = spawn(tools.dotnet, [join(app, 'api', 'Scry.Api.dll')], {
     cwd: join(app, 'api'),
@@ -185,6 +202,7 @@ async function main(): Promise<void> {
       Scry__ClientOrigin: SITE,
       Scry__ApiOrigin: API,
       Scry__DataDirectory: join(data, 'api'),
+      Mail__MailpitUrl: mailpit ? `http://127.0.0.1:${MAILPIT_PORT}` : '',
     },
   })
   echo(api)
@@ -196,6 +214,7 @@ async function main(): Promise<void> {
     stopping = true
     site.close()
     api.kill()
+    mailpit?.kill()
     stopDatabase(tools)
     process.exit(code)
   }
@@ -206,6 +225,7 @@ async function main(): Promise<void> {
     if (stopping) return
     stopping = true
     site.close()
+    mailpit?.kill()
     stopDatabase(tools)
     stopAfterReading(`The API stopped (exit code ${code}). The lines above, and the logs in data/api/logs, say why.`, code || 1)
   })

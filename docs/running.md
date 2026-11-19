@@ -4,7 +4,12 @@
 
 ## Starting the API and the client
 
-Start the API and the client, then open `http://localhost:6160/install`.
+Start Mailpit, which keeps the mail the API sends and shows it at `http://localhost:8025`. Then start the API and the
+client, and open `http://localhost:6160/install`.
+
+```bash
+mailpit
+```
 
 ```bash
 dotnet run --project Server/src/Scry.Api
@@ -32,8 +37,9 @@ An instance starts with nothing set. Until it has a database, both addresses, an
 2. **The addresses:** the client's, where people open Scry and the one origin CORS allows, and the API's, which
    Scry gives Nexus for its push API and its pairing callback. The page fills in its own address and the API
    address it was built with.
-3. **Mail:** Postmark's server token and the sender, with a test mail to an address you name. Mail may stay off.
-   A Debug build running as Development writes mail to `data/mail`, and the step says so.
+3. **Mail:** through Postmark, with its server token and sender, or to Mailpit, which delivers nothing and keeps each
+   message for reading on its own page. A test mail goes to an address you name, and mail may stay off. Development
+   names a Mailpit at `http://localhost:8025`, so the step starts there.
 4. **The first admin:** an email, signed in at once. Once mail works the password is optional, and an admin without
    one signs in with mailed links. With mail off, a password is required. A database that already has an admin skips
    this step, which is how an existing instance is adopted.

@@ -27,12 +27,14 @@ The launcher:
 6. Prints the installer's address with its install code while Scry isn't set up, and opens Scry.
 
 The installer page asks for that install code, since requests through Docker don't reach Scry from this computer as
-Scry sees it. Then it asks for Mail and the first admin; Scry already knows its database and addresses.
+Scry sees it. Then it asks for Mail and the first admin; Scry already knows its database and addresses. Mail starts at Mailpit,
+so the first admin may skip the password.
 
 | Address | What |
 |---|---|
 | `https://localhost:6160` | Scry |
 | `https://localhost:6161` | Its API |
+| `http://localhost:6162` | Mailpit, where Scry's mail waits to be read |
 
 A development copy uses the same ports, so stop one before starting Docker; the launcher says so when a port is
 taken. Docker keeps the containers running, and starts them again with Docker. Stop them from Docker Desktop, or with
@@ -60,20 +62,22 @@ its own, and the launcher asks about both.
 
 ## What runs
 
-`compose.yaml` holds three services, published on this computer only:
+`compose.yaml` holds four services, published on this computer only:
 
 | Service | Image | What |
 |---|---|---|
 | `scry-web` | `ghcr.io/pluperfectdata/scry-web` | Caddy, serving the site and the API over HTTPS |
 | `scry-api` | `ghcr.io/pluperfectdata/scry-api` | The API, which browsers reach only through `scry-web` |
 | `scry-db` | `mysql:8.4` | The `scry` database, not published outside Docker |
+| `scry-mail` | `axllent/mailpit:v1.33` | Mailpit, which keeps the mail the API sends until Postmark is set up, at `http://localhost:6162` |
 
 Both of Scry's images come from the one `Dockerfile`, as its `api` and `web` targets. Nexus's connector library,
 Pluperfect.Jwt, and Pluperfect.Mail come into the build as its `nexus`, `jwt`, and `mail` build contexts.
 
-The data is in three Docker volumes: `scry-database` holds the database, `scry-data` what the API keeps (its
-settings, keys, each workspace's DuckDB file and uploads, and its logs), and `scry-caddy` Caddy's authority and
-certificates. ⚠ `docker compose down --volumes` deletes all three, and everything Scry holds with them.
+The data is in four Docker volumes: `scry-database` holds the database, `scry-data` what the API keeps (its
+settings, keys, each workspace's DuckDB file and uploads, and its logs), `scry-caddy` Caddy's authority and
+certificates, and `scry-mail` the mail Mailpit keeps. ⚠ `docker compose down --volumes` deletes all four, and
+everything Scry holds with them.
 
 Since every browser request reaches the API through Caddy, `compose.yaml` sets `Scry__Proxied`, and the API reads who
 asked and over what from Caddy's forwarding headers. See [configuration](configuration.md).
