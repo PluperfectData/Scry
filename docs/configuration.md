@@ -35,3 +35,7 @@ These settings have no page:
 | `Scry:DataDirectory` | `data`, beside the API. Each workspace's DuckDB file and uploads, under `workspaces`, `instance.json`, and `keys`, the keys that encrypt the Nexus links' app keys and the database password, live here. |
 | `Scry:NexusUrl` | None. The Nexus address the Link Nexus form starts with, where Scry's server reaches Nexus at another address than a browser does. Docker's `compose.linked.yaml` sets `http://nexus-api:6163`. |
 | `Scry:IngestOrigin` | `Scry:ApiOrigin`. The address Scry gives Nexus to push rows to, where Nexus reaches the API at another address than a browser does. Docker's `compose.linked.yaml` sets `http://scry-api:6161`. |
+| `Scry:Proxied` | `false`. Whether browsers reach the API only through a proxy, such as Caddy. When `true`, the API believes the proxy's `X-Forwarded-For` and `X-Forwarded-Proto`: who asked, for the install code's check, and whether it came over HTTPS, which the session and antiforgery cookies need outside Development. Docker's `compose.yaml` sets it. |
+
+⚠ Set `Scry:Proxied` only where the API's own port can't be reached except through the proxy. Anyone who reaches it
+directly could otherwise claim any address, including this machine's.

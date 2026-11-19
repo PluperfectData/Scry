@@ -45,7 +45,8 @@ A page on the machine the API runs on uses the installer as it is. Any other pag
 API writes to its log, with a link to `/install` that carries it, at each start while it is not set up. The code is
 sent as `Authorization: Bearer scryi_...`, and five wrong codes lock the installer for 15 minutes. A page counts as
 on the machine when it reaches the API over loopback with no proxy's forwarding headers, at a loopback name, from a
-page at a loopback name; a box behind Caddy's Unix socket always needs the code.
+page at a loopback name. With [`Scry:Proxied`](configuration.md) set, as behind Caddy, the address the proxy forwards
+is the one checked, so a page on any other machine still needs the code.
 
 When a wrong client address keeps the Settings page from reaching the API, `/install` on an instance already set up
 changes the addresses. Someone locked out uses its Make an admin, which makes an address an admin with a new password

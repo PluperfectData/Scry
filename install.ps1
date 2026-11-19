@@ -72,12 +72,8 @@ function Find-MySql {
     return $null
 }
 
-function Test-Answering([string]$url) {
-    try {
-        return (Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 3).StatusCode -eq 200
-    } catch {
-        return $false
-    }
+function Test-Listening([int]$port) {
+    return [bool](Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue)
 }
 
 # Clones a checkout the build needs when it is missing, installing Git first if it is missing too.
@@ -93,8 +89,8 @@ try {
     if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
         throw 'winget is missing. Install App Installer from the Microsoft Store, then run this again.'
     }
-    if (Test-Answering "http://localhost:$apiPort/health") {
-        throw 'Scry is running. Close its window, or stop the development copy, then run this again.'
+    if (Test-Listening $apiPort) {
+        throw "Something is using port ${apiPort}: Scry's window, its development copy, or Scry in Docker. Stop it, then run this again."
     }
 
     $withNexus = $false
@@ -137,9 +133,23 @@ try {
     Invoke-Native 'npm' @('ci', '--prefix', (Join-Path $jwt 'client'))
     Invoke-Native 'npm' @('run', 'build', '--prefix', (Join-Path $jwt 'client'))
     Invoke-Native 'npm' @('ci', '--prefix', (Join-Path $root 'Client'))
-    $env:VITE_API_URL = "http://localhost:$apiPort"
+    $env:VITE_API_URL = "https://localhost:$apiPort"
     Invoke-Native 'npm' @('run', 'build', '--prefix', (Join-Path $root 'Client'), '--', '--outDir', (Join-Path $app 'site'), '--emptyOutDir')
     Remove-Item Env:VITE_API_URL
+
+    Write-Step "Trusting the certificate for Scry's addresses"
+    if (Test-Native { dotnet dev-certs https --check --trust }) { Write-Host 'The certificate is trusted.' }
+    else {
+        Write-Host 'Windows asks once whether to trust it. Choose Yes.'
+        Invoke-Native 'dotnet' @('dev-certs', 'https', '--trust')
+    }
+    # PEM files in data, which start.ts serves the site and the API with.
+    $nextCertificate = Join-Path $data 'certificate.new.pem'
+    $nextKey = Join-Path $data 'certificate.new.key'
+    Remove-Item $nextCertificate, $nextKey -ErrorAction SilentlyContinue
+    Invoke-Native 'dotnet' @('dev-certs', 'https', '--export-path', $nextCertificate, '--format', 'Pem', '--no-password')
+    Move-Item $nextCertificate (Join-Path $data 'certificate.pem') -Force
+    Move-Item $nextKey (Join-Path $data 'certificate.key') -Force
 
     Write-Step 'Recording where the programs are'
     $tools = [ordered]@{
