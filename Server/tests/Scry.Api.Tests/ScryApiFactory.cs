@@ -55,9 +55,13 @@ public sealed class ScryApiFactory : WebApplicationFactory<Program>
 
     private readonly bool _mailToFiles;
 
-    public ScryApiFactory(bool installed = true, bool mailToFiles = true)
+    private readonly bool _proxied;
+
+    /// <param name="proxied">Whether the API believes a proxy's forwarding headers, as it does behind Caddy.</param>
+    public ScryApiFactory(bool installed = true, bool mailToFiles = true, bool proxied = false)
     {
         _mailToFiles = mailToFiles;
+        _proxied = proxied;
         Directory.CreateDirectory(DataDirectory);
         Database = new SqliteDatabaseHost(SqliteConnectionString);
         if (installed)
@@ -166,6 +170,7 @@ public sealed class ScryApiFactory : WebApplicationFactory<Program>
 
         builder.UseSetting($"{ScrySettings.Section}:{nameof(ScrySettings.DataDirectory)}", DataDirectory);
         builder.UseSetting("Mail:PickupDirectory", _mailToFiles ? MailDirectory : string.Empty);
+        builder.UseSetting($"{ScrySettings.Section}:{nameof(ScrySettings.Proxied)}", _proxied ? "true" : "false");
 
         builder.ConfigureTestServices(services =>
         {

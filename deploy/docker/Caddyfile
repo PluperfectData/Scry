@@ -1,9 +1,21 @@
-# Scry's site in Docker. Paths that are not files get index.html, since the site routes in the browser.
-:6160 {
+# Scry in Docker over HTTPS: its site and its API. Caddy makes each certificate from its own authority, which the
+# launcher asks this computer to trust. Paths that are not files get index.html, since the site routes in the browser.
+{
+	skip_install_trust
+	auto_https disable_redirects
+}
+
+https://localhost:6160 {
+	tls internal
 	root * /srv
 	encode gzip
 	@assets path /assets/*
 	header @assets Cache-Control "public, max-age=31536000, immutable"
 	try_files {path} /index.html
 	file_server
+}
+
+https://localhost:6161 {
+	tls internal
+	reverse_proxy scry-api:6161
 }

@@ -18,6 +18,8 @@ public sealed partial class InstallTests
 
     private static readonly object Addresses = new { clientOrigin = ScryApiFactory.ClientOrigin, apiOrigin = ScryApiFactory.ApiOrigin };
 
+    private const string RemoteAddress = "203.0.113.9";
+
     [Test]
     public async Task An_instance_with_nothing_set_answers_only_the_installer_and_the_health_check()
     {
@@ -82,7 +84,7 @@ public sealed partial class InstallTests
         using var client = factory.CreateClient();
 
         using var otherSite = await PostAsync(client, "/install/database", Database, local: true, origin: "https://elsewhere.example");
-        using var proxied = await PostAsync(client, "/install/database", Database, local: true, forwarded: true);
+        using var proxied = await PostAsync(client, "/install/database", Database, local: true, forwardedFor: RemoteAddress);
         var view = await GetAsync(client, local: true);
         using var local = await PostAsync(client, "/install/database", Database, local: true);
 
@@ -91,6 +93,34 @@ public sealed partial class InstallTests
         view.GetProperty("local").GetBoolean().ShouldBeTrue();
         view.GetProperty("allowed").GetBoolean().ShouldBeTrue();
         local.StatusCode.ShouldBe(HttpStatusCode.OK, await local.Content.ReadAsStringAsync());
+    }
+
+    [Test]
+    public async Task Behind_a_proxy_the_forwarded_address_decides_whether_a_page_is_on_this_machine()
+    {
+        using var factory = new ScryApiFactory(installed: false, proxied: true);
+        using var client = factory.CreateClient();
+
+        using var remote = await PostAsync(client, "/install/database", Database, forwardedFor: RemoteAddress);
+        using var local = await PostAsync(client, "/install/database", Database, forwardedFor: "127.0.0.1");
+
+        remote.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        local.StatusCode.ShouldBe(HttpStatusCode.OK, await local.Content.ReadAsStringAsync());
+    }
+
+    [Test]
+    public async Task Behind_a_proxy_a_request_forwarded_over_https_gets_secure_cookies_outside_development()
+    {
+        using var factory = new ScryApiFactory(mailToFiles: false, proxied: true);
+        using var production = factory.WithWebHostBuilder(builder => builder.UseEnvironment("Production"));
+        using var client = production.CreateDefaultClient();
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/auth/csrf");
+        request.Headers.Add("X-Forwarded-Proto", "https");
+
+        using var response = await client.SendAsync(request);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        response.Headers.GetValues("Set-Cookie").ShouldContain(cookie => cookie.StartsWith("__Host-scrysrf=", StringComparison.Ordinal) && cookie.Contains("secure", StringComparison.Ordinal));
     }
 
     [Test]
@@ -361,7 +391,7 @@ public sealed partial class InstallTests
     private static async Task<JsonElement> GetAsync(HttpClient client, bool local = false, string? code = null)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, "/install");
-        Mark(request, local, code, ScryApiFactory.ClientOrigin, forwarded: false);
+        Mark(request, local, code, ScryApiFactory.ClientOrigin, forwardedFor: null);
         using var response = await client.SendAsync(request);
         return await response.Content.ReadFromJsonAsync<JsonElement>();
     }
@@ -374,21 +404,21 @@ public sealed partial class InstallTests
     }
 
     private static async Task<HttpResponseMessage> PostAsync(
-        HttpClient client, string path, object body, string? code = null, bool local = false, string origin = ScryApiFactory.ClientOrigin, bool forwarded = false)
+        HttpClient client, string path, object body, string? code = null, bool local = false, string origin = ScryApiFactory.ClientOrigin, string? forwardedFor = null)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, path) { Content = JsonContent.Create(body) };
-        Mark(request, local, code, origin, forwarded);
+        Mark(request, local, code, origin, forwardedFor);
         return await client.SendAsync(request);
     }
 
     private static async Task<HttpResponseMessage> SendAsync(HttpClient client, HttpMethod method, string path, object? body = null, string? code = null, bool local = false)
     {
         using var request = new HttpRequestMessage(method, path) { Content = body is null ? null : JsonContent.Create(body) };
-        Mark(request, local, code, ScryApiFactory.ClientOrigin, forwarded: false);
+        Mark(request, local, code, ScryApiFactory.ClientOrigin, forwardedFor: null);
         return await client.SendAsync(request);
     }
 
-    private static void Mark(HttpRequestMessage request, bool local, string? code, string origin, bool forwarded)
+    private static void Mark(HttpRequestMessage request, bool local, string? code, string origin, string? forwardedFor)
     {
         request.Headers.Add("Origin", origin);
         if (code is not null)
@@ -401,9 +431,9 @@ public sealed partial class InstallTests
             request.Headers.Add(ScryApiFactory.LocalHeader, "1");
         }
 
-        if (forwarded)
+        if (forwardedFor is not null)
         {
-            request.Headers.Add("X-Forwarded-For", "203.0.113.9");
+            request.Headers.Add("X-Forwarded-For", forwardedFor);
         }
     }
 

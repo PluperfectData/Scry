@@ -1,9 +1,9 @@
 // Starts Scry on this computer, with its own MySQL server, the API, and the site, and opens it in the browser. The
 // Scry shortcut that install.ps1 puts on the desktop runs it. Ctrl+C, or closing the window, stops all three.
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
-import { randomBytes } from 'node:crypto'
+import { randomBytes, X509Certificate } from 'node:crypto'
 import { createReadStream, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
-import { createServer } from 'node:http'
+import { createServer, get } from 'node:https'
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path'
 import { stdin } from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -13,8 +13,8 @@ const SITE_PORT = 6160
 const API_PORT = 6161
 const DATABASE_PORT = 6166
 const DATABASE = 'scry'
-const SITE = `http://localhost:${SITE_PORT}`
-const API = `http://localhost:${API_PORT}`
+const SITE = `https://localhost:${SITE_PORT}`
+const API = `https://localhost:${API_PORT}`
 
 const root = dirname(fileURLToPath(import.meta.url))
 const data = join(root, 'data')
@@ -22,6 +22,9 @@ const app = join(data, 'app')
 const logs = join(data, 'logs')
 const datadir = join(data, 'mysql')
 const clientFile = join(data, 'mysql-client.cnf')
+// The .NET development certificate, which install.ps1 trusts and exports here for the site and the API.
+const certificateFile = join(data, 'certificate.pem')
+const certificateKeyFile = join(data, 'certificate.key')
 
 /** The programs the installer found, so this does not search for them again. */
 type Tools = { dotnet: string; mysqlBin: string }
@@ -45,12 +48,16 @@ function run(command: string, args: string[]): { ok: boolean; output: string } {
   return { ok: result.status === 0, output: `${result.stdout ?? ''}${result.stderr ?? ''}`.trim() }
 }
 
-async function answering(url: string): Promise<boolean> {
-  try {
-    return (await fetch(url)).ok
-  } catch {
-    return false
-  }
+/** Whether the address answers 200, checked against the certificate this copy serves with. */
+function answering(url: string, ca: string): Promise<boolean> {
+  return new Promise((done) => {
+    const request = get(url, { ca, timeout: 3000 }, (response) => {
+      response.resume()
+      done(response.statusCode === 200)
+    })
+    request.on('timeout', () => request.destroy())
+    request.on('error', () => done(false))
+  })
 }
 
 function openBrowser(): void {
@@ -115,8 +122,8 @@ const TYPES: Record<string, string> = {
 }
 
 /** Serves the built site, and index.html for any path that is not a file, since the site routes in the browser. */
-function serveSite(folder: string) {
-  const server = createServer((request, response) => {
+function serveSite(folder: string, cert: string, key: string) {
+  const server = createServer({ cert, key }, (request, response) => {
     const path = decodeURIComponent(new URL(request.url ?? '/', SITE).pathname)
     let file = normalize(join(folder, path))
     if (!file.startsWith(folder + sep) || !existsSync(file) || statSync(file).isDirectory()) file = join(folder, 'index.html')
@@ -144,11 +151,18 @@ function echo(child: ChildProcess): void {
 
 async function main(): Promise<void> {
   const toolsFile = join(data, 'install.json')
-  if (!existsSync(toolsFile) || !existsSync(join(app, 'api', 'Scry.Api.dll')) || !existsSync(join(app, 'site', 'index.html'))) {
+  const installed = [toolsFile, certificateFile, certificateKeyFile, join(app, 'api', 'Scry.Api.dll'), join(app, 'site', 'index.html')]
+  if (!installed.every((file) => existsSync(file))) {
     stopAfterReading('Scry is not installed yet. Run install.ps1 first, as the README says.')
     return
   }
-  if ((await answering(`${API}/health`)) && (await answering(SITE))) {
+  const cert = readFileSync(certificateFile, 'utf8')
+  const expires = new Date(new X509Certificate(cert).validTo)
+  if (expires.getTime() < Date.now()) {
+    stopAfterReading(`The certificate Scry serves its addresses with expired on ${expires.toLocaleDateString()}. Run install.ps1 again to renew it.`)
+    return
+  }
+  if ((await answering(`${API}/health`, cert)) && (await answering(SITE, cert))) {
     console.log(`Scry is already running at ${SITE}.`)
     openBrowser()
     return
@@ -165,6 +179,8 @@ async function main(): Promise<void> {
       ...process.env,
       ASPNETCORE_ENVIRONMENT: 'Production',
       ASPNETCORE_URLS: API,
+      Kestrel__Certificates__Default__Path: certificateFile,
+      Kestrel__Certificates__Default__KeyPath: certificateKeyFile,
       ConnectionStrings__Scry: `Server=127.0.0.1;Port=${DATABASE_PORT};Database=${DATABASE};User ID=${DATABASE};Password=${passwords.databasePassword}`,
       Scry__ClientOrigin: SITE,
       Scry__ApiOrigin: API,
@@ -172,7 +188,7 @@ async function main(): Promise<void> {
     },
   })
   echo(api)
-  const site = serveSite(resolve(app, 'site'))
+  const site = serveSite(resolve(app, 'site'), cert, readFileSync(certificateKeyFile, 'utf8'))
 
   let stopping = false
   const stop = (code: number) => {
@@ -197,7 +213,7 @@ async function main(): Promise<void> {
   // The first start brings a new database up to date, which takes a minute or two.
   for (let waited = 0; waited < 300_000; waited += 1000) {
     await sleep(1000)
-    if (await answering(`${API}/health`)) {
+    if (await answering(`${API}/health`, cert)) {
       console.log(`\nScry is running at ${SITE}. Keep this window open while you use it; Ctrl+C or closing it stops Scry.\n`)
       openBrowser()
       return

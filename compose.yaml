@@ -19,6 +19,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 30
+      # MySQL's first start makes its database files, which can take several minutes.
+      start_period: 10m
 
   scry-api:
     image: ghcr.io/pluperfectdata/scry-api:${SCRY_VERSION:-local}
@@ -35,10 +37,10 @@ services:
         condition: service_healthy
     environment:
       ConnectionStrings__Scry: Server=scry-db;Port=3306;Database=scry;User ID=scry;Password=${SCRY_DB_PASSWORD}
-      Scry__ClientOrigin: http://localhost:6160
-      Scry__ApiOrigin: http://localhost:6161
-    ports:
-      - "127.0.0.1:6161:6161"
+      Scry__ClientOrigin: https://localhost:6160
+      Scry__ApiOrigin: https://localhost:6161
+      # Browsers reach the API only through scry-web, so its forwarding headers say who asked and over what.
+      Scry__Proxied: "true"
     volumes:
       - scry-data:/data
 
@@ -56,9 +58,14 @@ services:
       - scry-api
     ports:
       - "127.0.0.1:6160:6160"
+      - "127.0.0.1:6161:6161"
+    volumes:
+      - scry-caddy:/data
 
 volumes:
   scry-database:
     name: scry-database
   scry-data:
     name: scry-data
+  scry-caddy:
+    name: scry-caddy

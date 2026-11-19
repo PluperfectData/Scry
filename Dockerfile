@@ -1,12 +1,12 @@
 # syntax=docker/dockerfile:1
 
-# Two images from one file: --target api is the API, and --target web serves the site. compose.yaml runs both, with
-# MySQL beside them. Nexus's connector library and the shared libraries come in as the nexus, jwt, and mail build
-# contexts, placed as they sit on disk, since the project references count up to them.
+# Two images from one file: --target api is the API, and --target web serves the site and the API over HTTPS.
+# compose.yaml runs both, with MySQL beside them. Nexus's connector library and the shared libraries come in as the
+# nexus, jwt, and mail build contexts, placed as they sit on disk, since the project references count up to them.
 
-# The site, built to call the API at localhost:6161, where compose.yaml publishes it.
+# The site, built to call the API at localhost:6161, where the web image serves it.
 FROM node:24-trixie-slim AS client
-ENV VITE_API_URL=http://localhost:6161
+ENV VITE_API_URL=https://localhost:6161
 WORKDIR /src/Pluperfect.Jwt/client
 COPY --from=jwt client/package.json client/package-lock.json client/tsconfig.json ./
 RUN npm ci
@@ -42,11 +42,15 @@ ENV ASPNETCORE_HTTP_PORTS=6161 \
     Scry__DataDirectory=/data
 VOLUME /data
 EXPOSE 6161
-HEALTHCHECK --interval=10s --timeout=5s --start-period=60s \
+# The first start brings a new database up to date, which can take several minutes.
+HEALTHCHECK --interval=10s --timeout=5s --start-period=10m \
     CMD ["bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/6161 && printf 'GET /health HTTP/1.0\\r\\n\\r\\n' >&3 && head -n 1 <&3 | grep -q ' 200 '"]
 ENTRYPOINT ["dotnet", "Scry.Api.dll"]
 
 FROM caddy:2-alpine AS web
 COPY deploy/docker/Caddyfile /etc/caddy/Caddyfile
 COPY --from=client /src/Pluperfect.Data/Scry/Client/dist /srv
-EXPOSE 6160
+EXPOSE 6160 6161
+# Healthy once Caddy has made the authority its certificates come from, which the launcher asks the computer to trust.
+HEALTHCHECK --interval=2s --timeout=5s --start-period=1m \
+    CMD ["test", "-f", "/data/caddy/pki/authorities/local/root.crt"]
