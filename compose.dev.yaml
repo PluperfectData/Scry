@@ -1,0 +1,138 @@
+# Scry for working on its code, in Docker: the API under dotnet watch, the site under Vite's dev server, MySQL, and
+# Mailpit, at the addresses development uses. "Scry Dev.cmd" on Windows, or scry-dev.sh on macOS and Linux, starts it
+# and watches the folders: each saved file is copied into its container, which reloads. These containers share nothing
+# with compose.yaml's. compose.dev.both.yaml runs them beside Nexus's. By hand, every command takes --env-file
+# .env.dev, where the launcher keeps the database's password.
+name: pluperfect-data-dev
+services:
+  scry-db-dev:
+    image: mysql:8.4
+    container_name: scry-db-dev
+    environment:
+      MYSQL_DATABASE: scry
+      MYSQL_USER: scry
+      MYSQL_PASSWORD: ${SCRY_DEV_DB_PASSWORD:?The dev launcher sets SCRY_DEV_DB_PASSWORD in .env.dev; run it first}
+      MYSQL_RANDOM_ROOT_PASSWORD: "yes"
+    ports:
+      # For MySQL Workbench or the mysql client: user scry, with the password in .env.dev.
+      - "127.0.0.1:6166:3306"
+    volumes:
+      - scry-database:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      # MySQL's first start makes its database files, which can take several minutes.
+      start_period: 10m
+
+  scry-mail-dev:
+    image: axllent/mailpit:v1.33
+    container_name: scry-mail-dev
+    environment:
+      MP_DATABASE: /data/mailpit.db
+    ports:
+      - "127.0.0.1:6162:8025"
+    volumes:
+      - scry-mail:/data
+
+  scry-api-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      target: api
+      additional_contexts:
+        nexus: ../Nexus
+        jwt: ../../Pluperfect.Jwt
+        mail: ../../Pluperfect.Mail
+    container_name: scry-api-dev
+    depends_on:
+      scry-db-dev:
+        condition: service_healthy
+      scry-mail-dev:
+        condition: service_started
+    environment:
+      ConnectionStrings__Scry: Server=scry-db-dev;Port=3306;Database=scry;User ID=scry;Password=${SCRY_DEV_DB_PASSWORD}
+      Scry__ClientOrigin: http://localhost:6160
+      Scry__ApiOrigin: http://localhost:6161
+      Mail__MailpitUrl: http://scry-mail-dev:8025
+      Scry__MailpitInbox: http://localhost:6162
+    ports:
+      - "127.0.0.1:6161:6161"
+    volumes:
+      - scry-data:/data
+    develop:
+      # Compose copies a folder whose entries changed whole, ignored files included, and a save through a temp file
+      # changes the folder it lands in. A watch root's own changes aren't reported, so each project is a root.
+      watch:
+        - action: sync
+          path: Server/src/Scry.Api
+          target: /src/Pluperfect.Data/Scry/Server/src/Scry.Api
+          # Matched with case, and Windows keeps a folder's first spelling.
+          ignore: [bin/, obj/, data/, Data/]
+        - action: sync
+          path: ../Nexus/Server/src/Nexus.Abstractions
+          target: /src/Pluperfect.Data/Nexus/Server/src/Nexus.Abstractions
+          ignore: &build [bin/, obj/]
+        - action: sync
+          path: ../Nexus/Server/src/Nexus.Csv
+          target: /src/Pluperfect.Data/Nexus/Server/src/Nexus.Csv
+          ignore: *build
+        - action: sync
+          path: ../Nexus/Server/src/Nexus.DuckDb
+          target: /src/Pluperfect.Data/Nexus/Server/src/Nexus.DuckDb
+          ignore: *build
+        - action: sync
+          path: ../../Pluperfect.Jwt/src/Pluperfect.Jwt
+          target: /src/Pluperfect.Jwt/src/Pluperfect.Jwt
+          ignore: *build
+        - action: sync
+          path: ../../Pluperfect.Mail/src/Pluperfect.Mail
+          target: /src/Pluperfect.Mail/src/Pluperfect.Mail
+          ignore: *build
+        - action: rebuild
+          path: Server/Directory.Packages.props
+
+  scry-web-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      target: web
+      additional_contexts:
+        nexus: ../Nexus
+        jwt: ../../Pluperfect.Jwt
+        mail: ../../Pluperfect.Mail
+    container_name: scry-web-dev
+    ports:
+      - "127.0.0.1:6160:6160"
+    develop:
+      watch:
+        - action: sync
+          path: Client/src
+          target: /src/Pluperfect.Data/Scry/Client/src
+        - action: sync
+          path: Client/public
+          target: /src/Pluperfect.Data/Scry/Client/public
+        - action: sync
+          path: Client/index.html
+          target: /src/Pluperfect.Data/Scry/Client/index.html
+        - action: sync
+          path: Client/vite.config.ts
+          target: /src/Pluperfect.Data/Scry/Client/vite.config.ts
+        - action: sync
+          path: Client/.env.development
+          target: /src/Pluperfect.Data/Scry/Client/.env.development
+        - action: rebuild
+          path: Client/package.json
+        - action: rebuild
+          path: Client/package-lock.json
+        - action: rebuild
+          path: ../../Pluperfect.Jwt/client/src
+
+volumes:
+  scry-database:
+    name: scry-dev-database
+  scry-data:
+    name: scry-dev-data
+  scry-mail:
+    name: scry-dev-mail

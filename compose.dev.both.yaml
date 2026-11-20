@@ -1,0 +1,11 @@
+# Scry's and Nexus's -dev containers together, each as its own compose.dev.yaml has them, on one network where Scry
+# reaches Nexus by name. compose.dev.linked.yaml gives Scry the addresses for that. "Scry Dev.cmd" or scry-dev.sh
+# starts this when Nexus sits beside Scry. Each product's database password is in its own .env.dev.
+name: pluperfect-data-dev
+include:
+  - path:
+      - compose.dev.yaml
+      - compose.dev.linked.yaml
+    env_file: .env.dev
+  - path: ../Nexus/compose.dev.yaml
+    env_file: ../Nexus/.env.dev

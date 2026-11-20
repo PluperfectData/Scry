@@ -26,6 +26,39 @@ npm --prefix Client run dev
 The API listens on `http://localhost:6161`. The client listens on `http://localhost:6160` and reads the API's address from
 `VITE_API_URL`, set in `Client/.env.development`.
 
+## In Docker, with the -dev containers
+
+Instead of installing .NET, MySQL, and Mailpit, the code can run in containers that reload as it does from the code.
+With Docker running, double-click `Scry Dev.cmd` on Windows, or run `sh scry-dev.sh` on macOS or Linux. The launcher:
+
+1. Fetches Nexus, Pluperfect.Jwt, and Pluperfect.Mail beside Scry with Git, when they aren't there. Scry's API builds
+   with Nexus's connector library.
+2. Asks whether to start Nexus's -dev containers too, linked to Scry.
+3. Makes the database's password the first time, in `.env.dev` beside `compose.dev.yaml`, which git ignores.
+4. Builds the images from `Dockerfile.dev` and starts the containers. The first build takes several minutes.
+5. With Nexus, asks the computer to trust the authority behind Nexus's callback address, the first time.
+6. Opens `http://localhost:6160`, then watches the folders.
+
+| Container | What |
+|---|---|
+| `scry-api-dev` | The API, under `dotnet watch`, in Development, at `http://localhost:6161` |
+| `scry-web-dev` | The site, under Vite's dev server, at `http://localhost:6160` |
+| `scry-db-dev` | MySQL, at 127.0.0.1, port 6166, for MySQL Workbench or the `mysql` client, as `scry`, with the `SCRY_DEV_DB_PASSWORD` in `.env.dev` |
+| `scry-mail-dev` | Mailpit, at `http://localhost:6162` |
+
+With Nexus's beside them, Scry's link form starts with `http://nexus-api-dev:6163`, and Scry tells Nexus to push rows
+to `http://scry-api-dev:6161`, as in [Running both](docker.md#running-both).
+
+A file saved under `Server/src`, `Client/src`, or `Client/public`, under Nexus's connector library, or under
+Pluperfect.Jwt's or Pluperfect.Mail's `src`, is copied into its container: the API takes the change, restarting when
+it must, and the page reloads. A change to `package.json`, `package-lock.json`, `Directory.Packages.props`, or
+Pluperfect.Jwt's client rebuilds its image. The window shows the containers' lines, including the installer's address
+with its install code on a new database, since requests reach the API through Docker. **Ctrl+C** stops them.
+
+Your own builds don't reach the containers; they build their own. They take development's ports, so run the code, the
+-dev containers, or [Docker](docker.md) one at a time. Their data is in the volumes `scry-dev-database`,
+`scry-dev-data`, and `scry-dev-mail`. Removing them in Docker Desktop starts the -dev containers over.
+
 ## The installer
 
 An instance starts with nothing set. Until it has a database, both addresses, and an admin, every route but

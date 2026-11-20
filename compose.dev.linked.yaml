@@ -1,0 +1,7 @@
+# Scry's -dev containers beside Nexus's, where each reaches the other by its service's name. compose.dev.both.yaml adds
+# this to compose.dev.yaml. Scry's link form starts with Nexus's address, and Scry tells Nexus where to push rows.
+services:
+  scry-api-dev:
+    environment:
+      Scry__NexusUrl: http://nexus-api-dev:6163
+      Scry__IngestOrigin: http://scry-api-dev:6161
