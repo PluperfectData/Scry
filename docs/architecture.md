@@ -11,7 +11,7 @@
 | `Client` | React client: Vite, react-router, Apache ECharts, react-grid-layout |
 | `install.ps1`, `start.ts` | The Windows installer, and the script its desktop shortcut runs: [Installing on Windows](installing.md) |
 | `Dockerfile`, `compose.yaml`, `compose.both.yaml`, `compose.linked.yaml`, `deploy/docker` | The Docker images and their services: [Running Scry in Docker](docker.md) |
-| `Scry Docker.cmd`, `scry-docker.sh` | The Docker launchers, for Windows, and for macOS and Linux |
+| `Scry Docker.cmd`, `scry.sh` | The Docker launchers, for Windows, and for macOS and Linux |
 
 ## The parts
 

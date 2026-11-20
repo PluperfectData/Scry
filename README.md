@@ -97,7 +97,7 @@ The installer page opens at Mail, since Scry already knows its database and addr
 Start Docker Desktop, or Docker on Linux. Then, in the Scry folder:
 
 - **Windows:** double-click `Scry Docker.cmd`.
-- **macOS or Linux:** run `sh scry-docker.sh`.
+- **macOS or Linux:** run `sh scry.sh`.
 
 The launcher fetches Nexus and the libraries Scry builds against, and asks whether to start Nexus too, linked to
 Scry. Then it builds and starts Scry with MySQL beside it, and asks the computer once to trust the certificates Caddy

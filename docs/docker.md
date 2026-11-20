@@ -15,7 +15,7 @@ Desktop, or Docker on Linux, and wait until it is running. Then, in the Scry fol
 | On | Run |
 |---|---|
 | Windows | Double-click `Scry Docker.cmd` |
-| macOS or Linux | `sh scry-docker.sh` |
+| macOS or Linux | `sh scry.sh` |
 
 The launcher:
 

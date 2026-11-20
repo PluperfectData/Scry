@@ -1,6 +1,6 @@
 #!/bin/sh
 # Builds Scry's images and starts Scry in Docker, then opens it in the browser. It can start Nexus too, linked to
-# Scry. Run it with: sh scry-docker.sh
+# Scry. Run it with: sh scry.sh
 set -eu
 cd "$(dirname "$0")"
 export COMPOSE_IGNORE_ORPHANS=1
