@@ -1,6 +1,6 @@
 #!/bin/sh
-# Builds and starts Scry's -dev containers, opens Scry in the browser, then watches the folders: each saved file is
-# copied into its container, which reloads. Ctrl+C stops them. It can start Nexus's beside them, linked.
+# Builds and starts Scry's -dev containers, which copy in this folder's code each time they start, and opens Scry in the
+# browser. It can start Nexus's beside them, linked.
 # Run it with: sh scry-dev.sh
 set -eu
 cd "$(dirname "$0")"
@@ -74,13 +74,11 @@ trust() {
   rm -f "$cert"
 }
 
-# Waits until the address answers, so the browser opens on a page.
-wait_for() {
-  waited=0
-  until curl -fs -o /dev/null "$1" || [ "$waited" -ge 120 ]; do
-    sleep 1
-    waited=$((waited + 1))
-  done
+# Shows the installer's address, with its install code, while the product is not set up yet.
+install_code() {
+  if compose logs --no-log-prefix "$1" | grep "is not set up yet"; then
+    echo "Open the address above to set $2 up, and enter that install code."
+  fi
 }
 
 open_page() {
@@ -105,25 +103,34 @@ password . SCRY_DEV_DB_PASSWORD
 
 echo "Building and starting the -dev containers. The first build takes several minutes."
 if ! compose up --build --detach --wait --wait-timeout 600; then
+  # A container whose start failed on a taken port later starts with no network, so none is kept.
+  compose rm --force --volumes >/dev/null 2>&1 || true
   echo
   echo "They did not start. The lines above say why. They take the ports development uses, so stop any copy"
   echo "running from the code, or in Docker, first."
   exit 1
 fi
 
-[ -n "$both" ] && trust nexus-callback-dev Nexus
-wait_for http://localhost:6160
-open_page http://localhost:6160
-[ -n "$both" ] && open_page http://localhost:6165
+trust scry-caddy-dev Scry
+[ -n "$both" ] && trust nexus-caddy-dev Nexus
+install_code scry-api-dev Scry
+[ -n "$both" ] && install_code nexus-api-dev Nexus
+open_page https://localhost:6160
+[ -n "$both" ] && open_page https://localhost:6165
 echo
-echo "Scry is at http://localhost:6160, and its API at http://localhost:6161 once it has built. Its Mailpit is at"
+echo "Scry is at https://localhost:6160, and its API at https://localhost:6161. Its Mailpit is at"
 echo "http://localhost:6162, and its MySQL answers on 127.0.0.1:6166 for MySQL Workbench, as scry, with the password"
-echo "in Scry's .env.dev. The install code shows below once the API has started."
+echo "in Scry's .env.dev."
 if [ -n "$both" ]; then
-  echo "Nexus is at http://localhost:6165, and its service at http://localhost:6163 once it has built. Its Mailpit is"
-  echo "at http://localhost:6168, and its MySQL answers on 127.0.0.1:6167 for MySQL Workbench, as nexus, with the"
-  echo "password in Nexus's .env.dev. The install code shows below once the service has started."
+  echo "Nexus is at https://localhost:6165, and its service at https://localhost:6163. Its Mailpit is at"
+  echo "http://localhost:6168, and its MySQL answers on 127.0.0.1:6167 for MySQL Workbench, as nexus, with the"
+  echo "password in Nexus's .env.dev."
 fi
-echo "Saved changes reload on their own. Ctrl+C stops the -dev containers."
-echo
-compose up --watch
+if [ -n "$both" ]; then
+  stop="docker compose -f compose.dev.both.yaml stop"
+else
+  stop="docker compose -f compose.dev.yaml --env-file .env.dev stop"
+fi
+echo "To see saved changes, restart a container, with docker restart or Docker Desktop. After changing a project or"
+echo "package file, or compose.dev.yaml, run this again. This stops the -dev containers:"
+echo "  $stop"

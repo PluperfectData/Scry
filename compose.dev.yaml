@@ -1,8 +1,10 @@
-# Scry for working on its code, in Docker: the API under dotnet watch, the site under Vite's dev server, MySQL, and
-# Mailpit, at the addresses development uses. "Scry Dev.cmd" on Windows, or scry-dev.sh on macOS and Linux, starts it
-# and watches the folders: each saved file is copied into its container, which reloads. These containers share nothing
-# with compose.yaml's. compose.dev.both.yaml runs them beside Nexus's. By hand, every command takes --env-file
-# .env.dev, where the launcher keeps the database's password.
+# Scry for working on its code, in Docker: the API under dotnet run, the site under Vite's dev server, MySQL, and
+# Mailpit, at the ports development uses, with Caddy serving the site and the API over HTTPS. The API and the site copy
+# in the code as saved every time they start, so restarting one runs the latest code. "Scry Dev.cmd" on Windows, or
+# scry-dev.sh on macOS and Linux, builds and starts it; run it again after changing a project or package file, or this
+# file, since a restart keeps a container as it was made. These containers share nothing with compose.yaml's.
+# compose.dev.both.yaml runs them beside Nexus's. By hand, every command takes --env-file .env.dev, where the launcher
+# keeps the database's password.
 name: pluperfect-data-dev
 services:
   scry-db-dev:
@@ -53,45 +55,43 @@ services:
         condition: service_started
     environment:
       ConnectionStrings__Scry: Server=scry-db-dev;Port=3306;Database=scry;User ID=scry;Password=${SCRY_DEV_DB_PASSWORD}
-      Scry__ClientOrigin: http://localhost:6160
-      Scry__ApiOrigin: http://localhost:6161
+      Scry__ClientOrigin: https://localhost:6160
+      Scry__ApiOrigin: https://localhost:6161
+      # Browsers reach the API only through scry-caddy-dev, so its forwarding headers say who asked and over what.
+      Scry__Proxied: "true"
       Mail__MailpitUrl: http://scry-mail-dev:8025
       Scry__MailpitInbox: http://localhost:6162
-    ports:
-      - "127.0.0.1:6161:6161"
+    healthcheck:
+      # A connection alone, since the API logs every request.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/6161"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      # dotnet run builds before the API starts, and a new database's first start can take several minutes.
+      start_period: 10m
+    # Copies in each project as saved, then runs the API, so every start or restart runs the latest code. Each project
+    # keeps the container's own bin and obj, and the data folder that running from the code keeps is never copied.
+    command:
+      - bash
+      - -c
+      - >-
+        set -euo pipefail;
+        for p in Pluperfect.Data/Scry/Server/src/Scry.Api Pluperfect.Data/Nexus/Server/src/Nexus.Abstractions
+        Pluperfect.Data/Nexus/Server/src/Nexus.Csv Pluperfect.Data/Nexus/Server/src/Nexus.DuckDb
+        Pluperfect.Jwt/src/Pluperfect.Jwt Pluperfect.Mail/src/Pluperfect.Mail; do
+        find "/src/$$p" -mindepth 1 -maxdepth 1 ! -name bin ! -name obj -exec rm -rf {} +;
+        tar -C "/source/$$p" --exclude=./bin --exclude=./obj --exclude=./data --exclude=./Data -cf - . | tar -C "/src/$$p" -xf -;
+        done;
+        exec dotnet run --no-launch-profile --disable-build-servers
     volumes:
       - scry-data:/data
-    develop:
-      # Compose copies a folder whose entries changed whole, ignored files included, and a save through a temp file
-      # changes the folder it lands in. A watch root's own changes aren't reported, so each project is a root.
-      watch:
-        - action: sync
-          path: Server/src/Scry.Api
-          target: /src/Pluperfect.Data/Scry/Server/src/Scry.Api
-          # Matched with case, and Windows keeps a folder's first spelling.
-          ignore: [bin/, obj/, data/, Data/]
-        - action: sync
-          path: ../Nexus/Server/src/Nexus.Abstractions
-          target: /src/Pluperfect.Data/Nexus/Server/src/Nexus.Abstractions
-          ignore: &build [bin/, obj/]
-        - action: sync
-          path: ../Nexus/Server/src/Nexus.Csv
-          target: /src/Pluperfect.Data/Nexus/Server/src/Nexus.Csv
-          ignore: *build
-        - action: sync
-          path: ../Nexus/Server/src/Nexus.DuckDb
-          target: /src/Pluperfect.Data/Nexus/Server/src/Nexus.DuckDb
-          ignore: *build
-        - action: sync
-          path: ../../Pluperfect.Jwt/src/Pluperfect.Jwt
-          target: /src/Pluperfect.Jwt/src/Pluperfect.Jwt
-          ignore: *build
-        - action: sync
-          path: ../../Pluperfect.Mail/src/Pluperfect.Mail
-          target: /src/Pluperfect.Mail/src/Pluperfect.Mail
-          ignore: *build
-        - action: rebuild
-          path: Server/Directory.Packages.props
+      # Read only at start, by the command above.
+      - ./Server/src/Scry.Api:/source/Pluperfect.Data/Scry/Server/src/Scry.Api:ro
+      - ../Nexus/Server/src/Nexus.Abstractions:/source/Pluperfect.Data/Nexus/Server/src/Nexus.Abstractions:ro
+      - ../Nexus/Server/src/Nexus.Csv:/source/Pluperfect.Data/Nexus/Server/src/Nexus.Csv:ro
+      - ../Nexus/Server/src/Nexus.DuckDb:/source/Pluperfect.Data/Nexus/Server/src/Nexus.DuckDb:ro
+      - ../../Pluperfect.Jwt/src/Pluperfect.Jwt:/source/Pluperfect.Jwt/src/Pluperfect.Jwt:ro
+      - ../../Pluperfect.Mail/src/Pluperfect.Mail:/source/Pluperfect.Mail/src/Pluperfect.Mail:ro
 
   scry-web-dev:
     build:
@@ -103,31 +103,47 @@ services:
         jwt: ../../Pluperfect.Jwt
         mail: ../../Pluperfect.Mail
     container_name: scry-web-dev
+    environment:
+      # Wins over .env.development's, since the page reaches the API through scry-caddy-dev.
+      VITE_API_URL: https://localhost:6161
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:6160/').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 2m
+    # Copies in the code as saved, then serves it, so every start or restart runs the latest code.
+    command:
+      - sh
+      - -c
+      - >-
+        for p in src public index.html vite.config.ts .env.development; do rm -rf "$$p" && cp -a "/source/Client/$$p" "$$p" || exit 1; done
+        && exec npm run dev -- --host 0.0.0.0
+    volumes:
+      # Read only at start, by the command above; node_modules stays the image's own.
+      - ./Client:/source/Client:ro
+
+  scry-caddy-dev:
+    image: caddy:2.11
+    container_name: scry-caddy-dev
+    depends_on:
+      scry-api-dev:
+        condition: service_healthy
+      scry-web-dev:
+        condition: service_healthy
     ports:
       - "127.0.0.1:6160:6160"
-    develop:
-      watch:
-        - action: sync
-          path: Client/src
-          target: /src/Pluperfect.Data/Scry/Client/src
-        - action: sync
-          path: Client/public
-          target: /src/Pluperfect.Data/Scry/Client/public
-        - action: sync
-          path: Client/index.html
-          target: /src/Pluperfect.Data/Scry/Client/index.html
-        - action: sync
-          path: Client/vite.config.ts
-          target: /src/Pluperfect.Data/Scry/Client/vite.config.ts
-        - action: sync
-          path: Client/.env.development
-          target: /src/Pluperfect.Data/Scry/Client/.env.development
-        - action: rebuild
-          path: Client/package.json
-        - action: rebuild
-          path: Client/package-lock.json
-        - action: rebuild
-          path: ../../Pluperfect.Jwt/client/src
+      - "127.0.0.1:6161:6161"
+    volumes:
+      - ./deploy/docker/Caddyfile.dev:/etc/caddy/Caddyfile:ro
+      - scry-caddy:/data
+    healthcheck:
+      # Healthy once Caddy has made the authority its certificates come from, which the launcher asks this computer
+      # to trust.
+      test: ["CMD", "test", "-f", "/data/caddy/pki/authorities/local/root.crt"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
 
 volumes:
   scry-database:
@@ -136,3 +152,5 @@ volumes:
     name: scry-dev-data
   scry-mail:
     name: scry-dev-mail
+  scry-caddy:
+    name: scry-dev-caddy

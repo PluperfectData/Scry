@@ -28,36 +28,56 @@ The API listens on `http://localhost:6161`. The client listens on `http://localh
 
 ## In Docker, with the -dev containers
 
-Instead of installing .NET, MySQL, and Mailpit, the code can run in containers that reload as it does from the code.
-With Docker running, double-click `Scry Dev.cmd` on Windows, or run `sh scry-dev.sh` on macOS or Linux. The launcher:
+Instead of installing .NET, MySQL, and Mailpit, the code can run in containers, in Development as from the code,
+with Caddy serving the site and the API over HTTPS, as [Docker](docker.md) does. With Docker running, double-click
+`Scry Dev.cmd` on Windows, or run `sh scry-dev.sh` on macOS or Linux. The launcher:
 
 1. Fetches Nexus, Pluperfect.Jwt, and Pluperfect.Mail beside Scry with Git, when they aren't there. Scry's API builds
    with Nexus's connector library.
 2. Asks whether to start Nexus's -dev containers too, linked to Scry.
 3. Makes the database's password the first time, in `.env.dev` beside `compose.dev.yaml`, which git ignores.
-4. Builds the images from `Dockerfile.dev` and starts the containers. The first build takes several minutes.
-5. With Nexus, asks the computer to trust the authority behind Nexus's callback address, the first time.
-6. Opens `http://localhost:6160`, then watches the folders.
+4. Builds the images from `Dockerfile.dev`, starts the containers, and waits until the API and the site answer. The
+   first build takes several minutes.
+5. Asks the computer to trust the authority behind Caddy's certificates, the first time, and Nexus's too when it runs.
+6. Prints the installer's address with its install code while Scry isn't set up.
+7. Opens `https://localhost:6160`, and ends.
 
 | Container | What |
 |---|---|
-| `scry-api-dev` | The API, under `dotnet watch`, in Development, at `http://localhost:6161` |
-| `scry-web-dev` | The site, under Vite's dev server, at `http://localhost:6160` |
+| `scry-caddy-dev` | Caddy, serving the site at `https://localhost:6160` and the API at `https://localhost:6161` |
+| `scry-api-dev` | The API, under `dotnet run`, in Development, which browsers reach only through Caddy |
+| `scry-web-dev` | The site, under Vite's dev server, which browsers reach only through Caddy |
 | `scry-db-dev` | MySQL, at 127.0.0.1, port 6166, for MySQL Workbench or the `mysql` client, as `scry`, with the `SCRY_DEV_DB_PASSWORD` in `.env.dev` |
 | `scry-mail-dev` | Mailpit, at `http://localhost:6162` |
 
+Caddy makes the certificates from an authority of its own, kept in the `scry-dev-caddy` volume, apart from Docker's.
+The launcher asks the computer to trust it as Docker's launcher does; see [Certificates](docker.md#certificates).
+Docker Desktop's links open `http://127.0.0.1:6160`, which Caddy sends on to `https://localhost:6160`, where the site's
+cookies and the API's allowed origin apply. Since every browser request reaches the API through Caddy,
+`compose.dev.yaml` sets `Scry__Proxied`, and the site's dev server is given the API's https address in place of the one
+in `Client/.env.development`.
+
 With Nexus's beside them, Scry's link form starts with `http://nexus-api-dev:6163`, and Scry tells Nexus to push rows
-to `http://scry-api-dev:6161`, as in [Running both](docker.md#running-both).
+to `http://scry-api-dev:6161`, as in [Running both](docker.md#running-both). Nexus is at `https://localhost:6165`.
 
-A file saved under `Server/src`, `Client/src`, or `Client/public`, under Nexus's connector library, or under
-Pluperfect.Jwt's or Pluperfect.Mail's `src`, is copied into its container: the API takes the change, restarting when
-it must, and the page reloads. A change to `package.json`, `package-lock.json`, `Directory.Packages.props`, or
-Pluperfect.Jwt's client rebuilds its image. The window shows the containers' lines, including the installer's address
-with its install code on a new database, since requests reach the API through Docker. **Ctrl+C** stops them.
+Each container copies in the code as saved when it starts, from read-only mounts of the folders: `scry-api-dev` the
+API's project, Nexus's connector library, and Pluperfect.Jwt's and Pluperfect.Mail's projects, and `scry-web-dev` the
+client's `src` and `public` folders, `index.html`, `vite.config.ts`, and `.env.development`. Nothing watches for
+changes. To see a saved change, restart its container, from Docker Desktop or with
+`docker restart scry-api-dev scry-web-dev`. The API builds again as it starts, so it answers about half a minute
+later.
 
-Your own builds don't reach the containers; they build their own. They take development's ports, so run the code, the
--dev containers, or [Docker](docker.md) one at a time. Their data is in the volumes `scry-dev-database`,
-`scry-dev-data`, and `scry-dev-mail`. Removing them in Docker Desktop starts the -dev containers over.
+Run the launcher again after changing a project or package file, Pluperfect.Jwt's client, or `compose.dev.yaml`, such
+as an environment variable, because a restart keeps the image and the container as they were made. Docker Desktop
+shows the containers under `pluperfect-data-dev`, and stops them.
+
+Your own builds don't reach the containers, and theirs don't reach yours: each `bin` and `obj` is the container's own.
+The copy leaves out the `data` folder that running from the code keeps. They take development's ports, so
+run the code, the -dev containers, or [Docker](docker.md) one at a time. When a port is taken, the containers don't
+start, and the launcher removes the ones that failed, since Docker would otherwise start them later with no network:
+running, with nothing answering, and `docker ps` showing `6160/tcp` with no address. Their data is in the volumes
+`scry-dev-database`, `scry-dev-data`, `scry-dev-mail`, and `scry-dev-caddy`. Removing them in Docker Desktop starts
+the -dev containers over.
 
 ## The installer
 

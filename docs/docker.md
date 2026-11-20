@@ -41,8 +41,8 @@ so the first admin may skip the password.
 Docker Desktop's links to these ports open them at `http://127.0.0.1`, and Caddy sends each one on to its
 `https://localhost` address, where Scry's cookies and its API's allowed origin apply.
 
-A development copy uses the same ports, so stop one before starting Docker; the launcher says so when a port is
-taken. Docker keeps the containers running, and starts them again with Docker. Stop them from Docker Desktop, or with
+A development copy and the [-dev containers](running.md#in-docker-with-the--dev-containers) use the same ports, so
+stop them before starting Docker; the launcher says so when a port is taken. Docker keeps the containers running, and starts them again with Docker. Stop them from Docker Desktop, or with
 `docker compose stop` in the Scry folder.
 
 ## Certificates
