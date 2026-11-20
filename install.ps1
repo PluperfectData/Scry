@@ -132,7 +132,8 @@ try {
     Write-Step 'Building the API'
     $published = Join-Path $app 'api.new'
     if (Test-Path $published) { Remove-Item $published -Recurse -Force }
-    Invoke-Native 'dotnet' @('publish', (Join-Path $root 'Server\src\Scry.Api\Scry.Api.csproj'), '-c', 'Release', '-o', $published)
+    # Without --disable-build-servers, the compiler and MSBuild servers stay running after the install ends.
+    Invoke-Native 'dotnet' @('publish', (Join-Path $root 'Server\src\Scry.Api\Scry.Api.csproj'), '-c', 'Release', '-o', $published, '--disable-build-servers')
     $current = Join-Path $app 'api'
     if (Test-Path $current) { Remove-Item $current -Recurse -Force }
     Move-Item $published $current
