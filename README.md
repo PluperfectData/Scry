@@ -62,13 +62,13 @@ access: they open the dashboards, full screen included, and can't change anythin
 ## Quick start
 
 Scry installs three ways. Each runs it on one computer, then sets it up in the browser, and each can set up
-[Nexus](https://github.com/PluperfectData/Nexus) beside it. On Windows and in Docker, Scry is at
+[Nexus](https://github.com/PluperfectData/Nexus) beside it. With the installer and in Docker, Scry is at
 `https://localhost:6160`, served over HTTPS with a certificate the computer is asked to trust once. From the command
 line, it's at `http://localhost:6160`.
 
 | Way | For | Needs |
 |---|---|---|
-| [On Windows](#on-windows) | Using Scry on a Windows computer | Windows 10 or 11 |
+| [With the installer](#with-the-installer) | Using Scry on one computer | Windows 10 or 11, macOS, or Linux |
 | [In Docker](#in-docker) | Running Scry in containers, on any computer | Docker Desktop, or Docker on Linux |
 | [From the command line](#from-the-command-line) | Working on Scry's code | .NET 10, Node.js 24, MySQL 8.4, and Git |
 
@@ -78,23 +78,29 @@ Every way starts from the code at `Pluperfect.Data/Scry` in a folder of your cho
 `git clone https://github.com/PluperfectData/Scry.git Pluperfect.Data/Scry`, or download the ZIP from GitHub and
 extract it there.
 
-### On Windows
+### With the installer
 
-Right-click `install.ps1` in the Scry folder, and choose **Run with PowerShell**. It:
+In the Scry folder:
 
-1. installs what's missing (.NET 10, Node.js, MySQL, and Git) through winget, and fetches Nexus and the two
-   libraries Scry builds against
+- **Windows 10 or 11:** right-click `install.ps1` and choose **Run with PowerShell**.
+- **macOS or Linux:** run `bash install.sh` in a terminal.
+
+It:
+
+1. installs what's missing (.NET 10, Node.js, MySQL, Git, and Mailpit), through winget on Windows, Homebrew on a Mac,
+   and downloads from their own sites on Linux, and fetches Nexus and the two libraries Scry builds against
 2. asks whether to install Nexus too
-3. builds Scry, and asks Windows once to trust the .NET development certificate, which serves Scry's addresses
-4. puts a **Scry** shortcut on the desktop, then starts Scry with a database server of its own and opens
-   `https://localhost:6160`
+3. builds Scry, and asks the computer once to trust the .NET development certificate, which serves Scry's addresses
+4. adds a way to start Scry again: a desktop shortcut on Windows, an app menu entry on Linux, and `sh start.sh` on
+   macOS and Linux
+5. starts Scry with a database server of its own, and opens `https://localhost:6160`
 
 The installer page opens at Mail, since Scry already knows its database and addresses. Then make yourself the admin.
-[Installing on Windows](docs/installing.md) has the detail.
+[Installing](docs/installing.md) has the detail.
 
 ### In Docker
 
-Start Docker Desktop, or Docker on Linux. Then, in the Scry folder:
+Start Docker Desktop. On Linux, `sh scry.sh` installs Docker Engine when it's missing. Then, in the Scry folder:
 
 - **Windows:** double-click `Scry Docker.cmd`.
 - **macOS or Linux:** run `sh scry.sh`.
@@ -213,7 +219,7 @@ flowchart LR
 The [documentation](docs/README.md) covers each part in depth, with a contents page to find your way around. Good
 places to start:
 
-- [Installing on Windows](docs/installing.md) and [Running Scry in Docker](docs/docker.md): the other two ways in
+- [Installing](docs/installing.md) and [Running Scry in Docker](docs/docker.md): the other two ways in
 - [Running Scry](docs/running.md): the installer, and setting up an instance from another machine
 - [Users and workspaces](docs/users-and-workspaces.md): invites, signing in, and who may change what
 - [The API](docs/api.md): every route, including the push API for sending rows from your own code

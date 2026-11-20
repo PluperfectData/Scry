@@ -3,14 +3,15 @@
 [Documentation](README.md) › Running Scry in Docker
 
 Scry in three containers, on Windows, macOS, or Linux, instead of the [installer](installing.md)'s programs. Docker
-Desktop is a large install, so on Windows the installer is the simpler way in; Docker is for anyone who has it
+Desktop is a large install, so the installer is the simpler way in; Docker is for anyone who has it
 already. For working on the code in Docker, see
 [In Docker, with the -dev containers](running.md#in-docker-with-the--dev-containers).
 
 ## Starting it
 
 Put the code at `Pluperfect.Data/Scry`, as the README's [quick start](../README.md#quick-start) says. Start Docker
-Desktop, or Docker on Linux, and wait until it is running. Then, in the Scry folder:
+Desktop, and wait until it is running. On Linux, `sh scry.sh` installs Docker Engine with Docker's own script when
+it's missing, which asks for the password. Then, in the Scry folder:
 
 | On | Run |
 |---|---|

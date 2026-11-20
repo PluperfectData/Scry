@@ -9,7 +9,8 @@
 | `Server/src/Scry.Api` | .NET 10 API, MVC controllers |
 | `Server/tests/Scry.Api.Tests` | NUnit and Shouldly, against the real API over in-memory SQLite |
 | `Client` | React client: Vite, react-router, Apache ECharts, react-grid-layout |
-| `install.ps1`, `start.ts` | The Windows installer, and the script its desktop shortcut runs: [Installing on Windows](installing.md) |
+| `install.ps1`, `install.sh` | The installers, for Windows, and for macOS and Linux: [Installing](installing.md) |
+| `start.ts`, `start.sh` | What starts the installed copy: the Windows shortcut runs `start.ts`, and `start.sh` runs it on macOS and Linux |
 | `Dockerfile`, `compose.yaml`, `compose.both.yaml`, `compose.linked.yaml`, `deploy/docker` | The Docker images and their services: [Running Scry in Docker](docker.md) |
 | `Scry Docker.cmd`, `scry.sh` | The Docker launchers, for Windows, and for macOS and Linux |
 
